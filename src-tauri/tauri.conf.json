@@ -1,0 +1,54 @@
+{
+	"bundle": {
+		"active": true,
+		"targets": "all",
+		"windows": {
+			"certificateThumbprint": null,
+			"digestAlgorithm": "sha256",
+			"timestampUrl": ""
+		},
+		"icon": [
+			"icons/32x32.png",
+			"icons/128x128.png",
+			"icons/128x128@2x.png",
+			"icons/icon.icns",
+			"icons/icon.ico"
+		],
+		"resources": [],
+		"externalBin": [],
+		"copyright": "",
+		"category": "DeveloperTool",
+		"shortDescription": "",
+		"longDescription": "",
+		"macOS": {},
+		"linux": {
+			"deb": {}
+		}
+	},
+	"build": {
+		"beforeBuildCommand": "bun run generate",
+		"frontendDist": "../dist",
+		"beforeDevCommand": "bun run dev",
+		"devUrl": "http://localhost:3000"
+	},
+	"productName": "Nuxtor",
+	"version": "1.5.0",
+	"identifier": "com.nicolaspadari.nuxtor",
+	"plugins": {},
+	"app": {
+		"windows": [
+			{
+				"title": "Starlight",
+				"width": 1366,
+				"height": 768,
+				"minWidth": 375,
+				"minHeight": 812,
+				"resizable": true,
+				"fullscreen": false
+			}
+		],
+		"security": {
+			"csp": null
+		}
+	}
+}

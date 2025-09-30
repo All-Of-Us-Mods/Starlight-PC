@@ -1,0 +1,42 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+.header-btn {
+    @apply px-4 py-2 text-lg text-gray-300 bg-transparent hover:text-white transition hover:bg-white/10;
+    @apply transform hover:scale-103 transition;
+}
+
+.home-card {
+    @apply bg-transparent backdrop-blur-md rounded-lg shadow-lg p-4 flex items-center gap-4 border border-white/30
+    transition-all duration-300 hover:bg-gray-200/10 hover:border-white/40;
+    height: 180px;
+}
+
+.mods-page-body {
+    @apply relative w-7xl mx-auto mt-5 z-50 backdrop-grayscale-50 backdrop-blur-sm px-4 py-5
+    border border-white/30 rounded-lg
+}
+
+.mod-card {
+    @apply bg-white/10 backdrop-blur-md rounded-lg shadow-lg p-4 flex items-center gap-4
+    transition-all duration-150 border-2 border-transparent hover:border-white/40 hover:shadow-lg;
+}
+
+.mod-card img {
+    @apply transform transition-transform duration-300 ease-in-out;
+}
+
+.mod-card:hover img {
+    @apply scale-110;
+    @apply rotate-2;
+}
+
+.page-enter-active .page-content,
+.page-leave-active .page-content {
+    transition: all 0.4s ease;
+}
+.page-enter-from .page-content,
+.page-leave-to .page-content {
+    opacity: 0;
+    transform: scale(0.95);
+}
