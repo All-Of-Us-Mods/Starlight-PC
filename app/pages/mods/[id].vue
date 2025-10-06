@@ -70,6 +70,25 @@
 								Available Versions
 							</h2>
 
+							<div
+								v-if="modsFolderLoading"
+								class="mb-3 p-3 bg-blue-500/20 border border-blue-500/40 rounded-lg text-white/90"
+							>
+								Detecting your Among Us installation...
+							</div>
+							<div
+								v-else-if="modsFolderError"
+								class="mb-3 p-3 bg-red-500/20 border border-red-500/40 rounded-lg text-white"
+							>
+								{{ modsFolderError }}
+							</div>
+							<div
+								v-else-if="modsFolder"
+								class="mb-3 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-white/80"
+							>
+								Mods will be installed to <span class="font-semibold">{{ modsFolder }}</span>.
+							</div>
+
 							<div v-if="versionsLoading" class="flex justify-center p-4">
 								<UIcon name="mingcute:loading-fill" class="size-6 animate-spin" />
 							</div>
@@ -117,7 +136,7 @@
 										icon="material-symbols:download"
 										size="sm"
 										:loading="isDownloading && selectedVersion === version.version"
-										:disabled="isDownloading"
+										:disabled="isDownloading || !modsFolder || modsFolderLoading"
 										class="bg-primary/40 hover:bg-primary/50"
 										@click="downloadModVersion(version)"
 									/>
@@ -137,7 +156,7 @@
 								icon="material-symbols:download"
 								size="lg"
 								:loading="isDownloading"
-								:disabled="isDownloading || !sortedVersions.length"
+								:disabled="isDownloading || !sortedVersions.length || !modsFolder || modsFolderLoading"
 								class="px-6 py-3 text-white bg-primary/40 backdrop-blur-md rounded-lg ring-1 ring-primary/20 hover:bg-primary/30 transform hover:scale-105 transition"
 								@click="downloadMod"
 							/>
@@ -184,6 +203,7 @@
 
 <script setup lang="ts">
 	import type { Mod, ModVersion } from "~/types";
+	import { invoke } from "@tauri-apps/api/core";
 
 	interface DownloadStatus {
 		type: "info" | "success" | "error"
@@ -256,7 +276,45 @@
 	const versionsLoading = ref(true);
 	const versionsError = ref<string | null>(null);
 
-	const TARGET_MODS_FOLDER = "Desktop\\yanplaMod\\BepInEx\\plugins";
+	const modsFolder = ref<string | null>(null);
+	const modsFolderError = ref<string | null>(null);
+	const modsFolderLoading = ref(false);
+
+	const sanitizePathSegment = (segment: string) => segment.replace(/^[\\/]+|[\\/]+$/g, "");
+
+	const joinPath = (basePath: string, ...segments: string[]) => {
+		const separator = basePath.includes("\\") ? "\\" : "/";
+		const normalizedBase = basePath.replace(/[\\/]+$/, "");
+		const cleanedSegments = segments.map((segment) => sanitizePathSegment(segment));
+
+		return [normalizedBase, ...cleanedSegments].join(separator);
+	};
+
+	const resolveModsFolderPath = (installationPath: string) => {
+		return joinPath(installationPath, "BepInEx", "plugins");
+	};
+
+	const loadModsFolder = async () => {
+		modsFolderLoading.value = true;
+		modsFolderError.value = null;
+
+		try {
+			const paths = await invoke<string[]>("get_among_us_paths");
+			const firstValid = (paths ?? []).find((value) => typeof value === "string" && value.trim().length > 0);
+
+			if (firstValid) {
+				modsFolder.value = resolveModsFolderPath(firstValid.trim());
+			} else {
+				modsFolder.value = null;
+				modsFolderError.value = "Among Us installation not found.";
+			}
+		} catch (err) {
+			modsFolder.value = null;
+			modsFolderError.value = err instanceof Error ? err.message : "Failed to detect Among Us installation.";
+		} finally {
+			modsFolderLoading.value = false;
+		}
+	};
 
 	const normalizeTimestamp = (value: ModVersion["created_at"]) => {
 		if (value === undefined || value === null) {
@@ -334,6 +392,7 @@
 	onMounted(() => {
 		// Only fetch on client to avoid SSR issues with window/crypto APIs
 		fetchVersions();
+		loadModsFolder();
 	});
 
 	const sortedVersions = computed<ModVersion[]>(() => {
@@ -355,6 +414,17 @@
 
 	const downloadModVersion = async (version: ModVersion) => {
 		if (!mod.value || !version.version) return;
+
+		if (!modsFolder.value) {
+			downloadStatus.value = {
+				type: "error",
+				message: "Among Us installation not found",
+				details: modsFolderError.value ?? "Please launch the Among Us desktop app at least once."
+			};
+			return;
+		}
+
+		const targetDirectory = modsFolder.value as string;
 
 		selectedVersion.value = version.version;
 		isDownloading.value = true;
@@ -409,16 +479,16 @@
 			const uint8Array = new Uint8Array(arrayBuffer);
 
 			// Write to filesystem using Tauri
-			const { writeFile, mkdir, exists, BaseDirectory } = await import("@tauri-apps/plugin-fs");
+			const { writeFile, mkdir, exists } = await import("@tauri-apps/plugin-fs");
 
 			// Ensure mods directory exists
-			const dirExists = await exists(TARGET_MODS_FOLDER, { baseDir: BaseDirectory.Home });
+			const dirExists = await exists(targetDirectory);
 
 			if (!dirExists) {
-				await mkdir(TARGET_MODS_FOLDER, { baseDir: BaseDirectory.Home, recursive: true });
+				await mkdir(targetDirectory, { recursive: true });
 			}
 
-			const filePath = `${TARGET_MODS_FOLDER}\\${fileName}`;
+			const filePath = joinPath(targetDirectory, fileName);
 
 			downloadStatus.value = {
 				type: "info",
@@ -426,14 +496,12 @@
 				details: `Location: ${filePath}`
 			};
 
-			await writeFile(filePath, uint8Array, {
-				baseDir: BaseDirectory.Home
-			});
+			await writeFile(filePath, uint8Array);
 
 			downloadStatus.value = {
 				type: "success",
 				message: `Version ${version.version} installed successfully!`,
-				details: `Saved to: ${TARGET_MODS_FOLDER}\\${fileName}`
+				details: `Saved to: ${filePath}`
 			};
 		} catch (err) {
 			console.error("Download error:", err);

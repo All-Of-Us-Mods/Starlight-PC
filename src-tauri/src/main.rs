@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-	starlight_lib::run();
+    starlight_lib::run();
 }
