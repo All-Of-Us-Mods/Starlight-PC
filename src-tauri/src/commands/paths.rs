@@ -12,7 +12,7 @@ pub async fn get_among_us_paths() -> Result<Vec<String>, String> {
     if resolved.is_empty() {
         Err("Among Us path not found".to_string())
     } else {
-        info!("Resolved Among Us paths: {:?}", resolved);
+        info!("Resolved Among Us paths: {resolved:?}");
         Ok(resolved)
     }
 }

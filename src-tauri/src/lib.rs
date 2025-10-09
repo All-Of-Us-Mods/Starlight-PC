@@ -7,8 +7,6 @@ use tauri::{
     tray::TrayIconBuilder,
 };
 
-use tauri_plugin_log::{Target, TargetKind};
-
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::new().build())
@@ -25,7 +23,7 @@ pub fn run() {
                         app.exit(0);
                     }
                     other => {
-                        println!("menu item {} not handled", other);
+                        println!("menu item {other} not handled");
                     }
                 })
                 .build(app)?;
