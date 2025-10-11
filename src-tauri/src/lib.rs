@@ -1,6 +1,7 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 mod commands;
 mod finder;
+mod utils;
 
 use tauri::{
     menu::{Menu, MenuItem},
