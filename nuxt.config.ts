@@ -15,7 +15,7 @@ export default defineNuxtConfig({
 
 	app: {
 		head: {
-			title: "Nuxtor",
+			title: "Starlight",
 			charset: "utf-8",
 			viewport: "width=device-width, initial-scale=1",
 			meta: [

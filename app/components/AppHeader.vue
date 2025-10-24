@@ -20,9 +20,9 @@
 						class="header-btn"
 					/>
 					<UButton
-						label="Install Launcher"
+						label="Profiles"
 						icon="material-symbols:download"
-						to="/installs"
+						to="/profiles"
 						class="header-btn"
 					/>
 					<UButton

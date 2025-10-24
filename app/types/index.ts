@@ -19,3 +19,10 @@ export interface ModVersion {
 	downloads?: number
 	created_at?: number | string
 }
+
+export interface ProfileEntry {
+	id: string
+	name: string
+	path: string
+	created_at: number
+}

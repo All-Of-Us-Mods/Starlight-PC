@@ -38,5 +38,13 @@
 </template>
 
 <script setup lang="ts">
+	import { onMounted } from "vue";
 	import HomeModCarousel from "~/components/homepage/HomeModCarousel.vue";
+	import { useApp } from "~/composables/useApp";
+
+	const { initApp } = useApp();
+
+	onMounted(async () => {
+		await initApp();
+	});
 </script>

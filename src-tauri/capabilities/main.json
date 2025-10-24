@@ -1,50 +1,51 @@
 {
-	"$schema": "../gen/schemas/desktop-schema.json",
-	"identifier": "main",
-	"description": "Capabilities for the app window",
-	"windows": [
-		"main",
-		"secondary"
-	],
-	"permissions": [
-		"core:path:default",
-		"core:event:default",
-		"core:window:default",
-		"core:app:default",
-		"core:resources:default",
-		"core:menu:default",
-		"core:tray:default",
-		"shell:allow-open",
-		{
-			"identifier": "shell:allow-execute",
-			"allow": [
-				{
-					"name": "exec-sh",
-					"cmd": "sh",
-					"args": [
-						"-c",
-						{
-							"validator": "\\S+"
-						}
-					]
-				}
-			]
-		},
-		"notification:default",
-		"os:allow-platform",
-		"os:allow-arch",
-		"os:allow-family",
-		"os:allow-version",
-		"os:allow-locale",
-		"fs:allow-home-read",
-		"fs:allow-home-write",
-		"fs:allow-home-read-recursive",
-		"fs:allow-home-write-recursive",
-		"fs:allow-mkdir",
-		"fs:allow-exists",
-		"store:default",
-		"core:webview:allow-create-webview",
-		"core:webview:allow-create-webview-window",
-		"fs:default"
-	]
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Capabilities for the app window",
+  "windows": [
+    "main",
+    "secondary"
+  ],
+  "permissions": [
+    "core:path:default",
+    "core:event:default",
+    "core:window:default",
+    "core:app:default",
+    "core:resources:default",
+    "core:menu:default",
+    "core:tray:default",
+    "shell:allow-open",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "exec-sh",
+          "cmd": "sh",
+          "args": [
+            "-c",
+            {
+              "validator": "\\S+"
+            }
+          ]
+        }
+      ]
+    },
+    "notification:default",
+    "os:allow-platform",
+    "os:allow-arch",
+    "os:allow-family",
+    "os:allow-version",
+    "os:allow-locale",
+    "fs:allow-home-read",
+    "fs:allow-home-write",
+    "fs:allow-home-read-recursive",
+    "fs:allow-home-write-recursive",
+    "fs:allow-mkdir",
+    "fs:allow-exists",
+    "store:default",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-create-webview-window",
+    "fs:default",
+    "log:default"
+  ]
 }
