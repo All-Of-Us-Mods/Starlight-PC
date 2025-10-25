@@ -16,6 +16,7 @@
         PlusIcon,
     } from "$lib/components/icons";
     import StarBackground from "$lib/components/StarBackground.svelte";
+    import ModeToggle from "$lib/components/ui/ModeToggle.svelte";
 
     // Custom labels for breadcrumbs
     const breadcrumbLabels = {
@@ -117,7 +118,8 @@
         <NavButton to="/new">
             <PlusIcon class="w-6 h-6" />
         </NavButton>
-        <div class="flex flex-grow"></div>
+        <div class="flex grow"></div>
+        <ModeToggle />
         <NavButton
             to="/settings"
             isPrimary={(page) => page.url.pathname.startsWith("/settings")}
@@ -151,7 +153,7 @@
     <div
         class="app-sidebar mt-px shrink-0 flex flex-col border-l border-border overflow-auto"
     >
-        <div class="flex-grow overflow-y-auto relative pb-12">
+        <div class="grow overflow-y-auto relative pb-12">
             {#if sidebarContent}
                 {@render sidebarContent()}
             {/if}
