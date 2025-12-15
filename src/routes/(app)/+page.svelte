@@ -42,7 +42,7 @@
 
     <!-- News Section -->
     <div class="mb-8">
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center justify-between mb-4 px-10">
             <h2 class="text-xl font-semibold flex items-center gap-2">News</h2>
         </div>
 
@@ -95,9 +95,9 @@
                 opts={{
                     align: "start",
                 }}
-                class="w-full maw-w-sm"
+                class="w-full maw-w-sm px-10"
             >
-                <Carousel.Content>
+                <Carousel.Content class="-ml-2">
                     {#each newsQuery.data as newsItem: NewsItem (newsItem.id)}
                         <Carousel.Item class="md:basis-1/2 lg:basis-1/3">
                             <Card.Root class="flex flex-col h-96">
@@ -129,13 +129,15 @@
                         </Carousel.Item>
                     {/each}
                 </Carousel.Content>
+                <Carousel.Previous class="-left-2" />
+                <Carousel.Next class="-right-2" />
             </Carousel.Root>
         {/if}
     </div>
 
     <!-- Trending Mods Section -->
     <div class="mb-8">
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center justify-between mb-4 px-10">
             <h2 class="text-xl font-semibold flex items-center gap-2">
                 Trending Mods
             </h2>
@@ -146,9 +148,9 @@
                 opts={{
                     align: "start",
                 }}
-                class="w-full maw-w-sm"
+                class="w-full maw-w-sm px-10"
             >
-                <Carousel.Content>
+                <Carousel.Content class="-ml-2">
                     {#each Array(3) as _, i (i)}
                         <Carousel.Item class="md:basis-1/2 lg:basis-1/3">
                             <Card.Root
@@ -195,9 +197,9 @@
                 opts={{
                     align: "start",
                 }}
-                class="w-full maw-w-sm"
+                class="w-full maw-w-sm px-10"
             >
-                <Carousel.Content>
+                <Carousel.Content class="-ml-2">
                     {#each trendingModsQuery.data as mod (mod.mod_id)}
                         <Carousel.Item class="md:basis-1/2 lg:basis-1/3">
                             <Card.Root class="overflow-hidden">
@@ -279,6 +281,8 @@
                         </Carousel.Item>
                     {/each}
                 </Carousel.Content>
+                <Carousel.Previous class="-left-2" />
+                <Carousel.Next class="-right-2" />
             </Carousel.Root>
         {/if}
     </div>
