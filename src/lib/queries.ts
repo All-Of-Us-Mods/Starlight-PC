@@ -1,4 +1,5 @@
 import { PUBLIC_API_URL } from "$env/static/public";
+import { queryOptions } from "@tanstack/svelte-query";
 import { z } from "zod";
 
 // ============================================================================
@@ -29,7 +30,7 @@ const TrendingModSchema = z.object({
 export type TrendingMod = z.infer<typeof TrendingModSchema>;
 
 // ============================================================================
-// Query Functions
+// Fetch Helpers
 // ============================================================================
 
 async function fetchWithValidation<T>(
@@ -46,23 +47,43 @@ async function fetchWithValidation<T>(
   return schema.parse(jsonData);
 }
 
-export async function fetchNews(): Promise<NewsItem[]> {
-  return await fetchWithValidation(
-    `${PUBLIC_API_URL}/api/v1/news`,
-    z.array(NewsItemSchema),
-  );
-}
+// ============================================================================
+// Query Options Factories
+// ============================================================================
 
-export function fetchNewsById(id: string | number): Promise<NewsItem> {
-  return fetchWithValidation(
-    `${PUBLIC_API_URL}/api/v1/news/${id}`,
-    NewsItemSchema,
-  );
-}
+export const newsQueries = {
+  all: () =>
+    queryOptions({
+      queryKey: ["news"] as const,
+      queryFn: () =>
+        fetchWithValidation(
+          `${PUBLIC_API_URL}/api/v1/news`,
+          z.array(NewsItemSchema),
+        ),
+      staleTime: 1000 * 60 * 5, // 5 minutes
+    }),
 
-export async function fetchTrendingMods(): Promise<TrendingMod[]> {
-  return await fetchWithValidation(
-    `${PUBLIC_API_URL}/api/v1/mods/trending`,
-    z.array(TrendingModSchema),
-  );
-}
+  byId: (id: string | number) =>
+    queryOptions({
+      queryKey: ["news", id] as const,
+      queryFn: () =>
+        fetchWithValidation(
+          `${PUBLIC_API_URL}/api/v1/news/${id}`,
+          NewsItemSchema,
+        ),
+      staleTime: 1000 * 60 * 5,
+    }),
+};
+
+export const modQueries = {
+  trending: () =>
+    queryOptions({
+      queryKey: ["mods", "trending"] as const,
+      queryFn: () =>
+        fetchWithValidation(
+          `${PUBLIC_API_URL}/api/v1/mods/trending`,
+          z.array(TrendingModSchema),
+        ),
+      staleTime: 1000 * 60 * 5, // 5 minutes
+    }),
+};
