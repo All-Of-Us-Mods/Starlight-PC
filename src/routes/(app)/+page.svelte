@@ -7,25 +7,13 @@
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { marked } from "marked";
   import Prose from "$lib/components/Prose.svelte";
-  import {
-    StarlightIcon,
-    ClockIcon,
-    DownloadIcon,
-  } from "$lib/components/icons";
-  import { PUBLIC_API_URL } from "$env/static/public";
+  import { Clock, Download } from "@lucide/svelte";
 
   const newsQuery = createQuery(newsQueries.all);
   const trendingModsQuery = createQuery(modQueries.trending);
 </script>
 
 <div class="p-8 overflow-y-auto h-full scrollbar-styled">
-  <h1
-    class="text-4xl font-bold mb-6 text-center flex items-center justify-center gap-3"
-  >
-    Welcome to Starlight!
-    <StarlightIcon class="w-10 h-10" />
-  </h1>
-
   <!-- News Section -->
   <div class="mb-8">
     <div class="flex items-center justify-between mb-4 px-10">
@@ -229,14 +217,14 @@
 
                     <div class="space-y-2 text-sm text-muted-foreground">
                       <div class="flex items-center gap-2">
-                        <DownloadIcon class="h-4 w-4 shrink-0" />
+                        <Download class="h-4 w-4 shrink-0" />
                         <span
                           >{mod.downloads.toLocaleString()}
                           downloads</span
                         >
                       </div>
                       <div class="flex items-center gap-2">
-                        <ClockIcon class="h-4 w-4 shrink-0" />
+                        <Clock class="h-4 w-4 shrink-0" />
                         <span
                           >{new Date(mod.created_at).toLocaleDateString()}</span
                         >

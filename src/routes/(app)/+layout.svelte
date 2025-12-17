@@ -6,16 +6,16 @@
   import { browser } from "$app/environment";
   import { setContext } from "svelte";
   import type { Snippet } from "svelte";
+  import { default as StarlightIcon } from "$lib/assets/starlight.svg?component";
   import {
-    ArrowLeftIcon,
-    ArrowRightIcon,
-    SettingsIcon,
-    StarlightIcon,
-    CompassIcon,
-    HomeIcon,
-    LibraryIcon,
-    PlusIcon,
-  } from "$lib/components/icons";
+    ArrowLeft,
+    ArrowRight,
+    Settings,
+    Compass,
+    House,
+    Library,
+    Plus,
+  } from "@lucide/svelte";
   import StarBackground from "$lib/components/StarBackground.svelte";
 
   // Custom labels for breadcrumbs
@@ -73,21 +73,17 @@
           aria-label="Go back"
           onclick={() => history.back()}
         >
-          <ArrowLeftIcon />
+          <ArrowLeft />
         </Button>
         <Button
           variant="navigation"
           aria-label="Go forward"
           onclick={() => history.forward()}
         >
-          <ArrowRightIcon />
+          <ArrowRight />
         </Button>
       </div>
-      <AutoBreadcrumb
-        labels={breadcrumbLabels}
-        homeIcon={HomeIcon}
-        maxItems={4}
-      />
+      <AutoBreadcrumb labels={breadcrumbLabels} homeIcon={House} maxItems={4} />
     </div>
     {#if isTauri}
       <section
@@ -105,27 +101,27 @@
     class="app-grid-navbar bg-card/80 flex flex-col p-2 pt-0 gap-2 w-(--left-bar-width) relative"
   >
     <NavButton to="/" isPrimary={(page) => page.url.pathname === "/"}>
-      <HomeIcon class="w-6 h-6" />
+      <House class="w-6 h-6" />
     </NavButton>
     <NavButton
       to="/explore"
       isPrimary={(page) => page.url.pathname.startsWith("/explore")}
     >
-      <CompassIcon class="w-6 h-6" />
+      <Compass class="w-6 h-6" />
     </NavButton>
     <NavButton to="/library">
-      <LibraryIcon class="w-6 h-6" />
+      <Library class="w-6 h-6" />
     </NavButton>
     <div class="h-px w-6 mx-auto my-2 bg-accent"></div>
     <NavButton to="/new">
-      <PlusIcon class="w-6 h-6" />
+      <Plus class="w-6 h-6" />
     </NavButton>
     <div class="flex grow"></div>
     <NavButton
       to="/settings"
       isPrimary={(page) => page.url.pathname.startsWith("/settings")}
     >
-      <SettingsIcon class="w-6 h-6" />
+      <Settings class="w-6 h-6" />
     </NavButton>
   </nav>
 </div>
