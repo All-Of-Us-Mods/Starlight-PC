@@ -39,9 +39,10 @@
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-fs": "~2",
     "@tauri-apps/plugin-store": "~2",
+    "arktype": "^2.1.29",
     "dompurify": "^3.3.0",
     "marked": "^16.4.1",
-    "runed": "^0.35.1",
-    "zod": "^4.1.12"
+    "mode-watcher": "^1.1.0",
+    "runed": "^0.35.1"
   }
 }

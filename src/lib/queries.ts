@@ -1,33 +1,39 @@
 import { PUBLIC_API_URL } from "$env/static/public";
 import { queryOptions } from "@tanstack/svelte-query";
-import { z } from "zod";
+import { type } from "arktype";
 
 // ============================================================================
-// Schemas
+// Schemas (ArkType)
 // ============================================================================
 
-const NewsItemSchema = z.object({
-  id: z.number(),
-  title: z.string(),
-  author: z.string(),
-  content: z.string(),
-  created_at: z.number(),
-  updated_at: z.number(),
+export const NewsItem = type({
+  id: "number",
+  title: "string",
+  author: "string",
+  content: "string",
+  created_at: "number",
+  updated_at: "number",
 });
 
-export type NewsItem = z.infer<typeof NewsItemSchema>;
+export type NewsItem = typeof NewsItem.infer;
 
-const TrendingModSchema = z.object({
-  self: z.string(),
-  mod_id: z.string(),
-  mod_name: z.string(),
-  author: z.string(),
-  downloads: z.number(),
-  thumbnail: z.string(),
-  created_at: z.number(),
+export const TrendingMod = type({
+  id: "string",
+  name: "string",
+  author: "string",
+  description: "string",
+  created_at: "number",
+  updated_at: "number",
+  downloads: "number",
+  _links: {
+    self: "string",
+    info: "string",
+    thumbnail: "string",
+    versions: "string",
+  },
 });
 
-export type TrendingMod = z.infer<typeof TrendingModSchema>;
+export type TrendingMod = typeof TrendingMod.infer;
 
 // ============================================================================
 // Fetch Helpers
@@ -35,7 +41,8 @@ export type TrendingMod = z.infer<typeof TrendingModSchema>;
 
 async function fetchWithValidation<T>(
   url: string,
-  schema: z.ZodSchema<T>,
+  // ArkType uses a 'Type' object for validation
+  validator: { assert: (data: unknown) => T },
 ): Promise<T> {
   const response = await fetch(url);
 
@@ -44,7 +51,9 @@ async function fetchWithValidation<T>(
   }
 
   const jsonData = await response.json();
-  return schema.parse(jsonData);
+
+  // .assert() throws an ArkErrors exception if validation fails
+  return validator.assert(jsonData);
 }
 
 // ============================================================================
@@ -57,10 +66,10 @@ export const newsQueries = {
       queryKey: ["news"] as const,
       queryFn: () =>
         fetchWithValidation(
-          `${PUBLIC_API_URL}/api/v1/news`,
-          z.array(NewsItemSchema),
+          `${PUBLIC_API_URL}/api/v2/news/posts`,
+          type(NewsItem.array()),
         ),
-      staleTime: 1000 * 60 * 5, // 5 minutes
+      staleTime: 1000 * 60 * 5,
     }),
 
   byId: (id: string | number) =>
@@ -68,8 +77,8 @@ export const newsQueries = {
       queryKey: ["news", id] as const,
       queryFn: () =>
         fetchWithValidation(
-          `${PUBLIC_API_URL}/api/v1/news/${id}`,
-          NewsItemSchema,
+          `${PUBLIC_API_URL}/api/v2/news/posts/${id}`,
+          NewsItem,
         ),
       staleTime: 1000 * 60 * 5,
     }),
@@ -81,9 +90,9 @@ export const modQueries = {
       queryKey: ["mods", "trending"] as const,
       queryFn: () =>
         fetchWithValidation(
-          `${PUBLIC_API_URL}/api/v1/mods/trending`,
-          z.array(TrendingModSchema),
+          `${PUBLIC_API_URL}/api/v2/mods/trending`,
+          type(TrendingMod.array()),
         ),
-      staleTime: 1000 * 60 * 5, // 5 minutes
+      staleTime: 1000 * 60 * 5,
     }),
 };
