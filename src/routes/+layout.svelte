@@ -8,6 +8,8 @@
         defaultOptions: {
             queries: {
                 enabled: browser,
+                staleTime: 1000 * 60 * 5, // 5 minutes - data stays fresh
+                gcTime: 1000 * 60 * 10, // 10 minutes - keep in cache
             },
         },
     });

@@ -1,28 +1,48 @@
 import { PUBLIC_API_URL } from "$env/static/public";
-import { z } from "zod";
+import { queryOptions } from "@tanstack/svelte-query";
+import { type } from "arktype";
 
 // ============================================================================
-// Schemas
+// Schemas (ArkType)
 // ============================================================================
 
-const NewsItemSchema = z.object({
-  id: z.number(),
-  title: z.string(),
-  author: z.string(),
-  content: z.string(),
-  created_at: z.number(),
-  updated_at: z.number(),
+export const NewsItem = type({
+  id: "number",
+  title: "string",
+  author: "string",
+  content: "string",
+  created_at: "number",
+  updated_at: "number",
 });
 
-export type NewsItem = z.infer<typeof NewsItemSchema>;
+export type NewsItem = typeof NewsItem.infer;
+
+export const TrendingMod = type({
+  id: "string",
+  name: "string",
+  author: "string",
+  description: "string",
+  created_at: "number",
+  updated_at: "number",
+  downloads: "number",
+  _links: {
+    self: "string",
+    info: "string",
+    thumbnail: "string",
+    versions: "string",
+  },
+});
+
+export type TrendingMod = typeof TrendingMod.infer;
 
 // ============================================================================
-// Query Functions
+// Fetch Helpers
 // ============================================================================
 
 async function fetchWithValidation<T>(
   url: string,
-  schema: z.ZodSchema<T>,
+  // ArkType uses a 'Type' object for validation
+  validator: { assert: (data: unknown) => T },
 ): Promise<T> {
   const response = await fetch(url);
 
@@ -31,67 +51,48 @@ async function fetchWithValidation<T>(
   }
 
   const jsonData = await response.json();
-  return schema.parse(jsonData);
+
+  // .assert() throws an ArkErrors exception if validation fails
+  return validator.assert(jsonData);
 }
 
-export async function fetchNews(): Promise<NewsItem[]> {
-  // Temporarily return mock data + real data
-  const realData = await fetchWithValidation(
-    `${PUBLIC_API_URL}/news`,
-    z.array(NewsItemSchema),
-  );
+// ============================================================================
+// Query Options Factories
+// ============================================================================
 
-  const mockData: NewsItem[] = [
-    {
-      id: 2,
-      title: "New Features Coming Soon!",
-      author: "DevTeam",
-      content:
-        "## Exciting Updates\n\nWe're working on some amazing new features including:\n- Enhanced mod support\n- Better performance\n- New UI improvements\n\nStay tuned for more updates!",
-      created_at: Date.now() - 86400000,
-      updated_at: Date.now() - 43200000,
-    },
-    {
-      id: 3,
-      title: "Community Spotlight",
-      author: "CommunityManager",
-      content:
-        "## Thank You!\n\nA huge shoutout to our amazing community for all the support and feedback. You make Starlight better every day!",
-      created_at: Date.now() - 172800000,
-      updated_at: Date.now() - 172800000,
-    },
-    {
-      id: 4,
-      title: "Bug Fixes and Improvements",
-      author: "XtraCube",
-      content:
-        "## Patch Notes\n\n- Fixed crash on startup\n- Improved connection stability\n- Reduced memory usage\n- Various UI tweaks",
-      created_at: Date.now() - 259200000,
-      updated_at: Date.now() - 259200000,
-    },
-    {
-      id: 5,
-      title: "Getting Started Guide",
-      author: "Documentation",
-      content:
-        "## Welcome to Starlight!\n\nHere's a quick guide to get you started:\n\n1. Download the latest version\n2. Install required dependencies\n3. Join our Discord\n4. Have fun!\n\nFor more detailed instructions, check out our documentation.",
-      created_at: Date.now() - 345600000,
-      updated_at: Date.now() - 345600000,
-    },
-    {
-      id: 6,
-      title: "Security Update",
-      author: "SecurityTeam",
-      content:
-        "## Important Security Patch\n\nWe've released a critical security update. Please update to the latest version as soon as possible.\n\nThis update addresses several security vulnerabilities and improves overall system stability.",
-      created_at: Date.now() - 432000000,
-      updated_at: Date.now() - 432000000,
-    },
-  ];
+export const newsQueries = {
+  all: () =>
+    queryOptions({
+      queryKey: ["news"] as const,
+      queryFn: () =>
+        fetchWithValidation(
+          `${PUBLIC_API_URL}/api/v2/news/posts`,
+          type(NewsItem.array()),
+        ),
+      staleTime: 1000 * 60 * 5,
+    }),
 
-  return [...realData, ...mockData];
-}
+  byId: (id: string | number) =>
+    queryOptions({
+      queryKey: ["news", id] as const,
+      queryFn: () =>
+        fetchWithValidation(
+          `${PUBLIC_API_URL}/api/v2/news/posts/${id}`,
+          NewsItem,
+        ),
+      staleTime: 1000 * 60 * 5,
+    }),
+};
 
-export function fetchNewsById(id: string | number): Promise<NewsItem> {
-  return fetchWithValidation(`${PUBLIC_API_URL}/news/${id}`, NewsItemSchema);
-}
+export const modQueries = {
+  trending: () =>
+    queryOptions({
+      queryKey: ["mods", "trending"] as const,
+      queryFn: () =>
+        fetchWithValidation(
+          `${PUBLIC_API_URL}/api/v2/mods/trending`,
+          type(TrendingMod.array()),
+        ),
+      staleTime: 1000 * 60 * 5,
+    }),
+};
