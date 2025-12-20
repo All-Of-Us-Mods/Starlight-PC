@@ -12,7 +12,6 @@
         "dompurify": "^3.3.0",
         "marked": "^16.4.1",
         "mode-watcher": "^1.1.0",
-        "runed": "^0.35.1",
       },
       "devDependencies": {
         "@internationalized/date": "^3.8.1",
