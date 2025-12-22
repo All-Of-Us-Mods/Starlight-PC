@@ -38,7 +38,7 @@
 				</div>
 				<div class="flex items-center gap-1.5 text-muted-foreground">
 					<Clock />
-					<span>{new Date(mod.created_at).toLocaleDateString()}</span>
+					<span>{new Date(mod.updated_at).toLocaleDateString()}</span>
 				</div>
 			</div>
 		</div>
