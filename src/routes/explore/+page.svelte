@@ -6,7 +6,8 @@
 	import { Input } from '$lib/components/ui/input';
 	import * as NativeSelect from '$lib/components/ui/native-select';
 	import { Button } from '$lib/components/ui/button';
-	import { Search, ArrowUpDown, X, ChevronLeft, ChevronRight } from '@lucide/svelte';
+	import { Search, ArrowUpDown, X } from '@lucide/svelte';
+	import { Compass, ChevronLeft, ChevronRight } from '@jis3r/icons';
 
 	// --- State ---
 	const ITEMS_PER_PAGE = 12;
@@ -74,9 +75,16 @@
 <div class="scrollbar-styled @container h-full overflow-y-auto bg-background/50">
 	<div class="mx-auto flex max-w-7xl flex-col gap-8 p-6 @lg:p-10">
 		<header class="flex flex-col gap-6 @lg:flex-row @lg:items-center @lg:justify-between">
-			<div class="space-y-1.5">
-				<h1 class="text-4xl font-black tracking-tight">Explore</h1>
-				<p class="text-sm text-muted-foreground">Discover and manage mods for Among Us.</p>
+			<div class="flex items-center gap-3">
+				<div
+					class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20"
+				>
+					<Compass class="h-6 w-6 text-primary" />
+				</div>
+				<div class="space-y-0.5">
+					<h1 class="text-4xl font-black tracking-tight">Explore</h1>
+					<p class="text-sm text-muted-foreground">Discover and manage mods for Among Us.</p>
+				</div>
 			</div>
 
 			<div class="flex items-center gap-3">

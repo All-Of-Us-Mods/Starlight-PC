@@ -71,21 +71,33 @@
 	<nav
 		class="relative z-10 flex w-(--left-bar-width) flex-col gap-2 overflow-visible bg-card/80 p-2 pt-0 [grid-area:nav]"
 	>
-		<NavButton to="/" isPrimary={(page) => page.url.pathname === '/'}>
+		<NavButton to="/" isPrimary={(page) => page.url.pathname === '/'} tooltip="Home">
 			<House class="h-6 w-6" />
 		</NavButton>
-		<NavButton to="/explore" isPrimary={(page) => page.url.pathname.startsWith('/explore')}>
+		<NavButton
+			to="/explore"
+			isPrimary={(page) => page.url.pathname.startsWith('/explore')}
+			tooltip="Explore Mods"
+		>
 			<Compass class="h-6 w-6" />
 		</NavButton>
-		<NavButton to="/library" isPrimary={(page) => page.url.pathname.startsWith('/library')}>
+		<NavButton
+			to="/library"
+			isPrimary={(page) => page.url.pathname.startsWith('/library')}
+			tooltip="Your Library"
+		>
 			<Library class="h-6 w-6" />
 		</NavButton>
 		<div class="mx-auto my-2 h-px w-6 bg-accent"></div>
-		<NavButton to="/new">
+		<NavButton to="/new" tooltip="Create New">
 			<Plus class="h-6 w-6" />
 		</NavButton>
 		<div class="flex grow"></div>
-		<NavButton to="/settings" isPrimary={(page) => page.url.pathname.startsWith('/settings')}>
+		<NavButton
+			to="/settings"
+			isPrimary={(page) => page.url.pathname.startsWith('/settings')}
+			tooltip="Settings"
+		>
 			<Settings class="h-6 w-6" />
 		</NavButton>
 	</nav>

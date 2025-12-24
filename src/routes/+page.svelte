@@ -5,6 +5,7 @@
 	import type { Post } from '$lib/features/news/schema';
 	import * as Carousel from '$lib/components/ui/carousel';
 	import { getSidebar } from '$lib/state/sidebar.svelte';
+	import { Newspaper, TrendingUp } from '@lucide/svelte';
 
 	import NewsCard from '$lib/features/news/components/NewsCard.svelte';
 	import ModCard from '$lib/features/mods/components/ModCard.svelte';
@@ -48,9 +49,16 @@
 <div class="scrollbar-styled @container h-full space-y-12 overflow-y-auto p-8">
 	<!-- News Section -->
 	<section>
-		<div class="mb-6 px-10">
-			<h2 class="text-2xl font-bold tracking-tight">Latest News</h2>
-			<p class="text-sm text-muted-foreground">Updates from the development team.</p>
+		<div class="mb-6 flex items-center gap-3 px-10">
+			<div
+				class="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20"
+			>
+				<Newspaper class="h-5 w-5 text-primary" />
+			</div>
+			<div>
+				<h2 class="text-2xl font-bold tracking-tight">Latest News</h2>
+				<p class="text-sm text-muted-foreground">Updates from the development team.</p>
+			</div>
 		</div>
 
 		{#if newsQuery.isLoading}
@@ -90,7 +98,12 @@
 
 	<!-- Trending Mods Section -->
 	<section>
-		<div class="mb-4 flex items-center justify-between px-10">
+		<div class="mb-4 flex items-center gap-3 px-10">
+			<div
+				class="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20"
+			>
+				<TrendingUp class="h-5 w-5 text-primary" />
+			</div>
 			<div>
 				<h2 class="text-2xl font-bold tracking-tight">Trending Mods</h2>
 				<p class="text-sm text-muted-foreground">Most popular community creations this week.</p>
