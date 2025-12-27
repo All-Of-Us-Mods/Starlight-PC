@@ -31,7 +31,31 @@ export const ModInfoResponse = type({
 	tags: 'string[]'
 });
 
+export const ModDependency = type({
+	mod_id: 'string',
+	version_constraint: 'string',
+	type: 'string'
+});
+
+export const ModVersionInfo = type({
+	file_name: 'string',
+	changelog: 'string',
+	checksum: 'string',
+	download_url: 'string',
+	dependencies: type(ModDependency.array())
+});
+
+export const ModVersion = type({
+	id: 'string',
+	version: 'string',
+	download_url: 'string',
+	info_url: 'string'
+});
+
 // TypeScript Types
 export type Mod = typeof ModResponse.infer;
 export type ModInfo = typeof ModInfoResponse.infer;
 export type ExternalLink = typeof ExternalLink.infer;
+export type ModDependency = typeof ModDependency.infer;
+export type ModVersionInfo = typeof ModVersionInfo.infer;
+export type ModVersion = typeof ModVersion.infer;

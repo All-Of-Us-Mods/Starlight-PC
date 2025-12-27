@@ -1,10 +1,11 @@
 mod commands;
-mod utils;
-use tauri::{TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
@@ -39,7 +40,7 @@ pub fn run() {
                 win_builder = win_builder.decorations(false);
             }
 
-            let window = win_builder.build().unwrap();
+            let _window = win_builder.build().unwrap();
 
             // macOS specific background styling
             #[cfg(target_os = "macos")]
@@ -63,12 +64,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::paths::get_among_us_paths,
-            commands::init::init_app,
-            commands::init::get_among_us_path_from_store,
-            commands::init::update_among_us_path,
-            commands::profiles::create_profile,
-            commands::launch::launch_among_us
+            commands::profiles_backend::set_dll_directory,
+            commands::profiles_backend::check_among_us_running
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

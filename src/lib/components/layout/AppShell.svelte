@@ -6,10 +6,14 @@
 	import { setSidebar } from '$lib/state/sidebar.svelte';
 	import { default as StarlightIcon } from '$lib/assets/starlight.svg?component';
 	import { ArrowLeft, ArrowRight, Settings, Compass, House, Plus } from '@jis3r/icons';
-	import { Library } from '@lucide/svelte';
+	import { Library, Play } from '@lucide/svelte';
 	import StarBackground from '$lib/components/shared/StarBackground.svelte';
 	import { platform } from '@tauri-apps/plugin-os';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { profileQueries } from '$lib/features/profiles/queries';
+	import { launchService } from '$lib/features/profiles/launch-service';
+	import type { Profile } from '$lib/features/profiles/schema';
 
 	let { children } = $props();
 	const sidebar = setSidebar();
@@ -38,6 +42,18 @@
 	function handleTransitionEnd(e: TransitionEvent) {
 		if (e.propertyName === 'grid-template-columns' && !sidebar.isOpen) {
 			sidebar.finalizeClose();
+		}
+	}
+
+	const activeProfileQuery = createQuery(() => profileQueries.active());
+	const activeProfile = $derived((activeProfileQuery.data ?? null) as Profile | null);
+
+	async function handleLaunchLastUsed() {
+		if (!activeProfile) return;
+		try {
+			await launchService.launchProfile(activeProfile);
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Failed to launch profile');
 		}
 	}
 </script>
@@ -80,7 +96,19 @@
 		</div>
 
 		<!-- Right Side: Spacer for Windows controls or additional tools -->
-		<div data-tauri-drag-region class="ml-auto flex h-full items-center">
+		<div data-tauri-drag-region class="ml-auto flex h-full items-center gap-2">
+			{#if activeProfile}
+				<Button
+					data-tauri-drag-region-exclude
+					size="sm"
+					variant="ghost"
+					onclick={handleLaunchLastUsed}
+					class="gap-2"
+				>
+					<Play class="h-4 w-4 fill-current" />
+					<span class="hidden sm:inline">Launch {activeProfile.name}</span>
+				</Button>
+			{/if}
 			{#if platformName === 'windows'}
 				<div class="flex h-full">
 					<button aria-label="Minimize" onclick={minimize} class="window-control">

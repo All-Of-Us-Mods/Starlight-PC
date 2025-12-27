@@ -26,6 +26,33 @@
 		"core:webview:allow-set-webview-zoom",
 		"store:default",
 		"fs:default",
-		"os:default"
+		"os:default",
+		"shell:default",
+		{
+			"identifier": "shell:allow-spawn",
+			"allow": [
+				{
+					"name": "launch-among-us",
+					"cmd": "cmd.exe",
+					"args": true
+				}
+			]
+		},
+		"fs:allow-mkdir",
+		"fs:allow-remove",
+		"fs:allow-write",
+		"fs:allow-appdata-write-recursive",
+		{
+			"identifier": "fs:scope",
+			"allow": [
+				{
+					"path": "$APPDATA/**"
+				}
+			]
+		},
+		{
+			"identifier": "http:default",
+			"allow": [{ "url": "https://builds.bepinex.dev/*" }]
+		}
 	]
 }

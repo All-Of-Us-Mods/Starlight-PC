@@ -535,8 +535,8 @@ export const settingsQueries = {
 
 ## Implementation Checklist
 
-1. [ ] **Dependencies**: Install Bun and Cargo packages.
-2. [ ] **Backend**: Implement Rust DLL directory and process check commands.
+1. [x] **Dependencies**: Install Bun and Cargo packages.
+2. [x] **Backend**: Implement Rust DLL directory and process check commands.
 3. [ ] **Storage**: Define ArkType schemas for validation.
 4. [ ] **Logic**: Build Profile and Launch services.
 5. [ ] **FS**: Implement Zip extraction and Mod DLL writing.

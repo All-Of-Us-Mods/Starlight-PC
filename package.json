@@ -53,10 +53,13 @@
 		"@tanstack/svelte-query": "^6.0.3",
 		"@tauri-apps/api": "^2.9.0",
 		"@tauri-apps/plugin-fs": "~2",
+		"@tauri-apps/plugin-http": "~2",
 		"@tauri-apps/plugin-os": "^2.3.2",
+		"@tauri-apps/plugin-shell": "~2",
 		"@tauri-apps/plugin-store": "~2",
 		"arktype": "^2.1.29",
 		"dompurify": "^3.3.0",
+		"jszip": "^3.10.1",
 		"marked": "^16.4.1",
 		"mode-watcher": "^1.1.0"
 	}
