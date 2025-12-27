@@ -72,91 +72,89 @@
 	);
 </script>
 
-<div class="scrollbar-styled @container h-full overflow-y-auto bg-background/50">
-	<div class="mx-auto flex max-w-7xl flex-col gap-8 p-6 @lg:p-10">
-		<header class="flex flex-col gap-6 @lg:flex-row @lg:items-center @lg:justify-between">
-			<div class="flex items-center gap-3">
-				<div
-					class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20"
-				>
-					<Compass class="h-6 w-6 text-primary" />
-				</div>
-				<div class="space-y-0.5">
-					<h1 class="text-4xl font-black tracking-tight">Explore</h1>
-					<p class="text-sm text-muted-foreground">Discover and manage mods for Among Us.</p>
-				</div>
+<div class="scrollbar-styled @container h-full space-y-12 overflow-y-auto px-10 py-8">
+	<header class="mb-6 flex flex-col gap-6 @lg:flex-row @lg:items-center @lg:justify-between">
+		<div class="flex items-center gap-3">
+			<div
+				class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20"
+			>
+				<Compass class="h-6 w-6 text-primary" />
+			</div>
+			<div class="space-y-0.5">
+				<h1 class="text-4xl font-black tracking-tight">Explore</h1>
+				<p class="text-sm text-muted-foreground">Discover and manage mods for Among Us.</p>
+			</div>
+		</div>
+
+		<div class="flex items-center gap-3">
+			<div class="relative max-w-xs">
+				<Search
+					class="absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground/70"
+				/>
+				<Input
+					placeholder={searchPlaceholder}
+					bind:value={searchInput}
+					class="h-10 w-full rounded-full border-muted-foreground/10 bg-muted/50 pr-10 pl-10"
+				/>
+				{#if searchInput}
+					<button
+						onclick={() => (searchInput = '')}
+						class="absolute top-1/2 right-3 -translate-y-1/2"
+					>
+						<X class="size-3.5" />
+					</button>
+				{/if}
 			</div>
 
-			<div class="flex items-center gap-3">
-				<div class="relative max-w-xs">
-					<Search
-						class="absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground/70"
-					/>
-					<Input
-						placeholder={searchPlaceholder}
-						bind:value={searchInput}
-						class="h-10 w-full rounded-full border-muted-foreground/10 bg-muted/50 pr-10 pl-10"
-					/>
-					{#if searchInput}
-						<button
-							onclick={() => (searchInput = '')}
-							class="absolute top-1/2 right-3 -translate-y-1/2"
-						>
-							<X class="size-3.5" />
-						</button>
-					{/if}
-				</div>
-
-				<div class="relative w-48">
-					<ArrowUpDown
-						class="absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground/70"
-					/>
-					<NativeSelect.Root bind:value={sortBy} class="h-10 w-full rounded-full pl-10">
-						{#each sortOptions as opt (opt.value)}
-							<NativeSelect.Option value={opt.value}>{opt.label}</NativeSelect.Option>
-						{/each}
-					</NativeSelect.Root>
-				</div>
+			<div class="relative w-48">
+				<ArrowUpDown
+					class="absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground/70"
+				/>
+				<NativeSelect.Root bind:value={sortBy} class="h-10 w-full rounded-full pl-10">
+					{#each sortOptions as opt (opt.value)}
+						<NativeSelect.Option value={opt.value}>{opt.label}</NativeSelect.Option>
+					{/each}
+				</NativeSelect.Root>
 			</div>
-		</header>
+		</div>
+	</header>
 
-		<main class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-			{#if modsQuery.isPending && !modsQuery.data}
-				{#each { length: 6 }, i (i)}
-					<ModCardSkeleton />
-				{/each}
-			{:else if displayedMods.length === 0}
-				<div class="col-span-full py-32 text-center">
-					<h3 class="mb-5 text-xl font-bold">No mods found</h3>
-					<Button variant="outline" onclick={() => (searchInput = '')}>Clear search</Button>
-				</div>
-			{:else}
-				{#each displayedMods as mod (mod.id)}
-					<a href="/mods/{mod.id}">
-						<ModCard {mod} />
-					</a>
-				{/each}
-			{/if}
-		</main>
-
-		{#if showPagination}
-			<footer class="flex items-center justify-center gap-4 py-8">
-				<Button variant="outline" size="icon" disabled={page === 0} onclick={() => page--}>
-					<ChevronLeft class="size-4" />
-				</Button>
-
-				<span class="text-sm font-medium">
-					{#if totalPages}
-						Page {page + 1} of {totalPages}
-					{:else}
-						Page {page + 1}
-					{/if}
-				</span>
-
-				<Button variant="outline" size="icon" disabled={!hasNextPage} onclick={() => page++}>
-					<ChevronRight class="size-4" />
-				</Button>
-			</footer>
+	<main class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+		{#if modsQuery.isPending && !modsQuery.data}
+			{#each { length: 6 }, i (i)}
+				<ModCardSkeleton />
+			{/each}
+		{:else if displayedMods.length === 0}
+			<div class="col-span-full py-32 text-center">
+				<h3 class="mb-5 text-xl font-bold">No mods found</h3>
+				<Button variant="outline" onclick={() => (searchInput = '')}>Clear search</Button>
+			</div>
+		{:else}
+			{#each displayedMods as mod (mod.id)}
+				<a href="/mods/{mod.id}">
+					<ModCard {mod} />
+				</a>
+			{/each}
 		{/if}
-	</div>
+	</main>
+
+	{#if showPagination}
+		<footer class="flex items-center justify-center gap-4 py-8">
+			<Button variant="outline" size="icon" disabled={page === 0} onclick={() => page--}>
+				<ChevronLeft class="size-4" />
+			</Button>
+
+			<span class="text-sm font-medium">
+				{#if totalPages}
+					Page {page + 1} of {totalPages}
+				{:else}
+					Page {page + 1}
+				{/if}
+			</span>
+
+			<Button variant="outline" size="icon" disabled={!hasNextPage} onclick={() => page++}>
+				<ChevronRight class="size-4" />
+			</Button>
+		</footer>
+	{/if}
 </div>

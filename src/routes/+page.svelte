@@ -46,23 +46,23 @@
 	{/if}
 {/snippet}
 
-<div class="scrollbar-styled @container h-full space-y-12 overflow-y-auto p-8">
+<div class="scrollbar-styled @container h-full space-y-12 overflow-y-auto px-10 py-8">
 	<!-- News Section -->
 	<section>
-		<div class="mb-6 flex items-center gap-3 px-10">
+		<div class="mb-6 flex items-center gap-3">
 			<div
-				class="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20"
+				class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20"
 			>
-				<Newspaper class="h-5 w-5 text-primary" />
+				<Newspaper class="h-6 w-6 text-primary" />
 			</div>
-			<div>
-				<h2 class="text-2xl font-bold tracking-tight">Latest News</h2>
+			<div class="space-y-0.5">
+				<h2 class="text-4xl font-black tracking-tight">Latest News</h2>
 				<p class="text-sm text-muted-foreground">Updates from the development team.</p>
 			</div>
 		</div>
 
 		{#if newsQuery.isLoading}
-			<Carousel.Root opts={{ align: 'start' }} class="w-full px-10">
+			<Carousel.Root opts={{ align: 'start' }} class="w-full">
 				<Carousel.Content class="-ml-4">
 					{#each { length: 6 }, i (i)}
 						<Carousel.Item class="pl-4 @lg:basis-1/2 @2xl:basis-1/3">
@@ -70,15 +70,15 @@
 						</Carousel.Item>
 					{/each}
 				</Carousel.Content>
-				<Carousel.Previous class="-left-2" />
-				<Carousel.Next class="-right-2" />
+				<Carousel.Previous class="-left-9" />
+				<Carousel.Next class="-right-9" />
 			</Carousel.Root>
 		{:else if newsQuery.isError}
 			<div class="mx-10 rounded-md border border-destructive/20 bg-destructive/10 p-4">
 				<p class="text-sm font-semibold text-destructive">Error loading posts</p>
 			</div>
 		{:else if newsQuery.isSuccess && newsQuery.data}
-			<Carousel.Root opts={{ align: 'start' }} class="w-full px-10">
+			<Carousel.Root opts={{ align: 'start' }} class="w-full">
 				<Carousel.Content class="-ml-4">
 					{#each newsQuery.data as post (post.id)}
 						<Carousel.Item class="pl-4 @lg:basis-1/2 @2xl:basis-1/3">
@@ -90,28 +90,28 @@
 						</Carousel.Item>
 					{/each}
 				</Carousel.Content>
-				<Carousel.Previous class="-left-2" />
-				<Carousel.Next class="-right-2" />
+				<Carousel.Previous class="-left-9" />
+				<Carousel.Next class="-right-9" />
 			</Carousel.Root>
 		{/if}
 	</section>
 
 	<!-- Trending Mods Section -->
 	<section>
-		<div class="mb-4 flex items-center gap-3 px-10">
+		<div class="mb-6 flex items-center gap-3">
 			<div
-				class="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20"
+				class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20"
 			>
-				<TrendingUp class="h-5 w-5 text-primary" />
+				<TrendingUp class="h-6 w-6 text-primary" />
 			</div>
-			<div>
-				<h2 class="text-2xl font-bold tracking-tight">Trending Mods</h2>
+			<div class="space-y-0.5">
+				<h2 class="text-4xl font-black tracking-tight">Trending Mods</h2>
 				<p class="text-sm text-muted-foreground">Most popular community creations this week.</p>
 			</div>
 		</div>
 
 		{#if trendingModsQuery.isLoading}
-			<Carousel.Root opts={{ align: 'start' }} class="w-full px-10">
+			<Carousel.Root opts={{ align: 'start' }} class="w-full">
 				<Carousel.Content class="-ml-2">
 					{#each { length: 6 }, i (i)}
 						<Carousel.Item class="basis-full pl-2 @4xl:basis-1/2 @7xl:basis-1/3">
@@ -119,15 +119,15 @@
 						</Carousel.Item>
 					{/each}
 				</Carousel.Content>
-				<Carousel.Previous class="-left-2" />
-				<Carousel.Next class="-right-2" />
+				<Carousel.Previous class="-left-9" />
+				<Carousel.Next class="-right-9" />
 			</Carousel.Root>
 		{:else if trendingModsQuery.isError}
-			<div class="mx-10 rounded-md border border-destructive/20 bg-destructive/10 p-4">
+			<div class="rounded-md border border-destructive/20 bg-destructive/10 p-4">
 				<p class="text-sm font-semibold text-destructive">Error loading mods</p>
 			</div>
 		{:else if trendingModsQuery.isSuccess && trendingModsQuery.data}
-			<Carousel.Root opts={{ align: 'start' }} class="w-full px-10">
+			<Carousel.Root opts={{ align: 'start' }} class="w-full">
 				<Carousel.Content class="-ml-2">
 					{#each trendingModsQuery.data as mod (mod.id)}
 						<Carousel.Item class="basis-full pl-2 @4xl:basis-1/2 @7xl:basis-1/3">
@@ -135,8 +135,8 @@
 						</Carousel.Item>
 					{/each}
 				</Carousel.Content>
-				<Carousel.Previous class="-left-2" />
-				<Carousel.Next class="-right-2" />
+				<Carousel.Previous class="-left-9" />
+				<Carousel.Next class="-right-9" />
 			</Carousel.Root>
 		{/if}
 	</section>

@@ -1,10 +1,21 @@
 <script lang="ts">
 	// This page intentionally does NOT use useSidebar
 	// to demonstrate automatic sidebar collapse
+	import { Library } from '@lucide/svelte';
 </script>
 
-<div class="p-8">
-	<h1 class="mb-6 text-4xl font-bold">Library</h1>
+<div class="px-10 py-8">
+	<div class="mb-6 flex items-center gap-3">
+		<div
+			class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20"
+		>
+			<Library class="h-6 w-6 text-primary" />
+		</div>
+		<div class="space-y-0.5">
+			<h1 class="text-4xl font-black tracking-tight">Library</h1>
+			<p class="text-sm text-muted-foreground">Manage your installed mods and configurations.</p>
+		</div>
+	</div>
 
 	<div class="mb-6">
 		<p class="text-muted-foreground">
