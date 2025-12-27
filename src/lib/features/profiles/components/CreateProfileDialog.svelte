@@ -5,11 +5,32 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Plus } from '@lucide/svelte';
 	import { profileService } from '../profile-service';
+	import { useQueryClient } from '@tanstack/svelte-query';
+	import type { Profile } from '../schema';
+
+	const queryClient = useQueryClient();
 
 	let open = $state(false);
 	let name = $state('');
 	let isCreating = $state(false);
 	let error = $state('');
+	let pollTimer: number | null = null;
+
+	async function waitForBepInEx(profileId: string) {
+		const checkInterval = 2000;
+		pollTimer = window.setInterval(() => {
+			queryClient.invalidateQueries({ queryKey: ['profiles'] });
+
+			const profiles = queryClient.getQueryData<Profile[]>(['profiles']);
+			if (profiles) {
+				const profile = profiles.find((p) => p.id === profileId);
+				if (profile?.bepinex_installed) {
+					if (pollTimer) clearInterval(pollTimer);
+					pollTimer = null;
+				}
+			}
+		}, checkInterval);
+	}
 
 	async function handleCreate() {
 		error = '';
@@ -17,22 +38,33 @@
 
 		try {
 			isCreating = true;
-			await profileService.createProfile(name);
+
+			const trimmed = name.trim();
+
+			const createdProfile = await profileService.createProfile(trimmed);
+
+			queryClient.setQueryData(['profiles'], (old: Profile[] = []) => [...old, createdProfile]);
+
+			waitForBepInEx(createdProfile.id);
+
 			name = '';
 			open = false;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to create profile' + e.toString();
+			error = e instanceof Error ? e.message : 'Failed to create profile';
 		} finally {
 			isCreating = false;
 		}
 	}
 
-	// Reset state when the dialog is opened/closed
 	function onOpenChange(isOpen: boolean) {
 		if (isOpen) {
 			error = '';
 		} else {
 			name = '';
+			if (pollTimer) {
+				clearInterval(pollTimer);
+				pollTimer = null;
+			}
 		}
 	}
 </script>
@@ -48,7 +80,7 @@
 		<Dialog.Header>
 			<Dialog.Title>Create New Profile</Dialog.Title>
 			<Dialog.Description>
-				Enter a name for your new mod profile. BepInEx will be automatically installed.
+				Enter a name for your new mod profile. BepInEx will be installed in the background.
 			</Dialog.Description>
 		</Dialog.Header>
 
@@ -72,7 +104,14 @@
 					<Button variant="outline" disabled={isCreating}>Cancel</Button>
 				</Dialog.Close>
 				<Button onclick={handleCreate} disabled={isCreating || !name.trim()}>
-					{isCreating ? 'Creating...' : 'Create Profile'}
+					{#if isCreating}
+						<div
+							class="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+						></div>
+						Creating...
+					{:else}
+						Create Profile
+					{/if}
 				</Button>
 			</div>
 		</div>

@@ -1,9 +1,15 @@
 <script lang="ts">
 	import * as Card from '$lib/components/ui/card';
 	import { ImageOff, Download, Clock } from '@jis3r/icons';
+	import AddToProfileDialog from '$lib/features/profiles/components/AddToProfileDialog.svelte';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { profileQueries } from '$lib/features/profiles/queries';
 	import type { Mod } from '$lib/features/mods/schema';
 
 	let { mod }: { mod: Mod } = $props();
+
+	const hasProfilesQuery = createQuery(() => profileQueries.hasAny());
+	const hasProfiles = $derived(hasProfilesQuery.data ?? false);
 </script>
 
 <Card.Root class="overflow-hidden p-0 transition-colors hover:bg-accent/50">
@@ -31,15 +37,20 @@
 				</p>
 			</div>
 
-			<div class="flex items-center gap-4 pt-2 text-sm font-medium">
-				<div class="flex items-center gap-1.5">
-					<Download class="text-primary" />
-					<span>{mod.downloads.toLocaleString()}</span>
+			<div class="flex items-center justify-between gap-4 pt-2 text-sm font-medium">
+				<div class="flex items-center gap-4">
+					<div class="flex items-center gap-1.5">
+						<Download class="text-primary" />
+						<span>{mod.downloads.toLocaleString()}</span>
+					</div>
+					<div class="flex items-center gap-1.5 text-muted-foreground">
+						<Clock />
+						<span>{new Date(mod.updated_at).toLocaleDateString()}</span>
+					</div>
 				</div>
-				<div class="flex items-center gap-1.5 text-muted-foreground">
-					<Clock />
-					<span>{new Date(mod.updated_at).toLocaleDateString()}</span>
-				</div>
+				{#if hasProfiles}
+					<AddToProfileDialog modId={mod.id} />
+				{/if}
 			</div>
 		</div>
 	</div>

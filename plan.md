@@ -1,548 +1,559 @@
-# Implementation Plan: Mod Profiles
+# Implementation Plan: Mod Installation to Profiles
 
-This document outlines the architecture and phases for implementing a profile-based mod management system using Tauri, Svelte, and Rust.
+## Overview
 
-## Architecture Overview
+This plan covers adding the ability to install mods to profiles, manage mod versions, and display which mods are installed on each profile.
 
-**Frontend-First Approach**: Leverage Tauri plugins (`@tauri-apps/plugin-store`, `@tauri-apps/plugin-fs`, `@tauri-apps/plugin-shell`) for 90% of operations. Only 2 custom Rust commands are required for low-level OS interactions.
+## Current State Analysis
 
----
+**Existing Infrastructure:**
 
-## Phase 1: Dependencies & Configuration
+- ✅ Profile schema with `mods: ProfileModEntry[]` array
+- ✅ ProfileService with `addModToProfile()` and `removeModFromProfile()` methods
+- ✅ ModInstallService with download and installation logic
+- ✅ AddToProfileDialog component (functional)
+- ✅ Mod schemas (Mod, ModVersion, ModVersionInfo, ModDependency)
+- ✅ ModCard component (display only)
+- ✅ API queries for mod versions and info
 
-### 1.1 Install Dependencies
+**Missing Features:**
 
-**Frontend** (`package.json`):
-
-```bash
-bun add @tauri-apps/plugin-shell jszip
-```
-
-**Backend** (`src-tauri/Cargo.toml`):
-
-```toml
-[dependencies]
-tauri-plugin-shell = "2"
-sysinfo = "0.30" # Ensure sysinfo is present
-```
-
-### 1.2 Register Shell Plugin
-
-**File**: `src-tauri/src/lib.rs`
-
-```rust
-.plugin(tauri_plugin_shell::init())
-```
-
-### 1.3 Update Capabilities
-
-**File**: `src-tauri/capabilities/default.json`
-
-```json
-{
-	"permissions": [
-		"shell:allow-execute",
-		"shell:allow-spawn",
-		{
-			"identifier": "shell:allow-execute",
-			"allow": [
-				{
-					"name": "launch-among-us",
-					"cmd": "Among Us.exe",
-					"args": true
-				}
-			]
-		}
-	]
-}
-```
+- ❌ "Add to Profile" button on ModCard
+- ❌ Mod detail page (`/mods/[id]`)
+- ❌ Display installed mods on ProfileCard
+- ❌ Remove mod from profile functionality
+- ❌ Dependency validation before install
+- ❌ Version history display
+- ❌ Installation progress tracking
 
 ---
 
-## Phase 2: Backend Commands
+## Phase 1: Update ProfileCard to Show Installed Mods
 
-### 2.1 Create Profile Backend Commands
+### 1.1 Add Mods List to ProfileCard
 
-**File**: `src-tauri/src/commands/profiles_backend.rs`
+**File:** `src/lib/features/profiles/components/ProfileCard.svelte`
 
-```rust
-use std::path::Path;
-use tauri::Manager;
+**Changes:**
 
-/// Windows-only: Set DLL directory for Doorstop.
-/// Required because Tauri Shell plugin doesn't expose this environment tweak.
-#[tauri::command]
-#[cfg(windows)]
-pub fn set_dll_directory(profile_path: String) -> Result<(), String> {
-    use std::os::windows::ffi::OsStrExt;
+- Display list of installed mods (first 3 with "X more" overflow)
+- Add pill/badge for each mod
+- Show "0 mods" state
+- Collapse/expand button to see all mods
+- Add "Manage Mods" dropdown menu
 
-    let wide: Vec<u16> = Path::new(&profile_path)
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
+### 1.2 ProfileCard Actions
 
-    let success = unsafe { SetDllDirectoryW(wide.as_ptr()) };
+**File:** `src/lib/features/profiles/components/ProfileCard.svelte`
 
-    if success == 0 {
-        Err(format!(
-            "Failed to set DLL directory: {}",
-            std::io::Error::last_os_error()
-        ))
-    } else {
-        Ok(())
-    }
-}
+**Features:**
 
-#[cfg(windows)]
-#[link(name = "Kernel32")]
-extern "system" {
-    fn SetDllDirectoryW(lp_path_name: *const u16) -> i32;
-}
+- "Manage Mods" dropdown with:
+  - List of all installed mods
+  - "Remove" button for each mod
+  - Confirmation dialog before removal
 
-/// Check if Among Us is already running.
-#[tauri::command]
-pub fn check_among_us_running() -> Result<bool, String> {
-    use sysinfo::{ProcessExt, System, SystemExt};
+### 1.3 Update Profile Schema
 
-    let mut sys = System::new_all();
-    sys.refresh_all();
+**File:** `src/lib/features/profiles/schema.ts`
 
-    Ok(sys.processes_by_exact_name("Among Us").next().is_some())
-}
-
-#[cfg(not(windows))]
-#[tauri::command]
-pub fn set_dll_directory(_profile_path: String) -> Result<(), String> {
-    Ok(())
-}
-```
-
-### 2.2 Register Commands
-
-**File**: `src-tauri/src/lib.rs`
-
-```rust
-mod profiles_backend;
-
-.invoke_handler(tauri::generate_handler![
-    commands::profiles_backend::set_dll_directory,
-    commands::profiles_backend::check_among_us_running
-])
-```
-
----
-
-## Phase 3: Frontend Schema & Types
-
-### 3.1 Profile Schema
-
-**File**: `src/lib/features/profiles/schema.ts`
+**Enhancement:**
+Add computed fields for mod metadata:
 
 ```ts
-import { type } from 'arktype';
-
-export const ProfileEntry = type({
-	id: 'string',
-	name: 'string <= 100',
-	path: 'string',
-	created_at: 'number',
-	'last_launched_at?': 'number',
-	mod_ids: 'string[]'
-});
-
-export type Profile = typeof ProfileEntry.infer;
-```
-
-### 3.2 Settings Schema
-
-**File**: `src/lib/features/settings/schema.ts`
-
-```ts
-import { type } from 'arktype';
-
-export const Settings = type({
-	bepinex_url: 'string',
-	bepinex_version: 'string',
-	among_us_path: 'string',
-	close_on_launch: 'boolean',
-	'last_launched_profile_id?': 'string'
-});
-
-export type AppSettings = typeof Settings.infer;
-```
-
----
-
-## Phase 4: Profile Service (Core CRUD)
-
-**File**: `src/lib/features/profiles/profile-service.svelte.ts`
-
-```ts
-import { Store } from '@tauri-apps/plugin-store';
-import { mkdir, remove } from '@tauri-apps/plugin-fs';
-import { join } from '@tauri-apps/api/path';
-import { ProfileEntry, type Profile } from './schema';
-import { downloadBepInEx } from './bepinex-download';
-
-class ProfileService {
-	async getStore(): Promise<Store> {
-		return await Store.load('registry.json');
-	}
-
-	async getProfiles(): Promise<Profile[]> {
-		const store = await this.getStore();
-		const profiles = (await store.get<Profile[]>('profiles')) ?? [];
-
-		return profiles.sort((a, b) => {
-			const aLaunched = a.last_launched_at ?? 0;
-			const bLaunched = b.last_launched_at ?? 0;
-			if (aLaunched !== bLaunched) return bLaunched - aLaunched;
-			return b.created_at - a.created_at;
-		});
-	}
-
-	async createProfile(name: string): Promise<Profile> {
-		const trimmed = name.trim();
-		if (!trimmed) throw new Error('Profile name cannot be empty');
-
-		const store = await this.getStore();
-		const profiles = await this.getProfiles();
-
-		if (profiles.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())) {
-			throw new Error(`Profile '${trimmed}' already exists`);
-		}
-
-		const dataDir = await this.getAppDataDir();
-		const profilesDir = await join(dataDir, 'profiles');
-		const timestamp = Date.now();
-		const slug = this.slugify(trimmed);
-		const profileId = slug ? `${slug}-${timestamp}` : `profile-${timestamp}`;
-		const profilePath = await join(profilesDir, profileId);
-
-		await mkdir(profilePath, { recursive: true });
-
-		const bepinexUrl = await this.getBepInExUrl();
-		await downloadBepInEx(profilePath, bepinexUrl);
-
-		const profile: Profile = {
-			id: profileId,
-			name: trimmed,
-			path: profilePath,
-			created_at: timestamp,
-			last_launched_at: undefined,
-			mod_ids: []
-		};
-
-		profiles.push(profile);
-		await store.set('profiles', profiles);
-		await store.save();
-		return profile;
-	}
-
-	async deleteProfile(profileId: string): Promise<void> {
-		const store = await this.getStore();
-		const profiles = await this.getProfiles();
-		const profile = profiles.find((p) => p.id === profileId);
-
-		if (!profile) throw new Error(`Profile '${profileId}' not found`);
-
-		await remove(profile.path, { recursive: true });
-		await store.set(
-			'profiles',
-			profiles.filter((p) => p.id !== profileId)
-		);
-		await store.save();
-	}
-
-	async getActiveProfile(): Promise<Profile | null> {
-		const store = await this.getStore();
-		const lastId = await store.get<string>('last_launched_profile_id');
-		if (!lastId) return null;
-
-		const profiles = await this.getProfiles();
-		return profiles.find((p) => p.id === lastId) ?? null;
-	}
-
-	async updateLastLaunched(profileId: string): Promise<void> {
-		const store = await this.getStore();
-		const profiles = await this.getProfiles();
-		const profile = profiles.find((p) => p.id === profileId);
-
-		if (profile) {
-			profile.last_launched_at = Date.now();
-			await store.set('profiles', profiles);
-			await store.set('last_launched_profile_id', profileId);
-			await store.save();
-		}
-	}
-
-	private slugify(input: string): string {
-		return input
-			.toLowerCase()
-			.replace(/[^a-z0-9]/g, '-')
-			.replace(/-+/g, '-')
-			.replace(/^-|-$/g, '');
-	}
-
-	private async getAppDataDir(): Promise<string> {
-		const { appDataDir } = await import('@tauri-apps/api/path');
-		return await appDataDir();
-	}
-
-	private async getBepInExUrl(): Promise<string> {
-		const store = await this.getStore();
-		const settings = await store.get<{ bepinex_url: string }>('settings');
-		return settings?.bepinex_url ?? DEFAULT_BEPINEX_URL;
-	}
-}
-
-const DEFAULT_BEPINEX_URL =
-	'https://builds.bepinex.dev/projects/bepinex_be/738/BepInEx-Unity.IL2CPP-win-x86-6.0.0-be.738%2Baf0cba7.zip';
-export const profileService = new ProfileService();
-```
-
----
-
-## Phase 5: Launch Service
-
-**File**: `src/lib/features/profiles/launch-service.svelte.ts`
-
-```ts
-import { invoke } from '@tauri-apps/api/core';
-import { Command } from '@tauri-apps/plugin-shell';
-import { Store } from '@tauri-apps/plugin-store';
-import { profileService } from './profile-service';
-import type { Profile } from './schema';
-
-class LaunchService {
-	async launchProfile(profile: Profile): Promise<void> {
-		const store = await Store.load('registry.json');
-		const settings = (await store.get<any>('settings')) ?? {};
-
-		if (!settings.among_us_path) {
-			throw new Error('Among Us path not configured.');
-		}
-
-		const isRunning = await invoke<boolean>('check_among_us_running');
-		if (isRunning) throw new Error('Among Us is already running');
-
-		await invoke('set_dll_directory', { profilePath: profile.path });
-
-		const args = [
-			'--doorstop-enabled',
-			'true',
-			'--doorstop-target-assembly',
-			`${profile.path}/BepInEx/core/BepInEx.Unity.IL2CPP.dll`,
-			'--doorstop-clr-corlib-dir',
-			`${profile.path}/dotnet`,
-			'--doorstop-clr-runtime-coreclr-path',
-			`${profile.path}/dotnet/coreclr.dll`
-		];
-
-		const command = Command.create('launch-among-us', args, {
-			cwd: settings.among_us_path
-		});
-
-		await command.spawn();
-		await profileService.updateLastLaunched(profile.id);
-
-		if (settings.close_on_launch) {
-			const { getCurrentWindow } = await import('@tauri-apps/api/window');
-			getCurrentWindow().close();
-		}
-	}
-
-	async launchVanilla(): Promise<void> {
-		const store = await Store.load('registry.json');
-		const settings = (await store.get<any>('settings')) ?? {};
-
-		const command = Command.create('launch-among-us', [], {
-			cwd: settings.among_us_path
-		});
-
-		await command.spawn();
-		await store.set('last_launched_profile_id', null);
-		await store.save();
-	}
-}
-
-export const launchService = new LaunchService();
-```
-
----
-
-## Phase 6: BepInEx Download Utility
-
-**File**: `src/lib/features/profiles/bepinex-download.ts`
-
-```ts
-import JSZip from 'jszip';
-import { mkdir, writeFile } from '@tauri-apps/plugin-fs';
-import { join } from '@tauri-apps/api/path';
-
-export async function downloadBepInEx(profilePath: string, bepinexUrl: string): Promise<void> {
-	const response = await fetch(bepinexUrl);
-	if (!response.ok) throw new Error('Failed to download BepInEx');
-
-	const arrayBuffer = await response.arrayBuffer();
-	const zip = await JSZip.loadAsync(arrayBuffer);
-
-	for (const [filename, file] of Object.entries(zip.files)) {
-		const filePath = await join(profilePath, filename);
-		if (file.dir) {
-			await mkdir(filePath, { recursive: true });
-		} else {
-			const content = await file.async('uint8array');
-			await writeFile(filePath, content);
-		}
-	}
-}
-```
-
----
-
-## Phase 7: Mod Installation Service
-
-**File**: `src/lib/features/profiles/mod-install-service.svelte.ts`
-
-```ts
-import { writeFile, mkdir, remove } from '@tauri-apps/plugin-fs';
-import { join } from '@tauri-apps/api/path';
-
-class ModInstallService {
-	async installModToProfile(modId: string, profilePath: string): Promise<void> {
-		const response = await fetch(`https://api.example.com/mods/${modId}/download`);
-		if (!response.ok) throw new Error('Download failed');
-
-		const data = new Uint8Array(await response.arrayBuffer());
-		const pluginsDir = await join(profilePath, 'BepInEx', 'plugins');
-
-		await mkdir(pluginsDir, { recursive: true });
-		await writeFile(await join(pluginsDir, `${modId}.dll`), data);
-	}
-
-	async removeModFromProfile(modId: string, profilePath: string): Promise<void> {
-		const dllPath = await join(profilePath, 'BepInEx', 'plugins', `${modId}.dll`);
-		await remove(dllPath);
-	}
-}
-
-export const modInstallService = new ModInstallService();
-```
-
----
-
-## Phase 8: Settings Service
-
-**File**: `src/lib/features/settings/settings-service.svelte.ts`
-
-```ts
-import { Store } from '@tauri-apps/plugin-store';
-import type { AppSettings } from './schema';
-
-class SettingsService {
-	async getSettings(): Promise<AppSettings> {
-		const store = await Store.load('registry.json');
-		return (
-			(await store.get<AppSettings>('settings')) ?? {
-				bepinex_url: 'https://...',
-				bepinex_version: '6.0.0-be.738',
-				among_us_path: '',
-				close_on_launch: false
-			}
-		);
-	}
-
-	async updateSettings(updates: Partial<AppSettings>): Promise<void> {
-		const store = await Store.load('registry.json');
-		const current = await this.getSettings();
-		await store.set('settings', { ...current, ...updates });
-		await store.save();
-	}
-}
-
-export const settingsService = new SettingsService();
-```
-
----
-
-## Phase 9: TanStack Query Integration
-
-**File**: `src/lib/features/profiles/queries.ts`
-
-```ts
-import { queryOptions } from '@tanstack/svelte-query';
-import { profileService } from './profile-service';
-import { settingsService } from '../settings/settings-service';
-
-export const profileQueries = {
-	all: () =>
-		queryOptions({
-			queryKey: ['profiles'],
-			queryFn: () => profileService.getProfiles()
-		}),
-	active: () =>
-		queryOptions({
-			queryKey: ['profiles', 'active'],
-			queryFn: () => profileService.getActiveProfile()
-		})
-};
-
-export const settingsQueries = {
-	get: () =>
-		queryOptions({
-			queryKey: ['settings'],
-			queryFn: () => settingsService.getSettings()
-		})
+export type ProfileModEntry = {
+	mod_id: string;
+	version: string;
+	// Future: installed_at timestamp
 };
 ```
 
 ---
 
-## Phase 10: UI Components
+## Phase 2: Add "Add to Profile" to ModCard
 
-### 10.1 Profile Card
+### 2.1 Update ModCard Component
 
-**File**: `src/lib/features/profiles/components/ProfileCard.svelte`
+**File:** `src/lib/features/mods/components/ModCard.svelte`
 
-- Displays name, mod count, and last launch date.
-- Provides "Launch", "Open Folder", and "Delete" actions.
+**Changes:**
 
-### 10.2 Create Profile Dialog
+- Add action bar with "Add to Profile" button
+- Import and use AddToProfileDialog component
+- Style button to match existing design
+- Disabled state when no profiles exist
 
-**File**: `src/lib/features/profiles/components/CreateProfileDialog.svelte`
+### 2.2 Add Profile Count Query
 
-- Input for profile name.
-- Shows download progress during BepInEx setup.
+**File:** `src/lib/features/profiles/queries.ts`
 
-### 10.3 Add to Profile Dialog
+**New Query:**
 
-**File**: `src/lib/features/profiles/components/AddToProfileDialog.svelte`
+```ts
+hasProfiles: () => ({
+	queryKey: ['profiles', 'has-any'],
+	queryFn: async () => {
+		const profiles = await profileService.getProfiles();
+		return profiles.length > 0;
+	}
+});
+```
 
-- Triggered from the Mod Browser.
-- Dropdown to select a profile for installation.
+### 2.3 Update Explore Page
+
+**File:** `src/routes/explore/+page.svelte`
+
+**Changes:**
+
+- Pass `modId` to ModCard
+- Display "No profiles" prompt if user tries to add without profiles
+- Redirect to `/library` if needed
 
 ---
 
-## Phase 11: Route Implementation
+## Phase 3: Create Mod Detail Page
 
-- **Settings Page** (`/settings`): Configure Among Us path and BepInEx defaults.
-- **Library Page** (`/library`): Manage and launch profiles or Vanilla game.
-- **AppShell**: Add "Launch Last Used" quick-action to the top navigation bar.
+### 3.1 Route Structure
+
+**File:** `src/routes/mods/[id]/+page.svelte`
+
+**Layout:**
+
+```
+┌─────────────────────────────────────┐
+│ Mod Header                          │
+│  - Thumbnail                        │
+│  - Name, Author                     │
+│  - Downloads, Updated Date          │
+│  - "Add to Profile" button          │
+├─────────────────────────────────────┤
+│ Description                         │
+│  - Long description from API       │
+│  - Links (GitHub, Website, etc.)    │
+├─────────────────────────────────────┤
+│ Versions                            │
+│  - List of all versions             │
+│  - Changelog for each              │
+│  - Dependencies for each            │
+├─────────────────────────────────────┤
+│ Installation Status                 │
+│  - Which profiles have this mod     │
+│  - What version on each profile     │
+└─────────────────────────────────────┘
+```
+
+### 3.2 Create ModDetail Component
+
+**File:** `src/lib/features/mods/components/ModDetail.svelte`
+
+**Sections:**
+
+- **Header:** Mod name, author, stats
+- **Description:** Long description, external links
+- **Versions:** Accordion/collapsible version list
+- **Dependencies:** Show tree or list of dependencies
+- **Installed On:** List of profiles with this mod installed
+
+### 3.3 Add Version History Component
+
+**File:** `src/lib/features/mods/components/VersionHistory.svelte`
+
+**Features:**
+
+- List all versions sorted by date (newest first)
+- Show changelog for each version
+- Highlight currently selected version
+- Show dependencies with version constraints
+- "View" and "Install" buttons
+
+### 3.4 Add Dependency Tree Component
+
+**File:** `src/lib/features/mods/components/DependencyTree.svelte`
+
+**Features:**
+
+- Visual tree of mod dependencies
+- Show installed vs missing dependencies
+- Version constraint satisfaction check
+- Click to install missing dependencies
+
+### 3.5 Add API Queries
+
+**File:** `src/lib/features/mods/queries.ts`
+
+**New Queries:**
+
+```ts
+versions: (modId: string) => ({
+  queryKey: ['mods', 'versions', modId],
+  queryFn: () => apiFetch(`/api/v2/mods/${modId}/versions`, ModVersionsArray)
+}),
+
+installedProfiles: (modId: string) => ({
+  queryKey: ['mods', 'installed-profiles', modId],
+  queryFn: async () => {
+    const profiles = await profileService.getProfiles();
+    return profiles.filter(p => p.mods.some(m => m.mod_id === modId));
+  }
+})
+```
 
 ---
 
-## Implementation Checklist
+## Phase 4: Enhanced AddToProfileDialog
 
-1. [x] **Dependencies**: Install Bun and Cargo packages.
-2. [x] **Backend**: Implement Rust DLL directory and process check commands.
-3. [ ] **Storage**: Define ArkType schemas for validation.
-4. [ ] **Logic**: Build Profile and Launch services.
-5. [ ] **FS**: Implement Zip extraction and Mod DLL writing.
-6. [ ] **UI**: Build Svelte components and integrate TanStack Query.
-7. [ ] **Test**: Verify launch arguments and directory isolation.
+### 4.1 Show Dependencies
+
+**File:** `src/lib/features/profiles/components/AddToProfileDialog.svelte`
+
+**Changes:**
+
+- Fetch version info before showing install
+- Display dependencies list with version constraints
+- Check if dependencies are satisfied:
+  - Already installed on profile?
+  - Compatible version installed?
+  - Missing entirely?
+- Warning if dependencies unsatisfied
+- "Install Dependencies" checkbox
+
+### 4.2 Dependency Resolution
+
+**File:** `src/lib/features/profiles/mod-install-service.ts`
+
+**New Methods:**
+
+```ts
+async checkDependencies(
+  modId: string,
+  version: string,
+  profile: Profile
+): Promise<{
+  satisfied: boolean;
+  missing: ModDependency[];
+  conflicting: { dep: ModDependency; installed: ProfileModEntry }[];
+}> {
+  // Fetch dependencies for version
+  // Check against profile's installed mods
+  // Return satisfaction status
+}
+
+async installWithDependencies(
+  modId: string,
+  version: string,
+  profilePath: string,
+  options: { includeDeps?: boolean }
+): Promise<void> {
+  // Install main mod
+  // Optionally install missing dependencies
+}
+```
+
+### 4.3 Improved UX
+
+**Features:**
+
+- Show dependency tree in dialog
+- Green checkmark for satisfied deps
+- Red warning for missing/deps
+- "Install all required" button
+- Progress indicator for multi-mod install
+
+---
+
+## Phase 5: Remove Mod from Profile
+
+### 5.1 Add Remove Button
+
+**File:** `src/lib/features/profiles/components/ProfileCard.svelte`
+
+**Location:**
+
+- Inside "Manage Mods" dropdown menu
+- Next to each installed mod in the list
+
+### 5.2 Confirmation Dialog
+
+**File:** `src/lib/features/profiles/components/RemoveModDialog.svelte`
+
+**New Component:**
+
+```svelte
+<Dialog.Root>
+	<Dialog.Content>
+		<Dialog.Header>
+			<Dialog.Title>Remove Mod from Profile?</Dialog.Title>
+			<Dialog.Description>
+				This will remove {modName} from {profileName}.
+			</Dialog.Description>
+		</Dialog.Header>
+
+		{#if hasDependents}
+			<Alert>
+				<Warning />
+				<AlertTitle>Other mods depend on this mod</AlertTitle>
+				<AlertDescription>
+					The following mods may stop working: {dependentNames}
+				</AlertDescription>
+			</Alert>
+		{/if}
+
+		<div class="flex justify-end gap-2">
+			<Dialog.Close><Button variant="outline">Cancel</Button></Dialog.Close>
+			<Button onclick={handleRemove}>Remove</Button>
+		</div>
+	</Dialog.Content>
+</Dialog.Root>
+```
+
+### 5.3 Dependency Check Before Removal
+
+**File:** `src/lib/features/profiles/mod-install-service.ts`
+
+**New Method:**
+
+```ts
+async checkDependents(
+  modId: string,
+  profileId: string
+): Promise<string[]> {
+  // Get profile's installed mods
+  // Check dependencies of each mod
+  // Return list of mods that depend on modId
+}
+```
+
+### 5.4 Update ProfileService
+
+**File:** `src/lib/features/profiles/profile-service.ts`
+
+**Change:** Already has `removeModFromProfile()` - add dependency validation
+
+---
+
+## Phase 6: Query Integration
+
+### 6.1 Update modQueries
+
+**File:** `src/lib/features/mods/queries.ts`
+
+**Add:**
+
+```ts
+versions: (modId: string) => queryOptions({
+  queryKey: ['mods', 'versions', modId],
+  queryFn: () => apiFetch(`/api/v2/mods/${modId}/versions`, ModVersionsArray),
+  staleTime: 1000 * 60 * 5
+}),
+
+versionInfo: (modId: string, version: string) => queryOptions({
+  queryKey: ['mods', 'version-info', modId, version],
+  queryFn: () => apiFetch(`/api/v2/mods/${modId}/versions/${version}/info`, ModVersionInfo),
+  staleTime: 1000 * 60 * 30
+})
+```
+
+### 6.2 Add Optimistic Updates
+
+**Pattern:** Use in AddToProfileDialog and ProfileCard removal
+
+```ts
+// In component
+const queryClient = useQueryClient();
+
+async function handleInstall() {
+	const previous = queryClient.getQueryData<Profile[]>(['profiles']);
+
+	// Optimistic update
+	queryClient.setQueryData(['profiles'], (old = []) =>
+		(old as Profile[]).map((p) =>
+			p.id === profileId
+				? {
+						...p,
+						mods: [...p.mods, { mod_id, version }]
+					}
+				: p
+		)
+	);
+
+	try {
+		await modInstallService.installModToProfile(modId, version, profile.path);
+	} catch (e) {
+		queryClient.setQueryData(['profiles'], previous);
+		throw e;
+	}
+}
+```
+
+---
+
+## Phase 7: Data Flow Diagrams
+
+### 7.1 Install Mod Flow
+
+```
+User clicks "Add to Profile"
+  ↓
+AddToProfileDialog opens
+  ↓
+User selects profile & version
+  ↓
+Fetch version info (dependencies)
+  ↓
+Display dependency check
+  ↓
+User confirms install
+  ↓
+[Optimistic] Update query cache
+  ↓
+Download mod DLL (verify checksum)
+  ↓
+Write to profile/BepInEx/plugins/
+  ↓
+Update profile store (mods array)
+  ↓
+Invalidate profiles query
+```
+
+### 7.2 Remove Mod Flow
+
+```
+User clicks "Remove" in ProfileCard
+  ↓
+RemoveModDialog opens
+  ↓
+Check for dependent mods
+  ↓
+Show warning if dependents exist
+  ↓
+User confirms removal
+  ↓
+[Optimistic] Update query cache
+  ↓
+Delete mod DLL from profile
+  ↓
+Update profile store (remove from mods array)
+  ↓
+Invalidate profiles query
+```
+
+---
+
+## Phase 8: Error Handling & Edge Cases
+
+### 8.1 Error Scenarios
+
+- **Network error during download:** Show retry button
+- **Checksum mismatch:** Show error, don't install
+- **Disk full:** Show error message
+- **Permission denied:** Show error, check write access
+- **Profile deleted during install:** Handle gracefully
+- **Dependency version conflict:** Show conflict, let user resolve
+
+### 8.2 Loading States
+
+- Show spinner during download
+- Show progress bar for large files
+- Disable buttons during installation
+- Show "Installing..." text
+
+### 8.3 Empty States
+
+- No profiles: Prompt to create profile first
+- No mods on profile: Show "No mods installed"
+- No versions available: Show "No versions available"
+
+---
+
+## Phase 9: Testing Checklist
+
+### 9.1 Install Mod
+
+- [ ] Dialog opens correctly
+- [ ] Profile dropdown shows all profiles
+- [ ] Version dropdown shows all versions
+- [ ] Dependencies display correctly
+- [ ] Install works with valid data
+- [ ] Error handling on network failure
+- [ ] Optimistic update works
+- [ ] Rollback on error
+
+### 9.2 Remove Mod
+
+- [ ] Remove dialog opens
+- [ ] Dependent mods detected
+- [ ] Warning shown for dependents
+- [ ] Removal works
+- [ ] ProfileCard updates
+- [ ] File deleted from disk
+
+### 9.3 UI Components
+
+- [ ] ProfileCard shows mods correctly
+- [ ] ModCard has "Add to Profile" button
+- [ ] Mod detail page loads
+- [ ] Version history displays
+- [ ] Dependency tree renders
+
+### 9.4 Edge Cases
+
+- [ ] No profiles → create profile prompt
+- [ ] No versions → handle gracefully
+- [ ] Circular dependencies → detect and warn
+- [ ] Version constraint mismatch → show conflict
+- [ ] Concurrent installs → handle race conditions
+
+---
+
+## Phase 10: Implementation Priority
+
+**MVP (Minimum Viable Product):**
+
+1. Add "Add to Profile" button to ModCard
+2. Update ProfileCard to show installed mods
+3. Add remove mod functionality
+4. Basic dependency display in AddToProfileDialog
+
+**Phase 2 (Enhanced):** 5. Create mod detail page 6. Version history display 7. Dependency tree visualization 8. Dependent mod checking on removal
+
+**Phase 3 (Polish):** 9. Installation progress tracking 10. Batch install dependencies 11. Conflict resolution UI 12. Better error messages and recovery
+
+---
+
+## File Structure
+
+```
+src/lib/features/
+├── mods/
+│   ├── components/
+│   │   ├── ModCard.svelte          # UPDATE: Add "Add to Profile" button
+│   │   ├── ModDetail.svelte        # NEW: Mod detail page component
+│   │   ├── VersionHistory.svelte  # NEW: Version list with changelog
+│   │   └── DependencyTree.svelte   # NEW: Visual dependency tree
+│   └── queries.ts                  # UPDATE: Add version info queries
+└── profiles/
+    ├── components/
+    │   ├── ProfileCard.svelte     # UPDATE: Show installed mods, remove button
+    │   ├── AddToProfileDialog.svelte # UPDATE: Show dependencies
+    │   └── RemoveModDialog.svelte  # NEW: Confirmation dialog
+    ├── profile-service.ts          # UPDATE: Enhanced remove with deps check
+    └── mod-install-service.ts     # UPDATE: Dependency resolution
+
+src/routes/
+└── mods/
+    └── [id]/
+        └── +page.svelte            # NEW: Mod detail page
+```
+
+---
 
 ## Summary
 
-This plan ensures a clean separation of concerns, utilizing Tauri's robust plugin ecosystem to minimize complex Rust code while providing a modern, reactive frontend for mod management.
+This plan provides a comprehensive approach to adding mod installation functionality to the profiles system. The MVP can be completed with minimal changes to existing infrastructure, while the enhanced phases add valuable user experience improvements like dependency visualization and version management.
+
+Key design decisions:
+
+1. **Optimistic updates** for instant UI feedback
+2. **Dependency validation** to prevent broken installs
+3. **Rollback on error** to maintain data consistency
+4. **Progressive enhancement** - MVP first, polish later

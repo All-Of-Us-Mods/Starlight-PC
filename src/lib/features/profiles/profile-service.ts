@@ -41,22 +41,40 @@ class ProfileService {
 
 		await mkdir(profilePath, { recursive: true });
 
-		const bepinexUrl = await this.getBepInExUrl();
-		await downloadBepInEx(profilePath, bepinexUrl);
-
 		const profile: Profile = {
 			id: profileId,
 			name: trimmed,
 			path: profilePath,
 			created_at: timestamp,
 			last_launched_at: undefined,
+			bepinex_installed: false,
 			mods: []
 		};
 
 		profiles.push(profile);
 		await store.set('profiles', profiles);
 		await store.save();
+
+		this.installBepInExInBackground(profileId, profilePath).catch((err) => {
+			console.error(`Failed to install BepInEx for profile ${profileId}:`, err);
+		});
+
 		return profile;
+	}
+
+	private async installBepInExInBackground(profileId: string, profilePath: string): Promise<void> {
+		const bepinexUrl = await this.getBepInExUrl();
+		await downloadBepInEx(profilePath, bepinexUrl);
+
+		const store = await this.getStore();
+		const profiles = (await store.get<Profile[]>('profiles')) ?? [];
+		const profileIndex = profiles.findIndex((p) => p.id === profileId);
+
+		if (profileIndex >= 0) {
+			profiles[profileIndex].bepinex_installed = true;
+			await store.set('profiles', profiles);
+			await store.save();
+		}
 	}
 
 	async deleteProfile(profileId: string): Promise<void> {

@@ -26,6 +26,11 @@ export const profileQueries = {
 		queryOptions({
 			queryKey: ['profiles', 'active'] as const,
 			queryFn: () => profileService.getActiveProfile()
+		}),
+	hasAny: () =>
+		queryOptions({
+			queryKey: ['profiles', 'hasAny'] as const,
+			queryFn: () => profileService.getProfiles().then((profiles) => profiles.length > 0)
 		})
 };
 

@@ -142,9 +142,7 @@
 			</div>
 		{:else}
 			{#each displayedMods as mod (mod.id)}
-				<a href="/mods/{mod.id}">
-					<ModCard {mod} />
-				</a>
+				<ModCard {mod} />
 			{/each}
 		{/if}
 	</main>

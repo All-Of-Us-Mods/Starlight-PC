@@ -8,119 +8,102 @@
 	import { profileQueries, modQueries } from '../queries';
 	import { modInstallService } from '../mod-install-service';
 	import { profileService } from '../profile-service';
-	import type { Profile } from '../schema';
 
 	let { modId }: { modId: string } = $props();
 
 	let open = $state(false);
-	let selectedProfileId = $state<string>('');
-	let selectedVersion = $state<string>('');
+	let selectedProfileId = $state('');
+	let selectedVersion = $state('');
 	let isInstalling = $state(false);
 	let error = $state('');
 
-	const profilesQuery = createQuery(() => profileQueries.all());
+	const profilesQuery = createQuery(() => ({
+		...profileQueries.all(),
+		enabled: open
+	}));
 	const versionsQuery = createQuery(() => ({
 		...modQueries.versions(modId),
 		enabled: open
 	}));
 
-	const profiles = $derived((profilesQuery.data ?? []) as Profile[]);
+	const profiles = $derived(profilesQuery.data ?? []);
 	const versions = $derived(versionsQuery.data ?? []);
+	const selectedProfile = $derived(profiles.find((p) => p.id === selectedProfileId));
 
-	const selectedProfile = $derived(
-		selectedProfileId ? profiles.find((p) => p.id === selectedProfileId) : undefined
-	);
+	// Automatically select the latest version when data arrives
+	$effect(() => {
+		if (profiles.length > 0 && !selectedProfile) {
+			const lastLaunched = [...profiles].sort((a, b) => b.created_at - a.created_at)[0];
+			selectedProfileId = lastLaunched.id;
+		}
+		if (versions.length > 0 && !selectedVersion) {
+			const latest = [...versions].sort((a, b) => b.created_at - a.created_at)[0];
+			selectedVersion = latest.version;
+		}
+	});
 
 	async function handleInstall() {
-		if (!selectedProfileId || !selectedVersion) return;
-
-		const profile = selectedProfile;
-		if (!profile) {
-			error = 'Profile not found';
-			return;
-		}
-
-		error = '';
+		if (!selectedProfile || !selectedVersion) return;
 		try {
 			isInstalling = true;
-			await modInstallService.installModToProfile(modId, selectedVersion, profile.path);
-
+			error = '';
+			await modInstallService.installModToProfile(modId, selectedVersion, selectedProfile.path);
 			await profileService.addModToProfile(selectedProfileId, modId, selectedVersion);
-
-			selectedProfileId = '';
-			selectedVersion = '';
 			open = false;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to install mod';
+			error = e instanceof Error ? e.message : 'Failed to install';
 		} finally {
 			isInstalling = false;
 		}
 	}
 
-	function onOpenChange(isOpen: boolean) {
-		open = isOpen;
-		if (!isOpen) {
-			selectedProfileId = '';
-			selectedVersion = '';
-			error = '';
-		}
+	function reset() {
+		selectedProfileId = '';
+		selectedVersion = '';
+		error = '';
 	}
 </script>
 
-<Dialog.Root bind:open {onOpenChange}>
+<Dialog.Root bind:open onOpenChange={(v) => !v && reset()}>
 	<Dialog.Trigger>
-		<Button size="sm">
-			<Plus class="mr-2 h-4 w-4" />
-			Add to Profile
-		</Button>
+		<Button size="sm">Install <Plus class="ml-2 h-4 w-4" /></Button>
 	</Dialog.Trigger>
 	<Dialog.Content>
 		<Dialog.Header>
 			<Dialog.Title>Add Mod to Profile</Dialog.Title>
-			<Dialog.Description>Select a profile and version to install this mod.</Dialog.Description>
 		</Dialog.Header>
 
 		<div class="space-y-4 py-4">
 			<div class="space-y-2">
-				<Label for="profile">Profile</Label>
+				<Label>Profile</Label>
 				<Select.Root bind:value={selectedProfileId} type="single" disabled={isInstalling}>
-					<Select.Trigger id="profile">
-						{selectedProfile?.name ?? 'Select a profile'}
-					</Select.Trigger>
+					<Select.Trigger>{selectedProfile?.name ?? 'Select profile'}</Select.Trigger>
 					<Select.Content>
-						{#each profiles as profile (profile.id)}
-							<Select.Item value={profile.id}>{profile.name}</Select.Item>
+						{#each profiles as p (p.id)}
+							<Select.Item value={p.id}>{p.name}</Select.Item>
 						{/each}
 					</Select.Content>
 				</Select.Root>
 			</div>
 
 			<div class="space-y-2">
-				<Label for="version">Version</Label>
-				<Select.Root
-					bind:value={selectedVersion}
-					type="single"
-					disabled={isInstalling || !selectedProfileId}
-				>
-					<Select.Trigger id="version">
-						{selectedVersion ?? 'Select a version'}
-					</Select.Trigger>
+				<Label>Version</Label>
+				<Select.Root bind:value={selectedVersion} type="single" disabled={isInstalling}>
+					<Select.Trigger>{selectedVersion || 'Select version'}</Select.Trigger>
 					<Select.Content>
-						{#each versions as version (version.id)}
-							<Select.Item value={version.version}>{version.version}</Select.Item>
+						{#each versions as v (v.version)}
+							<Select.Item value={v.version}>{v.version}</Select.Item>
 						{/each}
 					</Select.Content>
 				</Select.Root>
 			</div>
 
-			{#if error}
-				<p class="text-sm font-medium text-destructive">{error}</p>
-			{/if}
+			{#if error}<p class="text-sm text-destructive">{error}</p>{/if}
 
 			<div class="flex justify-end gap-2">
-				<Dialog.Close>
-					<Button variant="outline" disabled={isInstalling}>Cancel</Button>
-				</Dialog.Close>
+				<Button variant="outline" onclick={() => (open = false)} disabled={isInstalling}
+					>Cancel</Button
+				>
 				<Button
 					onclick={handleInstall}
 					disabled={isInstalling || !selectedProfileId || !selectedVersion}

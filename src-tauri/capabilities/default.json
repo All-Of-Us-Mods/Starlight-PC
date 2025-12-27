@@ -52,7 +52,12 @@
 		},
 		{
 			"identifier": "http:default",
-			"allow": [{ "url": "https://builds.bepinex.dev/*" }]
-		}
+			"allow": [
+				{
+					"url": "https://builds.bepinex.dev/*"
+				}
+			]
+		},
+		"opener:default"
 	]
 }

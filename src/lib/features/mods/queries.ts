@@ -57,6 +57,14 @@ export const modQueries = {
 			queryKey: ['mods', 'info', id] as const,
 			queryFn: () => apiFetch(`/api/v2/mods/${id}/info`, ModInfoResponse),
 			staleTime: STALE.medium,
-			enabled: !!id // Don't run with empty id
+			enabled: !!id
+		}),
+
+	byId: (id: string) =>
+		queryOptions({
+			queryKey: ['mods', 'by-id', id] as const,
+			queryFn: () => apiFetch(`/api/v2/mods/${id}`, ModResponse),
+			staleTime: STALE.long,
+			enabled: !!id
 		})
 };

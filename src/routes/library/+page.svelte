@@ -2,13 +2,16 @@
 	import { Library, Play, Ghost } from '@lucide/svelte';
 	import ProfileCard from '$lib/features/profiles/components/ProfileCard.svelte';
 	import CreateProfileDialog from '$lib/features/profiles/components/CreateProfileDialog.svelte';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { launchService } from '$lib/features/profiles/launch-service';
+	import { profileService } from '$lib/features/profiles/profile-service';
+	import { modInstallService } from '$lib/features/profiles/mod-install-service';
 	import type { Profile } from '$lib/features/profiles/schema';
+	import type { ProfileMod } from '$lib/features/profiles/schema';
 
+	const queryClient = useQueryClient();
 	const profilesQuery = createQuery(() => profileQueries.all());
-
 	const profiles = $derived((profilesQuery.data ?? []) as Profile[]);
 
 	async function handleLaunchVanilla() {
@@ -16,6 +19,62 @@
 			await launchService.launchVanilla();
 		} catch (e) {
 			alert(e instanceof Error ? e.message : 'Failed to launch game');
+		}
+	}
+
+	async function handleLaunchProfile(profile: Profile) {
+		const previousProfiles = queryClient.getQueryData<Profile[]>(['profiles']);
+
+		queryClient.setQueryData(['profiles'], (old = []) =>
+			(old as Profile[]).map((p) =>
+				p.id === profile.id ? { ...p, last_launched_at: Date.now() } : p
+			)
+		);
+
+		try {
+			await launchService.launchProfile(profile);
+		} catch (e) {
+			queryClient.setQueryData(['profiles'], previousProfiles);
+			alert(e instanceof Error ? e.message : 'Failed to launch profile');
+		}
+	}
+
+	async function handleDeleteProfile(profileId: string) {
+		if (!confirm('Delete this profile?')) return;
+
+		const previousProfiles = queryClient.getQueryData<Profile[]>(['profiles']);
+
+		queryClient.setQueryData(['profiles'], (old = []) =>
+			(old as Profile[]).filter((p) => p.id !== profileId)
+		);
+
+		try {
+			await profileService.deleteProfile(profileId);
+		} catch (e) {
+			queryClient.setQueryData(['profiles'], previousProfiles);
+			alert(e instanceof Error ? e.message : 'Failed to delete profile');
+		}
+	}
+
+	async function handleRemoveMod(profileId: string, mod: ProfileMod) {
+		const previousProfiles = queryClient.getQueryData<Profile[]>(['profiles']);
+
+		queryClient.setQueryData(['profiles'], (old = []) =>
+			(old as Profile[]).map((p) =>
+				p.id === profileId ? { ...p, mods: p.mods.filter((m) => m.mod_id !== mod.mod_id) } : p
+			)
+		);
+
+		try {
+			const profile = profiles.find((p) => p.id === profileId);
+			if (!profile) return;
+
+			const modVersionInfo = await modInstallService.getModVersionInfo(mod.mod_id, mod.version);
+			await modInstallService.removeModFromProfile(modVersionInfo.file_name, profile.path);
+			await profileService.removeModFromProfile(profileId, mod.mod_id);
+		} catch (e) {
+			queryClient.setQueryData(['profiles'], previousProfiles);
+			alert(e instanceof Error ? e.message : 'Failed to remove mod from profile');
 		}
 	}
 </script>
@@ -69,7 +128,12 @@
 		{:else}
 			<div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
 				{#each profiles as profile (profile.id)}
-					<ProfileCard {profile} />
+					<ProfileCard
+						{profile}
+						onlaunch={() => handleLaunchProfile(profile)}
+						ondelete={() => handleDeleteProfile(profile.id)}
+						onremove={(mod) => handleRemoveMod(profile.id, mod)}
+					/>
 				{/each}
 			</div>
 		{/if}

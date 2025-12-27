@@ -11,6 +11,7 @@ export const ProfileEntry = type({
 	path: 'string',
 	created_at: 'number',
 	'last_launched_at?': 'number',
+	'bepinex_installed?': 'boolean',
 	mods: type(ProfileModEntry.array())
 });
 

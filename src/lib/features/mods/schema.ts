@@ -46,10 +46,15 @@ export const ModVersionInfo = type({
 });
 
 export const ModVersion = type({
-	id: 'string',
+	name: 'string',
 	version: 'string',
-	download_url: 'string',
-	info_url: 'string'
+	platform: 'string',
+	downloads: 'number',
+	created_at: 'number',
+	_links: {
+		self: 'string',
+		info: 'string'
+	}
 });
 
 // TypeScript Types
