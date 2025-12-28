@@ -49,6 +49,7 @@
 			error = '';
 			await modInstallService.installModToProfile(modId, selectedVersion, selectedProfile.path);
 			await profileService.addModToProfile(selectedProfileId, modId, selectedVersion);
+			await queryClient.invalidateQueries({ queryKey: ['profiles'] });
 			open = false;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to install';
