@@ -36,7 +36,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
             librsvg2-dev \
             patchelf \
             libayatana-appindicator3-dev
@@ -50,6 +49,7 @@ jobs:
           # The updater needs these signature keys to work:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          PUBLIC_API_URL: 'https://starlight.allofus.dev'
         with:
           tagName: v__VERSION__
           releaseName: 'App v__VERSION__'
