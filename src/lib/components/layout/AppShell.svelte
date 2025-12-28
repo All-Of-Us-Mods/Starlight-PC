@@ -201,7 +201,7 @@
 	</div>
 </div>
 
-<style>
+<style lang="postcss">
 	@reference "$lib/../app.css";
 
 	[data-tauri-drag-region] {

@@ -32,4 +32,7 @@ jobs:
         run: bun run lint
 
       - name: Run Check
+        env:
+          # Provide a dummy value so SvelteKit sync doesn't fail
+          PUBLIC_API_URL: 'https://api.example.com'
         run: bun run check
