@@ -4,7 +4,7 @@
 	import * as Select from '$lib/components/ui/select';
 	import { Label } from '$lib/components/ui/label';
 	import { Plus } from '@lucide/svelte';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { profileQueries, modQueries } from '../queries';
 	import { modInstallService } from '../mod-install-service';
 	import { profileService } from '../profile-service';
