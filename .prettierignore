@@ -7,3 +7,8 @@ bun.lockb
 
 # Miscellaneous
 /static/
+
+# Ignore the rust backend
+src-tauri/
+# Ignore the readme
+README.md
