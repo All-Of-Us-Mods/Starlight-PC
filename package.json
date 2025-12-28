@@ -58,6 +58,7 @@
 		"@tauri-apps/plugin-opener": "~2",
 		"@tauri-apps/plugin-os": "^2.3.2",
 		"@tauri-apps/plugin-store": "~2",
+		"@tauri-apps/plugin-updater": "~2",
 		"arktype": "^2.1.29",
 		"dompurify": "^3.3.0",
 		"jszip": "^3.10.1",

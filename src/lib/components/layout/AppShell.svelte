@@ -15,9 +15,11 @@
 	import { launchService } from '$lib/features/profiles/launch-service';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { showToastError } from '$lib/utils/toast';
+	import CreateProfileDialog from '$lib/features/profiles/components/CreateProfileDialog.svelte';
 
 	let { children } = $props();
 	const sidebar = setSidebar();
+	let dialogRef = $state({ open: () => {} });
 
 	// Detect platform for layout adjustments
 	let platformName = $state<'macos' | 'windows' | 'linux' | 'other'>('other');
@@ -154,9 +156,12 @@
 			<Library class="h-6 w-6" />
 		</NavButton>
 		<div class="mx-auto my-2 h-px w-6 bg-accent"></div>
-		<NavButton to="/new" tooltip="Create New">
+		<NavButton to={() => dialogRef.open()} tooltip="Create New">
 			<Plus class="h-6 w-6" />
 		</NavButton>
+		<div class="hidden">
+			<CreateProfileDialog {dialogRef} />
+		</div>
 		<div class="flex grow"></div>
 		<NavButton
 			to="/settings"
@@ -196,7 +201,7 @@
 	</div>
 </div>
 
-<style>
+<style lang="postcss">
 	@reference "$lib/../app.css";
 
 	[data-tauri-drag-region] {

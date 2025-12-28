@@ -17,11 +17,13 @@ pub fn launch_modded(
 ) -> Result<(), String> {
     let game_path = PathBuf::from(&game_exe);
     let game_dir = game_path.parent().ok_or("Invalid game path")?;
-    let profile_dir = PathBuf::from(&profile_path);
+    #[cfg(not(windows))]
+    let _ = profile_path;
 
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
+        let profile_dir = PathBuf::from(&profile_path);
         let wide: Vec<u16> = profile_dir
             .as_os_str()
             .encode_wide()

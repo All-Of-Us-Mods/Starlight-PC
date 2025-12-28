@@ -12,6 +12,7 @@
 	const queryClient = useQueryClient();
 
 	let open = $state(false);
+	let { dialogRef }: { dialogRef?: { open: () => void } } = $props();
 	let name = $state('');
 	let isCreating = $state(false);
 	let error = $state('');
@@ -67,6 +68,12 @@
 				pollTimer = null;
 			}
 		}
+	}
+
+	if (dialogRef) {
+		dialogRef.open = () => {
+			open = true;
+		};
 	}
 </script>
 
