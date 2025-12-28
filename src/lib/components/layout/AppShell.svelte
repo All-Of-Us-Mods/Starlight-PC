@@ -54,7 +54,7 @@
 		try {
 			await launchService.launchProfile(activeProfile);
 		} catch (e) {
-			showToastError(e instanceof Error ? e.message : 'Failed to launch profile');
+			showToastError(e);
 		}
 	}
 </script>

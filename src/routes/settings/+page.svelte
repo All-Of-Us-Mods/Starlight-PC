@@ -36,7 +36,7 @@
 				close_on_launch: localCloseOnLaunch
 			});
 		} catch (e) {
-			showToastError(e instanceof Error ? e.message : 'Failed to save settings');
+			showToastError(e);
 		}
 	}
 </script>

@@ -7,6 +7,7 @@
 	import { profileService } from '../profile-service';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import type { Profile } from '../schema';
+	import { handleError } from '$lib/utils/error-handler';
 
 	const queryClient = useQueryClient();
 
@@ -50,7 +51,7 @@
 			name = '';
 			open = false;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to create profile';
+			error = handleError(e);
 		} finally {
 			isCreating = false;
 		}

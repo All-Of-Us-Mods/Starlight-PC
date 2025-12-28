@@ -19,7 +19,7 @@
 		try {
 			await launchService.launchVanilla();
 		} catch (e) {
-			showToastError(e instanceof Error ? e.message : 'Failed to launch game');
+			showToastError(e);
 		}
 	}
 
@@ -36,7 +36,7 @@
 			await launchService.launchProfile(profile);
 		} catch (e) {
 			queryClient.setQueryData(['profiles'], previousProfiles);
-			showToastError(e instanceof Error ? e.message : 'Failed to launch profile');
+			showToastError(e);
 		}
 	}
 
@@ -53,7 +53,7 @@
 			await profileService.deleteProfile(profileId);
 		} catch (e) {
 			queryClient.setQueryData(['profiles'], previousProfiles);
-			showToastError(e instanceof Error ? e.message : 'Failed to delete profile');
+			showToastError(e);
 		}
 	}
 
@@ -75,7 +75,7 @@
 			await profileService.removeModFromProfile(profileId, mod.mod_id);
 		} catch (e) {
 			queryClient.setQueryData(['profiles'], previousProfiles);
-			showToastError(e instanceof Error ? e.message : 'Failed to remove mod from profile');
+			showToastError(e);
 		}
 	}
 </script>
