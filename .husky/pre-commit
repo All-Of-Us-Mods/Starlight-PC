@@ -1,1 +1,1 @@
-bun lint
+bun lint && bun check
