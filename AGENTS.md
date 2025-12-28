@@ -200,15 +200,6 @@ pub fn get_data(app: tauri::AppHandle) -> Result<String, String> {
 
 ## Git Workflow
 
-### Pre-commit Hook
-
-Husky runs `bun lint` before each commit. Ensure code passes:
-
-```bash
-bun lint    # Must pass
-bun format  # Fix formatting issues
-```
-
 ### Commit Messages
 
 Use conventional commits:
