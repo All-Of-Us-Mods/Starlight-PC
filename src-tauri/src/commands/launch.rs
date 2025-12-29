@@ -26,7 +26,7 @@ fn start_process_monitor<R: Runtime>(app: AppHandle<R>) {
         loop {
             std::thread::sleep(Duration::from_millis(500));
 
-            let mut guard = GAME_PROCESS.lock().unwrap();
+            let mut guard = GAME_PROCESS.lock().map_err(|_| "Failed to acquire process lock")?;
             if let Some(ref mut child) = *guard {
                 match child.try_wait() {
                     Ok(Some(_status)) => {
