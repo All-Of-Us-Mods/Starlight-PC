@@ -2,6 +2,8 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { invoke } from '@tauri-apps/api/core';
+	import { open as openDialog } from '@tauri-apps/plugin-dialog';
+	import { exists } from '@tauri-apps/plugin-fs';
 
 	let {
 		detectedPath = '',
@@ -31,6 +33,21 @@
 		}
 	}
 
+	async function handleBrowse() {
+		try {
+			const selected = await openDialog({
+				directory: true,
+				multiple: false,
+				title: 'Select Among Us Installation Folder'
+			});
+			if (selected) {
+				selectedPath = selected;
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to browse for folder';
+		}
+	}
+
 	async function handleConfirm() {
 		if (!selectedPath) {
 			error = 'Please select a path';
@@ -38,6 +55,12 @@
 		}
 
 		try {
+			const exePath = `${selectedPath}/Among Us.exe`;
+			if (!(await exists(exePath))) {
+				error = 'Selected folder does not contain Among Us.exe';
+				return;
+			}
+
 			const { settingsService } = await import('../settings-service');
 			await settingsService.updateSettings({ among_us_path: selectedPath });
 			open = false;
@@ -65,13 +88,14 @@
 		</Dialog.Header>
 
 		<div class="space-y-4 py-4">
-			<div>
+			<div class="flex gap-2">
 				<input
 					type="text"
-					class="w-full rounded-md border bg-input px-3 py-2 text-sm"
+					class="flex-1 rounded-md border bg-input px-3 py-2 text-sm"
 					bind:value={selectedPath}
 					placeholder="C:\\Program Files\\Steam\\steamapps\\common\\Among Us"
 				/>
+				<Button variant="outline" onclick={handleBrowse}>Browse</Button>
 			</div>
 
 			<div class="flex gap-2">

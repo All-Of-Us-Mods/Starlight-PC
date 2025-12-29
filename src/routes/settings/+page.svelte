@@ -11,6 +11,8 @@
 	import type { AppSettings } from '$lib/features/settings/schema';
 	import { showToastError, showToastSuccess } from '$lib/utils/toast';
 	import { invoke } from '@tauri-apps/api/core';
+	import { open as openDialog } from '@tauri-apps/plugin-dialog';
+	import { exists } from '@tauri-apps/plugin-fs';
 
 	const settingsQuery = createQuery(() => settingsQueries.get());
 	const settings = $derived(settingsQuery.data as AppSettings | undefined);
@@ -33,6 +35,14 @@
 	});
 
 	async function handleSave() {
+		if (localAmongUsPath) {
+			const exePath = `${localAmongUsPath}/Among Us.exe`;
+			if (!(await exists(exePath))) {
+				showToastError('Selected folder does not contain Among Us.exe');
+				return;
+			}
+		}
+
 		isSaving = true;
 		try {
 			await settingsService.updateSettings({
@@ -64,6 +74,21 @@
 			showToastError(e);
 		} finally {
 			isDetecting = false;
+		}
+	}
+
+	async function handleBrowse() {
+		try {
+			const selected = await openDialog({
+				directory: true,
+				multiple: false,
+				title: 'Select Among Us Installation Folder'
+			});
+			if (selected) {
+				localAmongUsPath = selected;
+			}
+		} catch (e) {
+			showToastError(e);
 		}
 	}
 </script>
@@ -117,6 +142,7 @@
 								bind:value={localAmongUsPath}
 								placeholder="C:\Program Files (x86)\Steam\steamapps\common\Among Us"
 							/>
+							<Button variant="outline" onclick={handleBrowse}>Browse</Button>
 							<Button variant="outline" onclick={handleAutoDetect} disabled={isDetecting}>
 								{#if isDetecting}
 									<RefreshCw class="h-4 w-4 animate-spin" />

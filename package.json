@@ -53,6 +53,7 @@
 		"@tanstack/svelte-query": "^6.0.3",
 		"@tanstack/svelte-query-persist-client": "^6.0.14",
 		"@tauri-apps/api": "^2.9.0",
+		"@tauri-apps/plugin-dialog": "~2",
 		"@tauri-apps/plugin-fs": "~2",
 		"@tauri-apps/plugin-http": "~2",
 		"@tauri-apps/plugin-opener": "~2",
