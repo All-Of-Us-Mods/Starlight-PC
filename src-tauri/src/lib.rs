@@ -1,4 +1,5 @@
 mod commands;
+mod utils;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -70,6 +71,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::finder::detect_among_us,
             commands::launch::launch_modded,
             commands::launch::launch_vanilla
         ])

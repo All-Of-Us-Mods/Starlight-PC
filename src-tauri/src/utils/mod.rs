@@ -1,2 +1,2 @@
 pub mod finder;
-pub mod launch;
+pub mod game;

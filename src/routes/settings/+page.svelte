@@ -4,12 +4,13 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import { Settings, Save } from '@lucide/svelte';
+	import { Settings, Save, RefreshCw } from '@lucide/svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { settingsService } from '$lib/features/settings/settings-service';
 	import type { AppSettings } from '$lib/features/settings/schema';
 	import { showToastError, showToastSuccess } from '$lib/utils/toast';
+	import { invoke } from '@tauri-apps/api/core';
 
 	const settingsQuery = createQuery(() => settingsQueries.get());
 	const settings = $derived(settingsQuery.data as AppSettings | undefined);
@@ -20,6 +21,7 @@
 	let localBepInExVersion = $state('');
 	let localCloseOnLaunch = $state(false);
 	let isSaving = $state(false);
+	let isDetecting = $state(false);
 
 	$effect(() => {
 		if (settings) {
@@ -45,6 +47,23 @@
 			showToastError(e);
 		} finally {
 			isSaving = false;
+		}
+	}
+
+	async function handleAutoDetect() {
+		isDetecting = true;
+		try {
+			const path = await invoke<string | null>('detect_among_us');
+			if (path) {
+				localAmongUsPath = path;
+				showToastSuccess('Among Us path detected successfully');
+			} else {
+				showToastError('Could not auto-detect Among Us installation');
+			}
+		} catch (e) {
+			showToastError(e);
+		} finally {
+			isDetecting = false;
 		}
 	}
 </script>
@@ -92,11 +111,20 @@
 				<div class="space-y-4">
 					<div class="space-y-2">
 						<Label for="among-us-path">Among Us Installation Path</Label>
-						<Input
-							id="among-us-path"
-							bind:value={localAmongUsPath}
-							placeholder="C:\Program Files (x86)\Steam\steamapps\common\Among Us"
-						/>
+						<div class="flex gap-2">
+							<Input
+								id="among-us-path"
+								bind:value={localAmongUsPath}
+								placeholder="C:\Program Files (x86)\Steam\steamapps\common\Among Us"
+							/>
+							<Button variant="outline" onclick={handleAutoDetect} disabled={isDetecting}>
+								{#if isDetecting}
+									<RefreshCw class="h-4 w-4 animate-spin" />
+								{:else}
+									<RefreshCw class="h-4 w-4" />
+								{/if}
+							</Button>
+						</div>
 						<p class="text-sm text-muted-foreground">
 							The folder where Among Us is installed (contains "Among Us.exe")
 						</p>
