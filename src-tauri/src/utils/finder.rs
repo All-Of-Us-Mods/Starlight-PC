@@ -93,27 +93,3 @@ pub fn get_among_us_paths() -> Vec<PathBuf> {
         .into_iter()
         .collect()
 }
-
-// macOS stub - Among Us doesn't run natively on macOS
-#[cfg(target_os = "macos")]
-pub fn get_among_us_paths() -> Vec<PathBuf> {
-    Vec::new()
-}
-
-#[cfg(target_os = "windows")]
-pub fn is_among_us_running() -> bool {
-    let system = System::new_all();
-    [AMONG_US_EXE, "Among Us"].iter().any(|name| {
-        system
-            .processes_by_exact_name(OsStr::new(name))
-            .next()
-            .is_some()
-    })
-}
-
-// For non-Windows platforms, just return false
-// Among Us detection is only critical on Windows where the game runs
-#[cfg(not(target_os = "windows"))]
-pub fn is_among_us_running() -> bool {
-    false
-}
