@@ -12,6 +12,7 @@ export const ProfileEntry = type({
 	created_at: 'number',
 	'last_launched_at?': 'number',
 	'bepinex_installed?': 'boolean',
+	'total_play_time?': 'number',
 	mods: type(ProfileModEntry.array())
 });
 

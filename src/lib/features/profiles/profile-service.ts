@@ -1,6 +1,7 @@
 import { Store } from '@tauri-apps/plugin-store';
 import { mkdir, remove } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
+import { queryClient } from '$lib/state/queryClient';
 import type { Profile } from './schema';
 import { downloadBepInEx } from './bepinex-download';
 import { settingsService } from '../settings/settings-service';
@@ -49,6 +50,7 @@ class ProfileService {
 			created_at: timestamp,
 			last_launched_at: undefined,
 			bepinex_installed: false,
+			total_play_time: 0,
 			mods: []
 		};
 
@@ -134,6 +136,20 @@ class ProfileService {
 
 		await store.set('profiles', profiles);
 		await store.save();
+	}
+
+	async addPlayTime(profileId: string, durationMs: number): Promise<void> {
+		const store = await this.getStore();
+		const profiles = await this.getProfiles();
+		const profile = profiles.find((p) => p.id === profileId);
+
+		if (!profile) throw new Error(`Profile '${profileId}' not found`);
+
+		profile.total_play_time = (profile.total_play_time ?? 0) + durationMs;
+
+		await store.set('profiles', profiles);
+		await store.save();
+		queryClient.invalidateQueries({ queryKey: ['profiles'] });
 	}
 
 	async removeModFromProfile(profileId: string, modId: string): Promise<void> {

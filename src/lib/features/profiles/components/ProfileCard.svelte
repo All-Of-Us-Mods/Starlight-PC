@@ -2,8 +2,9 @@
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-	import * as Dialog from '$lib/components/ui/dialog';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { Badge } from '$lib/components/ui/badge';
+	import { Separator } from '$lib/components/ui/separator';
 	import {
 		Play,
 		FolderOpen,
@@ -12,7 +13,8 @@
 		Package,
 		EllipsisVertical,
 		Download,
-		Loader2
+		LoaderCircle,
+		Clock
 	} from '@lucide/svelte';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { createQuery } from '@tanstack/svelte-query';
@@ -47,9 +49,8 @@
 		}
 	}
 
-	async function handleRemoveMod(mod: ProfileMod) {
-		const modInfo = modsMap.get(mod.mod_id);
-		modToRemove = { mod, modInfo };
+	function handleRemoveMod(mod: ProfileMod) {
+		modToRemove = { mod, modInfo: modsMap.get(mod.mod_id) };
 		removeModDialogOpen = true;
 	}
 
@@ -61,11 +62,30 @@
 		}
 	}
 
+	function formatPlayTime(ms: number): string {
+		const seconds = Math.floor(ms / 1000);
+		const minutes = Math.floor(seconds / 60);
+		const hours = Math.floor(minutes / 60);
+
+		if (hours > 0) {
+			const remainingMinutes = minutes % 60;
+			return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+		}
+		if (minutes > 0) return `${minutes}m`;
+		return seconds > 0 ? `${seconds}s` : '0m';
+	}
+
 	const lastLaunched = $derived(
 		profile.last_launched_at ? new Date(profile.last_launched_at).toLocaleDateString() : 'Never'
 	);
 
 	const isRunning = $derived(gameState.isProfileRunning(profile.id));
+	const isInstalling = $derived(profile.bepinex_installed === false);
+	const isDisabled = $derived(isInstalling || isRunning);
+
+	const totalPlayTime = $derived(
+		(profile.total_play_time ?? 0) + (isRunning ? gameState.getSessionDuration() : 0)
+	);
 
 	const modIds = $derived(profile.mods.map((m) => m.mod_id));
 	const modsQueries = $derived(modIds.map((id) => createQuery(() => modQueries.byId(id))));
@@ -80,109 +100,85 @@
 	);
 
 	const displayedMods = $derived(showAllMods ? profile.mods : profile.mods.slice(0, 3));
-
-	const hasMoreMods = $derived(profile.mods.length > 3);
+	const hiddenModCount = $derived(profile.mods.length - 3);
 </script>
 
-<Card.Root
-	class="overflow-hidden transition-all hover:bg-accent/50 {isRunning
-		? 'bg-green-500/5 ring-2 ring-green-500/50'
-		: ''}"
->
-	<Card.Content class="p-4">
-		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-			<div class="flex min-w-0 flex-1 flex-col gap-2">
+<div class="@container">
+	<Card.Root
+		class="transition-all hover:bg-accent/50 {isRunning
+			? 'bg-green-500/5 ring-2 ring-green-500/50'
+			: ''}"
+	>
+		<Card.Header class="gap-4 @md:flex-row @md:items-start @md:justify-between">
+			<div class="min-w-0 flex-1 space-y-1.5">
 				<div class="flex flex-wrap items-center gap-2">
-					<h3 class="truncate text-lg font-bold" title={profile.name}>{profile.name}</h3>
-					{#if profile.bepinex_installed === false}
-						<div
-							class="flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400"
-							title="BepInEx is being installed in background"
+					<Card.Title class="truncate" title={profile.name}>
+						{profile.name}
+					</Card.Title>
+					{#if isInstalling}
+						<Badge
+							variant="outline"
+							class="gap-1.5 border-amber-500/50 text-amber-600 dark:text-amber-400"
 						>
-							<Download class="h-3 w-3 animate-pulse" />
-							<span>Installing...</span>
-						</div>
+							<Download class="size-3 animate-pulse" />
+							Installing
+						</Badge>
+					{/if}
+					{#if isRunning}
+						<Badge
+							variant="outline"
+							class="gap-1.5 border-green-500/50 text-green-600 dark:text-green-400"
+						>
+							<LoaderCircle class="size-3 animate-spin" />
+							Running
+						</Badge>
 					{/if}
 				</div>
-				<div class="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-					<div class="flex items-center gap-1.5">
-						<Package class="h-4 w-4" />
-						<span>{profile.mods.length} mods</span>
-					</div>
-					<div class="flex items-center gap-1.5">
-						<Calendar class="h-4 w-4" />
-						<span>{lastLaunched}</span>
-					</div>
-				</div>
-
-				{#if profile.mods.length > 0}
-					<div class="mt-1 flex flex-wrap items-center gap-1.5">
-						{#each displayedMods as mod (mod.mod_id)}
-							<Badge variant="secondary" class="text-xs">
-								{#if modsMap.has(mod.mod_id)}
-									{modsMap.get(mod.mod_id)?.name}
-								{:else}
-									{mod.mod_id}
-								{/if}
-							</Badge>
-						{/each}
-						{#if hasMoreMods && !showAllMods}
-							<button
-								onclick={() => (showAllMods = true)}
-								class="text-xs text-muted-foreground hover:text-foreground"
-							>
-								+{profile.mods.length - 3} more
-							</button>
-						{:else if showAllMods}
-							<button
-								onclick={() => (showAllMods = false)}
-								class="text-xs text-muted-foreground hover:text-foreground"
-							>
-								Show less
-							</button>
-						{/if}
-					</div>
-				{:else}
-					<div class="mt-1 text-xs text-muted-foreground">No mods installed</div>
-				{/if}
+				<Card.Description class="flex flex-wrap items-center gap-x-3 gap-y-1">
+					<span class="inline-flex items-center gap-1.5">
+						<Package class="size-3.5" />
+						{profile.mods.length} mod{profile.mods.length !== 1 ? 's' : ''}
+					</span>
+					<span class="inline-flex items-center gap-1.5">
+						<Calendar class="size-3.5" />
+						{lastLaunched}
+					</span>
+					<span class="inline-flex items-center gap-1.5">
+						<Clock class="size-3.5" />
+						{formatPlayTime(totalPlayTime)}
+					</span>
+				</Card.Description>
 			</div>
 
-			<div class="flex items-center gap-2 sm:flex-row">
-				<Button
-					size="sm"
-					onclick={onlaunch}
-					disabled={profile.bepinex_installed === false || isRunning}
-					class={isRunning ? 'bg-green-600 hover:bg-green-700' : ''}
-				>
+			<div class="flex items-center gap-2 @md:shrink-0">
+				<Button size="sm" onclick={onlaunch} disabled={isDisabled}>
 					{#if isRunning}
-						<Loader2 class="mr-2 h-4 w-4 animate-spin" />
-						Running
+						<LoaderCircle class="size-4 animate-spin" />
+						<span class="hidden @md:inline">Running</span>
 					{:else}
-						<Play class="mr-2 h-4 w-4 fill-current" />
-						Launch
+						<Play class="size-4 fill-current" />
+						<span class="hidden @md:inline">Launch</span>
 					{/if}
 				</Button>
 
 				<DropdownMenu.Root>
 					<DropdownMenu.Trigger>
 						{#snippet child({ props })}
-							<Button {...props} variant="ghost" size="icon" aria-label="Profile actions">
-								<EllipsisVertical class="h-5 w-5" />
+							<Button {...props} variant="ghost" size="icon" class="size-8">
+								<EllipsisVertical class="size-4" />
+								<span class="sr-only">Profile actions</span>
 							</Button>
 						{/snippet}
 					</DropdownMenu.Trigger>
-					<DropdownMenu.Content align="end">
+					<DropdownMenu.Content align="end" class="w-48">
 						<DropdownMenu.Group>
-							<DropdownMenu.Item
-								onclick={onlaunch}
-								disabled={profile.bepinex_installed === false || isRunning}
-							>
-								<Play class="mr-2 h-4 w-4" />
-								<span>Launch</span>
+							<DropdownMenu.Item onclick={onlaunch} disabled={isDisabled}>
+								<Play class="size-4" />
+								Launch
 							</DropdownMenu.Item>
 							<DropdownMenu.Item onclick={handleOpenFolder}>
-								<FolderOpen class="mr-2 h-4 w-4" />
-								<span>Open Folder</span>
+								<FolderOpen class="size-4" />
+								Open Folder
 							</DropdownMenu.Item>
 						</DropdownMenu.Group>
 
@@ -190,18 +186,16 @@
 							<DropdownMenu.Separator />
 							<DropdownMenu.Sub>
 								<DropdownMenu.SubTrigger>
-									<Package class="mr-2 h-4 w-4" />
-									<span>Manage Mods</span>
+									<Package class="size-4" />
+									Manage Mods
 								</DropdownMenu.SubTrigger>
-								<DropdownMenu.SubContent>
+								<DropdownMenu.SubContent class="max-h-64 overflow-y-auto">
 									{#each profile.mods as mod (mod.mod_id)}
-										<DropdownMenu.Item onclick={() => handleRemoveMod(mod)}>
-											{#if modsMap.has(mod.mod_id)}
-												{modsMap.get(mod.mod_id)?.name}
-											{:else}
-												{mod.mod_id}
-											{/if}
-											<Trash2 class="ml-auto h-4 w-4 text-destructive" />
+										<DropdownMenu.Item onclick={() => handleRemoveMod(mod)} class="justify-between">
+											<span class="truncate">
+												{modsMap.get(mod.mod_id)?.name ?? mod.mod_id}
+											</span>
+											<Trash2 class="size-4 shrink-0 text-destructive" />
 										</DropdownMenu.Item>
 									{/each}
 								</DropdownMenu.SubContent>
@@ -213,43 +207,59 @@
 							onclick={ondelete}
 							class="text-destructive focus:bg-destructive focus:text-destructive-foreground"
 						>
-							<Trash2 class="mr-2 h-4 w-4" />
-							<span>Delete</span>
+							<Trash2 class="size-4" />
+							Delete Profile
 						</DropdownMenu.Item>
 					</DropdownMenu.Content>
 				</DropdownMenu.Root>
 			</div>
-		</div>
-	</Card.Content>
-</Card.Root>
+		</Card.Header>
 
-<Dialog.Root bind:open={removeModDialogOpen}>
-	<Dialog.Content>
-		<Dialog.Header>
-			<Dialog.Title>Remove Mod from Profile?</Dialog.Title>
-			<Dialog.Description>
+		{#if profile.mods.length > 0}
+			<Separator />
+			<Card.Content class="pt-4">
+				<div class="flex flex-wrap items-center gap-1.5">
+					{#each displayedMods as mod (mod.mod_id)}
+						<Badge variant="secondary" class="max-w-32 truncate text-xs">
+							{modsMap.get(mod.mod_id)?.name ?? mod.mod_id}
+						</Badge>
+					{/each}
+					{#if hiddenModCount > 0}
+						<button
+							type="button"
+							onclick={() => (showAllMods = !showAllMods)}
+							class="rounded-md px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						>
+							{showAllMods ? 'Show less' : `+${hiddenModCount} more`}
+						</button>
+					{/if}
+				</div>
+			</Card.Content>
+		{/if}
+	</Card.Root>
+</div>
+
+<AlertDialog.Root bind:open={removeModDialogOpen}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>Remove Mod?</AlertDialog.Title>
+			<AlertDialog.Description>
 				{#if modToRemove?.modInfo}
 					This will remove <strong>{modToRemove.modInfo.name}</strong> from
-					<strong>{profile.name}</strong>.
+					<strong>{profile.name}</strong>. You can reinstall it later from the Explore page.
 				{:else}
-					This will remove a mod from <strong>{profile.name}</strong>.
+					This will remove this mod from <strong>{profile.name}</strong>.
 				{/if}
-			</Dialog.Description>
-		</Dialog.Header>
-
-		<div class="flex items-start gap-3 rounded-lg bg-muted p-3 text-sm">
-			<Trash2 class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-			<p class="text-muted-foreground">
-				This action will delete mod file from profile. You can reinstall it later from the Explore
-				page.
-			</p>
-		</div>
-
-		<div class="flex justify-end gap-2">
-			<Dialog.Close>
-				<Button variant="outline">Cancel</Button>
-			</Dialog.Close>
-			<Button variant="destructive" onclick={confirmRemoveMod}>Remove Mod</Button>
-		</div>
-	</Dialog.Content>
-</Dialog.Root>
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+			<AlertDialog.Action
+				onclick={confirmRemoveMod}
+				class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+			>
+				Remove Mod
+			</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>
