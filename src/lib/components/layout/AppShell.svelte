@@ -5,8 +5,8 @@
 	import { browser } from '$app/environment';
 	import { setSidebar } from '$lib/state/sidebar.svelte';
 	import { default as StarlightIcon } from '$lib/assets/starlight.svg?component';
-	import { ArrowLeft, ArrowRight, Settings, Compass, House, Plus } from '@jis3r/icons';
-	import { Library, Play } from '@lucide/svelte';
+	import { ArrowLeft, ArrowRight, Settings, Compass, House, Plus, Maximize } from '@jis3r/icons';
+	import { Library, Play, X } from '@lucide/svelte';
 	import StarBackground from '$lib/components/shared/StarBackground.svelte';
 	import { platform } from '@tauri-apps/plugin-os';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -72,12 +72,19 @@
 			showToastError(e);
 		}
 	}
+
+	let isSidebarMaximized = $state(false);
+
+	function toggleSidebarMaximize() {
+		isSidebarMaximized = !isSidebarMaximized;
+	}
 </script>
 
 <div
 	class="app-shell relative isolate grid h-screen auto-rows-[auto_1fr] grid-cols-[auto_1fr] overflow-hidden bg-card
-		[--left-bar-width:4rem] [--right-bar-width:400px] [--top-bar-height:3rem]
+		[--left-bar-width:4rem] [--top-bar-height:3rem]
 		[grid-template-areas:'status_status'_'nav_dummy']"
+	style="--right-bar-width: {isSidebarMaximized ? '100%' : '400px'}"
 >
 	<!-- Star background -->
 	<div class="star-container pointer-events-none absolute inset-0 z-5 opacity-80">
@@ -210,10 +217,9 @@
 
 	<!-- Main Content Area -->
 	<div
-		class="absolute inset-0 top-(--top-bar-height) left-(--left-bar-width) z-1 grid h-[calc(100vh-var(--top-bar-height))] overflow-hidden rounded-tl-xl bg-background
-			transition-[grid-template-columns] duration-400 ease-in-out
-			{sidebar.isOpen ? 'grid-cols-[1fr_var(--right-bar-width)]' : 'grid-cols-[1fr_0px]'}"
-		ontransitionend={handleTransitionEnd}
+	class="absolute inset-0 top-(--top-bar-height) left-(--left-bar-width) z-1 grid h-[calc(100vh-var(--top-bar-height))] overflow-hidden rounded-tl-xl bg-background transition-[grid-template-columns] duration-400 ease-in-out"
+	style="grid-template-columns: 1fr {sidebar.isOpen ? 'var(--right-bar-width)' : '0px'}"
+	ontransitionend={handleTransitionEnd}
 	>
 		<div class="scrollbar-styled relative h-full grow overflow-y-auto">
 			<div
@@ -230,6 +236,10 @@
 		>
 			<div class="scrollbar-styled relative grow overflow-y-auto">
 				{#if sidebar.content}
+					<Button variant="ghost" size="icon" onclick={toggleSidebarMaximize}>
+						<Maximize class="h-4 w-4" />
+					</Button>
+
 					{@render sidebar.content()}
 				{/if}
 			</div>
