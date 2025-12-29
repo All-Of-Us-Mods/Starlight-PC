@@ -167,7 +167,7 @@
 				</Button>
 
 				<Button size="sm" onclick={() => goto('/explore')} aria-label="Install mods">
-					<Plus class="size-4"/>
+					<Plus class="size-4" />
 				</Button>
 
 				<DropdownMenu.Root>
