@@ -83,7 +83,7 @@ pub fn launch_modded<R: Runtime>(
     #[cfg(not(windows))]
     let _ = profile_path;
 
-    let _child = {
+    let child = {
         let mut guard = GAME_PROCESS.lock().unwrap();
         if let Some(ref mut child) = *guard {
             if child.try_wait().ok().flatten().is_none() {
@@ -91,7 +91,7 @@ pub fn launch_modded<R: Runtime>(
             }
         }
 
-        let child = Command::new(&game_exe)
+        Command::new(&game_exe)
             .current_dir(game_dir)
             .arg("--doorstop-enabled")
             .arg("true")
@@ -102,19 +102,19 @@ pub fn launch_modded<R: Runtime>(
             .arg("--doorstop-clr-runtime-coreclr-path")
             .arg(&coreclr_path)
             .spawn()
-            .map_err(|e| format!("Failed to spawn Among Us: {e}"))?;
-
-        *guard = Some(child);
-        guard
+            .map_err(|e| format!("Failed to spawn Among Us: {e}"))?
     };
 
+    // Store process first, then start monitor
+    *GAME_PROCESS.lock().unwrap() = Some(child);
     start_process_monitor(app);
+
     Ok(())
 }
 
 #[tauri::command]
 pub fn launch_vanilla<R: Runtime>(app: AppHandle<R>, game_exe: String) -> Result<(), String> {
-    let _child = {
+    let child = {
         let mut guard = GAME_PROCESS.lock().unwrap();
         if let Some(ref mut child) = *guard {
             if child.try_wait().ok().flatten().is_none() {
@@ -122,14 +122,13 @@ pub fn launch_vanilla<R: Runtime>(app: AppHandle<R>, game_exe: String) -> Result
             }
         }
 
-        let child = Command::new(&game_exe)
+        Command::new(&game_exe)
             .spawn()
-            .map_err(|e| format!("Failed to launch Among Us: {e}"))?;
-
-        *guard = Some(child);
-        guard
+            .map_err(|e| format!("Failed to launch Among Us: {e}"))?
     };
 
+    *GAME_PROCESS.lock().unwrap() = Some(child);
     start_process_monitor(app);
+
     Ok(())
 }
