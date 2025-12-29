@@ -11,7 +11,7 @@ class GameStateService {
 		return this.#running;
 	}
 
-	async #ensureInitialized() {
+	async init() {
 		if (this.#unlisten) return;
 
 		this.#unlisten = await listen<{ running: boolean }>('game-state-changed', (event) => {
