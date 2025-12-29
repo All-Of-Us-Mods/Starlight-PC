@@ -21,18 +21,17 @@
 	<div
 		class="sticky top-0 z-10 flex items-center justify-between border-b bg-muted/80 p-4 backdrop-blur-md"
 	>
-		<div class="flex gap-2">
-			<Button variant="ghost" size="icon" onclick={onclose}>
-				<X class="h-4 w-4" />
-			</Button>
-
-			<!-- Fullscreen Toggle Button -->
+		<div class="flex gap-2 justify-end w-full">
 			<Button variant="ghost" size="icon" onclick={() => sidebar.toggleMaximize()}>
 				{#if sidebar.isMaximized}
 					<Minimize class="h-4 w-4" />
 				{:else}
 					<Maximize class="h-4 w-4" />
 				{/if}
+			</Button>
+
+			<Button variant="ghost" size="icon" onclick={onclose}>
+				<X class="h-4 w-4" />
 			</Button>
 		</div>
 	</div>
