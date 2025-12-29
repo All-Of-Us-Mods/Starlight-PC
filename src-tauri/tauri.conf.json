@@ -1,7 +1,7 @@
 {
 	"$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-	"productName": "starlight-pc",
-	"version": "0.0.1",
+	"productName": "Starlight",
+	"version": "0.0.2",
 	"identifier": "dev.allofus.starlight",
 	"build": {
 		"frontendDist": "../build",
