@@ -7,13 +7,11 @@ export const newsQueries = {
 	all: () =>
 		queryOptions({
 			queryKey: ['news'] as const,
-			queryFn: () => apiFetch('/api/v2/news/posts', type(Post.array())),
-			staleTime: 1000 * 60 * 5
+			queryFn: () => apiFetch('/api/v2/news/posts', type(Post.array()))
 		}),
 	byId: (id: string | number) =>
 		queryOptions({
 			queryKey: ['news', id] as const,
-			queryFn: () => apiFetch(`/api/v2/news/posts/${id}`, Post),
-			staleTime: 1000 * 60 * 5
+			queryFn: () => apiFetch(`/api/v2/news/posts/${id}`, Post)
 		})
 };

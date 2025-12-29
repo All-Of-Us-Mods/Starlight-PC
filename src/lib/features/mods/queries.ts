@@ -6,19 +6,11 @@ import { ModResponse, ModInfoResponse, ModVersion } from './schema';
 // Pre-create validators (avoid recreating on every call)
 const ModArrayValidator = type(ModResponse.array());
 
-// Shared config
-const STALE = {
-	short: 1000 * 60 * 5, // 5 min
-	medium: 1000 * 60 * 15, // 15 min
-	long: 1000 * 60 * 30 // 30 min
-} as const;
-
 export const modQueries = {
 	latest: (limit = 20, offset = 0) =>
 		queryOptions({
 			queryKey: ['mods', 'list', { limit, offset }] as const,
-			queryFn: () => apiFetch('/api/v2/mods', ModArrayValidator),
-			staleTime: STALE.short
+			queryFn: () => apiFetch('/api/v2/mods', ModArrayValidator)
 		}),
 
 	explore: (search: string, limit: number, offset: number) => {
@@ -27,36 +19,33 @@ export const modQueries = {
 
 		return queryOptions({
 			queryKey: ['mods', 'explore', trimmed, limit, offset] as const,
+			gcTime: 1000 * 60 * 5, // 5 minutes,
 			queryFn: () =>
 				apiFetch(
 					trimmed
 						? `/api/v2/mods/search?q=${encodeURIComponent(trimmed)}&${params}`
 						: `/api/v2/mods?${params}`,
 					ModArrayValidator
-				),
-			staleTime: STALE.short
+				)
 		});
 	},
 
 	total: () =>
 		queryOptions({
 			queryKey: ['mods', 'total'] as const,
-			queryFn: () => apiFetch('/api/v2/mods/total', type('number')),
-			staleTime: STALE.long
+			queryFn: () => apiFetch('/api/v2/mods/total', type('number'))
 		}),
 
 	trending: () =>
 		queryOptions({
 			queryKey: ['mods', 'trending'] as const,
-			queryFn: () => apiFetch('/api/v2/mods/trending', ModArrayValidator),
-			staleTime: STALE.short
+			queryFn: () => apiFetch('/api/v2/mods/trending', ModArrayValidator)
 		}),
 
 	info: (id: string) =>
 		queryOptions({
 			queryKey: ['mods', 'info', id] as const,
 			queryFn: () => apiFetch(`/api/v2/mods/${id}/info`, ModInfoResponse),
-			staleTime: STALE.medium,
 			enabled: !!id
 		}),
 
@@ -64,14 +53,12 @@ export const modQueries = {
 		queryOptions({
 			queryKey: ['mods', 'by-id', id] as const,
 			queryFn: () => apiFetch(`/api/v2/mods/${id}`, ModResponse),
-			staleTime: STALE.long,
 			enabled: !!id
 		}),
 
 	versions: (modId: string) =>
 		queryOptions({
 			queryKey: ['mods', 'versions', modId] as const,
-			queryFn: () => apiFetch(`/api/v2/mods/${modId}/versions`, type(ModVersion.array())),
-			staleTime: STALE.short
+			queryFn: () => apiFetch(`/api/v2/mods/${modId}/versions`, type(ModVersion.array()))
 		})
 };

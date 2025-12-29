@@ -5,6 +5,7 @@ export const settingsQueries = {
 	get: () =>
 		queryOptions({
 			queryKey: ['settings'] as const,
-			queryFn: () => settingsService.getSettings()
+			queryFn: () => settingsService.getSettings(),
+			staleTime: Infinity
 		})
 };

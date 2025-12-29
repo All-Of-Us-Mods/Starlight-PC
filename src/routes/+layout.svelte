@@ -1,27 +1,18 @@
 <script lang="ts">
 	import '../app.css';
-	import { browser } from '$app/environment';
-	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+	import { PersistQueryClientProvider } from '@tanstack/svelte-query-persist-client';
+	import { queryClient, tauriPersister } from '$lib/state/queryClient';
 	import { Toaster } from '$lib/components/ui/sonner';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
 
-	const queryClient = new QueryClient({
-		defaultOptions: {
-			queries: {
-				enabled: browser,
-				staleTime: 1000 * 60 * 5, // 5 minutes - data stays fresh
-				gcTime: 1000 * 60 * 10 // 10 minutes - keep in cache
-			}
-		}
-	});
 	let { children } = $props();
 
 	document.documentElement.classList.add('dark');
 </script>
 
-<QueryClientProvider client={queryClient}>
+<PersistQueryClientProvider client={queryClient} persistOptions={{ persister: tauriPersister }}>
 	<AppShell>
 		{@render children()}
 	</AppShell>
-</QueryClientProvider>
+</PersistQueryClientProvider>
 <Toaster />
