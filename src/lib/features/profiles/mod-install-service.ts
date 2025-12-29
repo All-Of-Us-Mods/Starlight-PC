@@ -15,7 +15,7 @@ class ModInstallService {
 		return await apiFetch(`/api/v2/mods/${modId}/versions/${version}/info`, type(ModVersionInfo));
 	}
 
-	async installModToProfile(modId: string, version: string, profilePath: string): Promise<void> {
+	async installModToProfile(modId: string, version: string, profilePath: string): Promise<string> {
 		const info = await this.getModVersionInfo(modId, version);
 		const response = await fetch(info.download_url);
 		if (!response.ok) throw new Error('Download failed');
@@ -34,6 +34,8 @@ class ModInstallService {
 
 		await mkdir(pluginsDir, { recursive: true });
 		await writeFile(await join(pluginsDir, info.file_name), data);
+
+		return info.file_name;
 	}
 
 	async removeModFromProfile(fileName: string, profilePath: string): Promise<void> {

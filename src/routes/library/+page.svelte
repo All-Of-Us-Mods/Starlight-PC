@@ -174,7 +174,6 @@
 						{profile}
 						onlaunch={() => handleLaunchProfile(profile)}
 						ondelete={() => confirmDeleteProfile(profile.id)}
-						onremove={() => {}}
 					/>
 				{/each}
 			</div>

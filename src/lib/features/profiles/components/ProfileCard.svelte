@@ -2,9 +2,7 @@
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { Badge } from '$lib/components/ui/badge';
-	import { Separator } from '$lib/components/ui/separator';
 	import {
 		Play,
 		FolderOpen,
@@ -19,26 +17,20 @@
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { modQueries } from '$lib/features/mods/queries';
-	import type { Profile, ProfileMod } from '../schema';
+	import type { Profile, UnifiedMod } from '../schema';
 	import type { Mod } from '$lib/features/mods/schema';
 	import { join } from '@tauri-apps/api/path';
 	import { gameState } from '../game-state-service.svelte';
+	import { profileService } from '../profile-service';
+	import { queryClient } from '$lib/state/queryClient';
 
 	let {
 		profile,
 		onlaunch,
-		ondelete,
-		onremove
-	}: {
-		profile: Profile;
-		onlaunch?: () => void;
-		ondelete?: () => void;
-		onremove?: (mod: ProfileMod) => void;
-	} = $props();
+		ondelete
+	}: { profile: Profile; onlaunch?: () => void; ondelete?: () => void } = $props();
 
 	let showAllMods = $state(false);
-	let removeModDialogOpen = $state(false);
-	let modToRemove = $state<{ mod: ProfileMod; modInfo?: Mod } | null>(null);
 
 	async function handleOpenFolder() {
 		try {
@@ -49,16 +41,18 @@
 		}
 	}
 
-	function handleRemoveMod(mod: ProfileMod) {
-		modToRemove = { mod, modInfo: modsMap.get(mod.mod_id) };
-		removeModDialogOpen = true;
-	}
-
-	function confirmRemoveMod() {
-		if (modToRemove) {
-			onremove?.(modToRemove.mod);
-			modToRemove = null;
-			removeModDialogOpen = false;
+	async function handleRemoveMod(mod: { id: string; source: 'managed' | 'custom' }) {
+		try {
+			const unifiedMod = unifiedModsQuery.data?.find((m: UnifiedMod) =>
+				m.source === 'managed' ? m.mod_id === mod.id : m.file === mod.id
+			);
+			if (unifiedMod) {
+				await profileService.deleteUnifiedMod(profile.id, unifiedMod);
+			}
+			queryClient.invalidateQueries({ queryKey: ['unified-mods', profile.id] });
+			queryClient.invalidateQueries({ queryKey: ['profiles'] });
+		} catch (error) {
+			console.error('Failed to remove mod:', error);
 		}
 	}
 
@@ -89,7 +83,6 @@
 
 	const modIds = $derived(profile.mods.map((m) => m.mod_id));
 	const modsQueries = $derived(modIds.map((id) => createQuery(() => modQueries.byId(id))));
-
 	const modsMap = $derived(
 		new Map(
 			modsQueries
@@ -99,8 +92,27 @@
 		)
 	);
 
-	const displayedMods = $derived(showAllMods ? profile.mods : profile.mods.slice(0, 3));
-	const hiddenModCount = $derived(profile.mods.length - 3);
+	const unifiedModsQuery = createQuery(() => ({
+		queryKey: ['unified-mods', profile.id],
+		queryFn: () => profileService.getUnifiedMods(profile.id),
+		staleTime: 1000 * 10
+	}));
+
+	const modCount = $derived(unifiedModsQuery.data?.length ?? 0);
+
+	const allMods = $derived(() => {
+		const unified = unifiedModsQuery.data ?? [];
+		return unified.map((mod) => {
+			if (mod.source === 'managed') {
+				const modInfo = modsMap.get(mod.mod_id);
+				return { id: mod.mod_id, name: modInfo?.name ?? mod.mod_id, source: 'managed' as const };
+			}
+			return { id: mod.file, name: mod.file, source: 'custom' as const };
+		});
+	});
+
+	const displayedMods = $derived(showAllMods ? allMods() : allMods().slice(0, 3));
+	const hiddenModCount = $derived(allMods().length - 3);
 </script>
 
 <div class="@container">
@@ -137,7 +149,7 @@
 				<Card.Description class="flex flex-wrap items-center gap-x-3 gap-y-1">
 					<span class="inline-flex items-center gap-1.5">
 						<Package class="size-3.5" />
-						{profile.mods.length} mod{profile.mods.length !== 1 ? 's' : ''}
+						{modCount} mod{modCount !== 1 ? 's' : ''}
 					</span>
 					<span class="inline-flex items-center gap-1.5">
 						<Calendar class="size-3.5" />
@@ -182,7 +194,7 @@
 							</DropdownMenu.Item>
 						</DropdownMenu.Group>
 
-						{#if profile.mods.length > 0}
+						{#if allMods().length > 0}
 							<DropdownMenu.Separator />
 							<DropdownMenu.Sub>
 								<DropdownMenu.SubTrigger>
@@ -190,11 +202,9 @@
 									Manage Mods
 								</DropdownMenu.SubTrigger>
 								<DropdownMenu.SubContent class="max-h-64 overflow-y-auto">
-									{#each profile.mods as mod (mod.mod_id)}
+									{#each allMods() as mod (mod.id)}
 										<DropdownMenu.Item onclick={() => handleRemoveMod(mod)} class="justify-between">
-											<span class="truncate">
-												{modsMap.get(mod.mod_id)?.name ?? mod.mod_id}
-											</span>
+											<span class="truncate">{mod.name}</span>
 											<Trash2 class="size-4 shrink-0 text-destructive" />
 										</DropdownMenu.Item>
 									{/each}
@@ -215,13 +225,12 @@
 			</div>
 		</Card.Header>
 
-		{#if profile.mods.length > 0}
-			<Separator />
+		{#if allMods().length > 0}
 			<Card.Content class="pt-4">
 				<div class="flex flex-wrap items-center gap-1.5">
-					{#each displayedMods as mod (mod.mod_id)}
+					{#each displayedMods as mod (mod.id)}
 						<Badge variant="secondary" class="max-w-32 truncate text-xs">
-							{modsMap.get(mod.mod_id)?.name ?? mod.mod_id}
+							{mod.name}
 						</Badge>
 					{/each}
 					{#if hiddenModCount > 0}
@@ -238,28 +247,3 @@
 		{/if}
 	</Card.Root>
 </div>
-
-<AlertDialog.Root bind:open={removeModDialogOpen}>
-	<AlertDialog.Content>
-		<AlertDialog.Header>
-			<AlertDialog.Title>Remove Mod?</AlertDialog.Title>
-			<AlertDialog.Description>
-				{#if modToRemove?.modInfo}
-					This will remove <strong>{modToRemove.modInfo.name}</strong> from
-					<strong>{profile.name}</strong>. You can reinstall it later from the Explore page.
-				{:else}
-					This will remove this mod from <strong>{profile.name}</strong>.
-				{/if}
-			</AlertDialog.Description>
-		</AlertDialog.Header>
-		<AlertDialog.Footer>
-			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-			<AlertDialog.Action
-				onclick={confirmRemoveMod}
-				class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-			>
-				Remove Mod
-			</AlertDialog.Action>
-		</AlertDialog.Footer>
-	</AlertDialog.Content>
-</AlertDialog.Root>

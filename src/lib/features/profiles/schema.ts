@@ -2,7 +2,8 @@ import { type } from 'arktype';
 
 export const ProfileModEntry = type({
 	mod_id: 'string',
-	version: 'string'
+	version: 'string',
+	'file?': 'string' // The installed filename
 });
 
 export const ProfileEntry = type({
@@ -18,3 +19,7 @@ export const ProfileEntry = type({
 
 export type Profile = typeof ProfileEntry.infer;
 export type ProfileMod = typeof ProfileModEntry.infer;
+
+export type UnifiedMod =
+	| { source: 'managed'; mod_id: string; version: string; file: string }
+	| { source: 'custom'; file: string };

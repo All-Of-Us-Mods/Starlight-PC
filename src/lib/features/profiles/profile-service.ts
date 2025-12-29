@@ -1,8 +1,8 @@
 import { Store } from '@tauri-apps/plugin-store';
-import { mkdir, remove } from '@tauri-apps/plugin-fs';
+import { mkdir, remove, readDir } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
 import { queryClient } from '$lib/state/queryClient';
-import type { Profile } from './schema';
+import type { Profile, UnifiedMod } from './schema';
 import { downloadBepInEx } from './bepinex-download';
 import { settingsService } from '../settings/settings-service';
 
@@ -120,7 +120,12 @@ class ProfileService {
 		}
 	}
 
-	async addModToProfile(profileId: string, modId: string, version: string): Promise<void> {
+	async addModToProfile(
+		profileId: string,
+		modId: string,
+		version: string,
+		file: string
+	): Promise<void> {
 		const store = await this.getStore();
 		const profiles = await this.getProfiles();
 		const profile = profiles.find((p) => p.id === profileId);
@@ -129,9 +134,9 @@ class ProfileService {
 
 		const modIndex = profile.mods.findIndex((m) => m.mod_id === modId);
 		if (modIndex >= 0) {
-			profile.mods[modIndex] = { mod_id: modId, version };
+			profile.mods[modIndex] = { mod_id: modId, version, file };
 		} else {
-			profile.mods.push({ mod_id: modId, version });
+			profile.mods.push({ mod_id: modId, version, file });
 		}
 
 		await store.set('profiles', profiles);
@@ -162,6 +167,72 @@ class ProfileService {
 		profile.mods = profile.mods.filter((m) => m.mod_id !== modId);
 		await store.set('profiles', profiles);
 		await store.save();
+	}
+
+	async getModFiles(profilePath: string): Promise<string[]> {
+		try {
+			const pluginsPath = await join(profilePath, 'BepInEx', 'plugins');
+			const entries = await readDir(pluginsPath);
+			return entries.map((entry) => entry.name);
+		} catch {
+			return [];
+		}
+	}
+
+	async countMods(profilePath: string): Promise<number> {
+		try {
+			const pluginsPath = await join(profilePath, 'BepInEx', 'plugins');
+			const entries = await readDir(pluginsPath);
+			return entries.length;
+		} catch {
+			return 0;
+		}
+	}
+
+	async deleteModFile(profilePath: string, fileName: string): Promise<void> {
+		const pluginsPath = await join(profilePath, 'BepInEx', 'plugins');
+		const filePath = await join(pluginsPath, fileName);
+		await remove(filePath, { recursive: true });
+	}
+
+	async getUnifiedMods(profileId: string): Promise<UnifiedMod[]> {
+		const profiles = await this.getProfiles();
+		const profile = profiles.find((p) => p.id === profileId);
+
+		if (!profile) throw new Error(`Profile '${profileId}' not found`);
+
+		const diskFiles = await this.getModFiles(profile.path);
+		const managedFiles = new Set(profile.mods.map((m) => m.file).filter(Boolean));
+
+		const unified: UnifiedMod[] = profile.mods
+			.filter((m) => m.file)
+			.map((mod) => ({
+				source: 'managed' as const,
+				mod_id: mod.mod_id,
+				version: mod.version,
+				file: mod.file!
+			}));
+
+		for (const file of diskFiles) {
+			if (!managedFiles.has(file)) {
+				unified.push({ source: 'custom' as const, file });
+			}
+		}
+
+		return unified;
+	}
+
+	async deleteUnifiedMod(profileId: string, mod: UnifiedMod): Promise<void> {
+		const profiles = await this.getProfiles();
+		const profile = profiles.find((p) => p.id === profileId);
+
+		if (!profile) throw new Error(`Profile '${profileId}' not found`);
+
+		await this.deleteModFile(profile.path, mod.file);
+
+		if (mod.source === 'managed') {
+			await this.removeModFromProfile(profileId, mod.mod_id);
+		}
 	}
 
 	private slugify(input: string): string {

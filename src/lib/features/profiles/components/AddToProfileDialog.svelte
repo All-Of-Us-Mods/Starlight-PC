@@ -50,8 +50,12 @@
 		try {
 			isInstalling = true;
 			error = '';
-			await modInstallService.installModToProfile(modId, selectedVersion, selectedProfile.path);
-			await profileService.addModToProfile(selectedProfileId, modId, selectedVersion);
+			const file = await modInstallService.installModToProfile(
+				modId,
+				selectedVersion,
+				selectedProfile.path
+			);
+			await profileService.addModToProfile(selectedProfileId, modId, selectedVersion, file);
 			await queryClient.invalidateQueries({ queryKey: ['profiles'] });
 			open = false;
 		} catch (e) {
