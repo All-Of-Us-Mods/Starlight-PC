@@ -9,66 +9,49 @@
 	import { Search, ArrowUpDown, X } from '@lucide/svelte';
 	import { Compass, ChevronLeft, ChevronRight } from '@jis3r/icons';
 
-	// --- State ---
+	type SortKey = 'trending' | 'latest';
 	const ITEMS_PER_PAGE = 12;
+
 	let page = $state(0);
 	let searchInput = $state('');
 	let debouncedSearch = $state('');
-	let sortBy = $state<SortKey>('downloads');
+	let sortBy = $state<SortKey>('trending');
 
-	// --- Debounce ---
+	const sortOptions: { value: SortKey; label: string }[] = [
+		{ value: 'trending', label: 'Trending' },
+		{ value: 'latest', label: 'Latest' }
+	];
+
 	$effect(() => {
 		const value = searchInput;
 		const timer = setTimeout(() => {
-			if (debouncedSearch !== value) {
-				debouncedSearch = value;
-				page = 0;
-			}
-		}, 100);
+			debouncedSearch = value;
+			page = 0; // Reset pagination when search term actually updates
+		}, 250);
 		return () => clearTimeout(timer);
 	});
 
-	// --- Queries ---
+	// Queries
 	const totalCountQuery = createQuery(() => modQueries.total());
 	const modsQuery = createQuery(() => ({
-		...modQueries.explore(debouncedSearch, ITEMS_PER_PAGE, page * ITEMS_PER_PAGE),
+		...modQueries.explore(debouncedSearch, ITEMS_PER_PAGE, page * ITEMS_PER_PAGE, sortBy),
 		placeholderData: keepPreviousData
 	}));
 
-	// --- Sort ---
-	type Mod = NonNullable<typeof modsQuery.data>[number];
-	type SortKey = 'downloads' | 'updated' | 'created' | 'alpha';
-
-	const sortOptions: { value: SortKey; label: string }[] = [
-		{ value: 'downloads', label: 'Most Popular' },
-		{ value: 'updated', label: 'Recently Updated' },
-		{ value: 'created', label: 'Newest Releases' },
-		{ value: 'alpha', label: 'Alphabetical (A-Z)' }
-	];
-
-	const sortFns: Record<SortKey, (a: Mod, b: Mod) => number> = {
-		downloads: (a, b) => b.downloads - a.downloads,
-		updated: (a, b) => b.updated_at - a.updated_at,
-		created: (a, b) => b.created_at - a.created_at,
-		alpha: (a, b) => a.name.localeCompare(b.name)
-	};
-
-	// --- Derived ---
-	const displayedMods = $derived(modsQuery.data ? [...modsQuery.data].sort(sortFns[sortBy]) : []);
 	const isSearching = $derived(debouncedSearch.trim().length > 0);
-	const totalPages = $derived(
-		isSearching ? null : Math.ceil((totalCountQuery.data ?? 0) / ITEMS_PER_PAGE)
-	);
+	const totalMods = $derived(totalCountQuery.data ?? 0);
+
+	const totalPages = $derived(isSearching ? null : Math.ceil(totalMods / ITEMS_PER_PAGE));
+
 	const hasNextPage = $derived(
-		isSearching
-			? (modsQuery.data?.length ?? 0) === ITEMS_PER_PAGE
-			: totalPages !== null && page < totalPages - 1
+		(modsQuery.data?.length ?? 0) === ITEMS_PER_PAGE &&
+			(isSearching || (totalPages !== null && page < totalPages - 1))
 	);
+
 	const showPagination = $derived(page > 0 || hasNextPage);
+
 	const searchPlaceholder = $derived(
-		totalCountQuery.data
-			? `Search ${totalCountQuery.data.toLocaleString()} mods...`
-			: 'Search mods...'
+		totalMods ? `Search ${totalMods.toLocaleString()} mods...` : 'Search mods...'
 	);
 </script>
 
@@ -135,13 +118,13 @@
 			{#each { length: 6 }, i (i)}
 				<ModCardSkeleton />
 			{/each}
-		{:else if displayedMods.length === 0}
+		{:else if !modsQuery.data?.length}
 			<div class="col-span-full py-32 text-center">
 				<h3 class="mb-5 text-xl font-bold">No mods found</h3>
 				<Button variant="outline" onclick={() => (searchInput = '')}>Clear search</Button>
 			</div>
 		{:else}
-			{#each displayedMods as mod (mod.id)}
+			{#each modsQuery.data as mod (mod.id)}
 				<ModCard {mod} />
 			{/each}
 		{/if}

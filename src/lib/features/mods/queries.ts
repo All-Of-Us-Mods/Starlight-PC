@@ -13,20 +13,27 @@ export const modQueries = {
 			queryFn: () => apiFetch('/api/v2/mods', ModArrayValidator)
 		}),
 
-	explore: (search: string, limit: number, offset: number) => {
-		const trimmed = search.trim();
+	explore: (search: string, limit: number, offset: number, sort: string = 'trending') => {
+		const q = search.trim();
 		const params = `limit=${limit}&offset=${offset}`;
 
 		return queryOptions({
-			queryKey: ['mods', 'explore', trimmed, limit, offset] as const,
-			gcTime: 1000 * 60 * 5, // 5 minutes,
-			queryFn: () =>
-				apiFetch(
-					trimmed
-						? `/api/v2/mods/search?q=${encodeURIComponent(trimmed)}&${params}`
-						: `/api/v2/mods?${params}`,
-					ModArrayValidator
-				)
+			queryKey: ['mods', 'explore', q, limit, offset, sort] as const,
+			gcTime: 1000 * 60 * 5,
+			queryFn: () => {
+				if (q) {
+					return apiFetch(
+						`/api/v2/mods/search?q=${encodeURIComponent(q)}&${params}`,
+						ModArrayValidator
+					);
+				}
+				switch (sort) {
+					case 'trending':
+						return apiFetch(`/api/v2/mods/trending?${params}`, ModArrayValidator);
+					default:
+						return apiFetch(`/api/v2/mods?${params}`, ModArrayValidator);
+				}
+			}
 		});
 	},
 
