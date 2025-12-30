@@ -2,7 +2,7 @@ use log::info;
 use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "windows")]
-use winreg::{enums::*, RegKey};
+use winreg::{RegKey, enums::*};
 
 const AMONG_US_EXE: &str = "Among Us.exe";
 
@@ -31,17 +31,17 @@ fn find_among_us_from_registry() -> Option<PathBuf> {
     let hkcr = RegKey::predef(HKEY_CLASSES_ROOT);
 
     for key_name in ["AmongUs", "amongus"] {
-        if let Ok(key) = hkcr.open_subkey(key_name) {
-            if let Ok(icon_key) = key.open_subkey("DefaultIcon") {
-                if let Ok(raw_value) = icon_key.get_value::<String, _>("") {
-                    if let Some(directory) = parse_registry_icon_value(&raw_value) {
-                        if verify_among_us_directory(&directory) {
-                            info!("Found Among Us via registry: {}", directory.display());
-                            return Some(directory);
-                        }
-                    }
-                }
-            }
+        let directory = hkcr
+            .open_subkey(key_name)
+            .ok()
+            .and_then(|key| key.open_subkey("DefaultIcon").ok())
+            .and_then(|icon_key| icon_key.get_value::<String, _>("").ok())
+            .and_then(|raw_value| parse_registry_icon_value(&raw_value))
+            .filter(|directory| verify_among_us_directory(directory));
+
+        if let Some(dir) = directory {
+            info!("Found Among Us via registry: {}", dir.display());
+            return Some(dir);
         }
     }
     None
