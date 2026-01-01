@@ -34,14 +34,14 @@ pub struct EpicApi {
 }
 
 impl EpicApi {
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Result<Self, String> {
+        Ok(Self {
             client: Client::builder()
                 .user_agent(USER_AGENT)
                 .gzip(true)
                 .build()
-                .unwrap(),
-        }
+                .map_err(|e| format!("Failed to create HTTP client: {e}"))?,
+        })
     }
 
     fn get_basic_auth() -> String {
