@@ -130,7 +130,7 @@
 					<Input
 						id="auth-code"
 						bind:value={authCode}
-						placeholder="e.g., 12345678-1234-1234-1234-123456789012"
+						placeholder="e.g., u3rhcmxpz2h0ifbdielziedvyxrlzce"
 						onkeydown={(e) => {
 							if (e.key === 'Enter') {
 								handleLogin();
@@ -139,7 +139,7 @@
 					/>
 					<p class="text-sm text-muted-foreground">
 						Copy code from the redirected URL and paste it here. The code is the long string after <code
-							class="rounded bg-muted px-1 py-0.5 text-xs">exchangeCode=</code
+							class="rounded bg-muted px-1 py-0.5 text-xs">"authorizationCode":</code
 						>.
 					</p>
 				</div>
