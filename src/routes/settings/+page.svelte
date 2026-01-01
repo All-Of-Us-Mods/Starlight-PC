@@ -51,6 +51,7 @@
 				bepinex_version: localBepInExVersion,
 				close_on_launch: localCloseOnLaunch
 			});
+			await handleAutoSetBepinex();
 			queryClient.invalidateQueries({ queryKey: ['settings'] });
 			showToastSuccess('Settings saved successfully');
 		} catch (e) {
@@ -74,6 +75,21 @@
 			showToastError(e);
 		} finally {
 			isDetecting = false;
+		}
+	}
+
+	async function handleAutoSetBepinex() {
+		const crashHandlerPath = `${localAmongUsPath}/UnityCrashHandler64.exe`;
+
+		if ((await exists(crashHandlerPath))) {
+			const url = (await settingsService.getSettings()).bepinex_url;
+			const updatedurl = url.replace("x86", "x64");
+			await settingsService.updateSettings({ bepinex_url: updatedurl });
+		}
+		else {
+			const url = (await settingsService.getSettings()).bepinex_url;
+			const updatedurl = url.replace("x64", "x86");
+			await settingsService.updateSettings({ bepinex_url: updatedurl });
 		}
 	}
 

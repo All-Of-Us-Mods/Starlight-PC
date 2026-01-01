@@ -41,7 +41,7 @@
 			const url = (await settingsService.getSettings()).bepinex_url;
 			const updatedurl = url.replace("x86", "x64");
 			await settingsService.updateSettings({ bepinex_url: updatedurl });
-			}
+		}
 	}
 
 	async function handleBrowse() {
