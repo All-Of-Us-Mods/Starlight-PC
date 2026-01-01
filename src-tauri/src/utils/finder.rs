@@ -17,7 +17,8 @@ fn parse_registry_icon_value(raw_value: &str) -> Option<PathBuf> {
         .split(',')
         .next()?
         .trim()
-        .trim_matches(|c| c == '"' || c == '\'');
+        .trim_matches(|c| c == '"' || c == '\'')
+        .replace(';', "\\"); // Fix Epic Games' weird path separators
 
     if path.is_empty() {
         return None;
