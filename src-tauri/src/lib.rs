@@ -6,6 +6,7 @@ use tauri_plugin_updater::UpdaterExt;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
@@ -18,7 +19,8 @@ pub fn run() {
                 .title("Starlight")
                 .inner_size(800.0, 600.0)
                 // Allow the window to be resized even without decorations
-                .resizable(true);
+                .resizable(true)
+                .visible(false);
 
             // macOS: Keep native buttons, make bar transparent
             #[cfg(target_os = "macos")]
