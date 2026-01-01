@@ -13,8 +13,8 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { exists } from '@tauri-apps/plugin-fs';
-	import EpicLoginDialog from '$lib/features/profiles/components/EpicLoginDialog.svelte';
-	import { epicService } from '$lib/features/profiles/epic-service';
+	import EpicLoginDialog from '$lib/features/settings/components/EpicLoginDialog.svelte';
+	import { epicService } from '$lib/features/settings/epic-service';
 
 	const settingsQuery = createQuery(() => settingsQueries.get());
 	const settings = $derived(settingsQuery.data as AppSettings | undefined);
