@@ -170,7 +170,12 @@
 					{/if}
 				</Button>
 
-				<Button size="sm" onclick={() => goto('/explore')} aria-label="Install mods">
+				<Button
+					size="sm"
+					onclick={() => goto('/explore')}
+					aria-label="Install mods"
+					disabled={isDisabled}
+				>
 					<Plus class="size-4" />
 				</Button>
 
@@ -198,13 +203,17 @@
 						{#if allMods().length > 0}
 							<DropdownMenu.Separator />
 							<DropdownMenu.Sub>
-								<DropdownMenu.SubTrigger>
+								<DropdownMenu.SubTrigger disabled={isDisabled}>
 									<Package class="size-4" />
 									Manage Mods
 								</DropdownMenu.SubTrigger>
 								<DropdownMenu.SubContent class="max-h-64 overflow-y-auto">
 									{#each allMods() as mod (mod.id)}
-										<DropdownMenu.Item onclick={() => handleRemoveMod(mod)} class="justify-between">
+										<DropdownMenu.Item
+											onclick={() => handleRemoveMod(mod)}
+											class="justify-between"
+											disabled={isDisabled}
+										>
 											<span class="truncate">{mod.name}</span>
 											<Trash2 class="size-4 shrink-0 text-destructive" />
 										</DropdownMenu.Item>
@@ -217,6 +226,7 @@
 						<DropdownMenu.Item
 							onclick={ondelete}
 							class="text-destructive focus:bg-destructive focus:text-destructive-foreground"
+							disabled={isDisabled}
 						>
 							<Trash2 class="size-4" />
 							Delete Profile
