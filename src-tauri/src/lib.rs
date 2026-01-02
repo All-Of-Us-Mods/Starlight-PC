@@ -75,6 +75,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::download::download_and_extract_zip,
+            commands::download::download_bepinex_to_cache,
+            commands::download::clear_bepinex_cache,
+            commands::download::check_bepinex_cache_exists,
             commands::finder::detect_among_us,
             commands::finder::get_game_platform,
             commands::launch::launch_modded,

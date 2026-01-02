@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { settingsService } from '$lib/features/settings/settings-service';
 
 export interface DownloadProgress {
 	stage: 'downloading' | 'extracting' | 'complete';
@@ -21,9 +22,13 @@ export async function downloadBepInEx(
 			});
 		}
 
+		const settings = await settingsService.getSettings();
+		const cachePath = settings.cache_bepinex ? await settingsService.getBepInExCachePath() : null;
+
 		await invoke('download_and_extract_zip', {
 			url: bepinexUrl,
-			destination: profilePath
+			destination: profilePath,
+			cachePath
 		});
 	} finally {
 		unlisten?.();

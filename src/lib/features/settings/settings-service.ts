@@ -1,4 +1,5 @@
 import { Store } from '@tauri-apps/plugin-store';
+import { appDataDir, join } from '@tauri-apps/api/path';
 import type { AppSettings } from './schema';
 
 class SettingsService {
@@ -10,7 +11,8 @@ class SettingsService {
 					'https://builds.bepinex.dev/projects/bepinex_be/738/BepInEx-Unity.IL2CPP-win-x86-6.0.0-be.738%2Baf0cba7.zip',
 				among_us_path: '',
 				close_on_launch: false,
-				game_platform: 'steam'
+				game_platform: 'steam',
+				cache_bepinex: false
 			}
 		);
 	}
@@ -20,6 +22,12 @@ class SettingsService {
 		const current = await this.getSettings();
 		await store.set('settings', { ...current, ...updates });
 		await store.save();
+	}
+
+	async getBepInExCachePath(): Promise<string> {
+		const dataDir = await appDataDir();
+		const cacheDir = await join(dataDir, 'cache');
+		return await join(cacheDir, 'bepinex.zip');
 	}
 }
 

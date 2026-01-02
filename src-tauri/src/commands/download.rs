@@ -26,31 +26,31 @@ fn emit_progress<R: Runtime>(app: &AppHandle<R>, stage: &str, progress: f64, mes
     );
 }
 
-#[tauri::command]
-pub async fn download_and_extract_zip<R: Runtime>(
-    app: AppHandle<R>,
-    url: String,
-    destination: String,
+async fn download_file<R: Runtime>(
+    app: &AppHandle<R>,
+    url: &str,
+    dest_path: &Path,
 ) -> Result<(), String> {
-    let dest_path = Path::new(&destination);
-    let temp_path = dest_path.with_extension("zip.tmp");
-
-    // Download to temp file
-    emit_progress(&app, "downloading", 0.0, "Starting download...");
+    emit_progress(app, "downloading", 0.0, "Starting download...");
     let client = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let response = client.get(url).send().await.map_err(|e| e.to_string())?;
     if !response.status().is_success() {
         return Err(format!("Download failed: {}", response.status()));
     }
 
     let total_size = response.content_length();
     let mut downloaded: u64 = 0;
-    let mut temp_file = File::create(&temp_path).map_err(|e| e.to_string())?;
+
+    if let Some(parent) = dest_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let mut temp_file = File::create(dest_path).map_err(|e| e.to_string())?;
     let mut stream = response.bytes_stream();
 
     while let Some(chunk) = stream.next().await {
@@ -60,7 +60,7 @@ pub async fn download_and_extract_zip<R: Runtime>(
         if let Some(total) = total_size {
             let progress = downloaded as f64 / total as f64 * 100.0;
             emit_progress(
-                &app,
+                app,
                 "downloading",
                 progress,
                 &format!("Downloading... {:.1}%", progress),
@@ -68,10 +68,16 @@ pub async fn download_and_extract_zip<R: Runtime>(
         }
     }
     drop(temp_file);
+    Ok(())
+}
 
-    // Extract ZIP
-    emit_progress(&app, "extracting", 0.0, "Extracting...");
-    let file = File::open(&temp_path).map_err(|e| e.to_string())?;
+fn extract_zip<R: Runtime>(
+    app: &AppHandle<R>,
+    zip_path: &Path,
+    dest_path: &Path,
+) -> Result<(), String> {
+    emit_progress(app, "extracting", 0.0, "Extracting...");
+    let file = File::open(zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     let total_files = archive.len();
 
@@ -101,14 +107,81 @@ pub async fn download_and_extract_zip<R: Runtime>(
         }
         let progress = (i + 1) as f64 / total_files as f64 * 100.0;
         emit_progress(
-            &app,
+            app,
             "extracting",
             progress,
             &format!("Extracting... {}/{}", i + 1, total_files),
         );
     }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn download_and_extract_zip<R: Runtime>(
+    app: AppHandle<R>,
+    url: String,
+    destination: String,
+    cache_path: Option<String>,
+) -> Result<(), String> {
+    let dest_path = Path::new(&destination);
+
+    // Check if we should use cached file
+    if let Some(ref cache) = cache_path {
+        let cache_file = Path::new(cache);
+        if cache_file.exists() {
+            emit_progress(&app, "extracting", 0.0, "Using cached BepInEx...");
+            extract_zip(&app, cache_file, dest_path)?;
+            emit_progress(&app, "complete", 100.0, "Installation complete!");
+            return Ok(());
+        }
+    }
+
+    // Download to temp file
+    let temp_path = dest_path.with_extension("zip.tmp");
+    download_file(&app, &url, &temp_path).await?;
+
+    // If caching is enabled, copy to cache location
+    if let Some(ref cache) = cache_path {
+        let cache_file = Path::new(cache);
+        if let Some(parent) = cache_file.parent() {
+            fs::create_dir_all(parent).ok();
+        }
+        fs::copy(&temp_path, cache_file)
+            .map_err(|e| eprintln!("Warning: Failed to cache BepInEx: {}", e))
+            .ok();
+    }
+
+    // Extract ZIP
+    extract_zip(&app, &temp_path, dest_path)?;
 
     let _ = fs::remove_file(&temp_path);
     emit_progress(&app, "complete", 100.0, "Installation complete!");
     Ok(())
+}
+
+#[tauri::command]
+pub async fn download_bepinex_to_cache<R: Runtime>(
+    app: AppHandle<R>,
+    url: String,
+    cache_path: String,
+) -> Result<(), String> {
+    let cache_file = Path::new(&cache_path);
+    download_file(&app, &url, cache_file).await?;
+    emit_progress(&app, "complete", 100.0, "Download complete!");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn clear_bepinex_cache(cache_path: String) -> Result<(), String> {
+    let cache_file = Path::new(&cache_path);
+    if cache_file.exists() {
+        fs::remove_file(cache_file).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn check_bepinex_cache_exists(cache_path: String) -> Result<bool, String> {
+    let cache_file = Path::new(&cache_path);
+    Ok(cache_file.exists())
 }

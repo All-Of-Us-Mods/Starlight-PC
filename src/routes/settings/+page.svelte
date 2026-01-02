@@ -4,7 +4,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import { Settings, Save, RefreshCw } from '@lucide/svelte';
+	import { Settings, Save, RefreshCw, Download, Trash2 } from '@lucide/svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { settingsService } from '$lib/features/settings/settings-service';
@@ -13,8 +13,10 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { exists } from '@tauri-apps/plugin-fs';
+	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import EpicLoginDialog from '$lib/features/settings/components/EpicLoginDialog.svelte';
 	import { epicService } from '$lib/features/settings/epic-service';
+	import type { DownloadProgress } from '$lib/features/profiles/bepinex-download';
 
 	const settingsQuery = createQuery(() => settingsQueries.get());
 	const settings = $derived(settingsQuery.data as AppSettings | undefined);
@@ -24,15 +26,28 @@
 	let isSaving = $state(false);
 	let isDetecting = $state(false);
 	let epicLoginOpen = $state(false);
+	let isCacheDownloading = $state(false);
+	let cacheDownloadProgress = $state(0);
+	let isCacheExists = $state(false);
 
 	async function refreshEpicAuth() {
 		isLoggedIn = await epicService.isLoggedIn();
+	}
+
+	async function checkCacheExists() {
+		try {
+			const cachePath = await settingsService.getBepInExCachePath();
+			isCacheExists = await invoke<boolean>('check_bepinex_cache_exists', { cachePath });
+		} catch {
+			isCacheExists = false;
+		}
 	}
 
 	let localAmongUsPath = $state('');
 	let localBepInExUrl = $state('');
 	let localCloseOnLaunch = $state(false);
 	let localGamePlatform = $state<GamePlatform>('steam');
+	let localCacheBepInEx = $state(false);
 
 	$effect(() => {
 		if (settings) {
@@ -40,7 +55,9 @@
 			localBepInExUrl = settings.bepinex_url ?? '';
 			localCloseOnLaunch = settings.close_on_launch ?? false;
 			localGamePlatform = settings.game_platform ?? 'steam';
+			localCacheBepInEx = settings.cache_bepinex ?? false;
 			refreshEpicAuth();
+			checkCacheExists();
 		}
 	});
 
@@ -59,7 +76,8 @@
 				among_us_path: localAmongUsPath,
 				bepinex_url: localBepInExUrl,
 				close_on_launch: localCloseOnLaunch,
-				game_platform: localGamePlatform
+				game_platform: localGamePlatform,
+				cache_bepinex: localCacheBepInEx
 			});
 			await handleAutoSetBepinex();
 			queryClient.invalidateQueries({ queryKey: ['settings'] });
@@ -118,6 +136,48 @@
 			showToastError(e);
 		}
 	}
+
+	async function handleDownloadToCache() {
+		if (!localBepInExUrl) {
+			showToastError('BepInEx URL is required');
+			return;
+		}
+
+		isCacheDownloading = true;
+		cacheDownloadProgress = 0;
+		let unlisten: UnlistenFn | undefined;
+
+		try {
+			unlisten = await listen<DownloadProgress>('download-progress', (event) => {
+				cacheDownloadProgress = event.payload.progress;
+			});
+
+			const cachePath = await settingsService.getBepInExCachePath();
+			await invoke('download_bepinex_to_cache', {
+				url: localBepInExUrl,
+				cachePath
+			});
+			isCacheExists = true;
+			showToastSuccess('BepInEx downloaded to cache');
+		} catch (e) {
+			showToastError(e);
+		} finally {
+			unlisten?.();
+			isCacheDownloading = false;
+			cacheDownloadProgress = 0;
+		}
+	}
+
+	async function handleClearCache() {
+		try {
+			const cachePath = await settingsService.getBepInExCachePath();
+			await invoke('clear_bepinex_cache', { cachePath });
+			isCacheExists = false;
+			showToastSuccess('Cache cleared');
+		} catch (e) {
+			showToastError(e);
+		}
+	}
 </script>
 
 <div class="px-10 py-8">
@@ -157,7 +217,7 @@
 			</div>
 		</div>
 	{:else}
-		<div class="mx-auto max-w-2xl space-y-6">
+		<div class="max-w-2xl space-y-6">
 			<div class="rounded-lg border border-border p-6">
 				<h2 class="mb-4 text-lg font-semibold">Game Configuration</h2>
 				<div class="space-y-4">
@@ -223,6 +283,55 @@
 							placeholder="https://builds.bepinex.dev/..."
 						/>
 					</div>
+
+					<div class="flex items-center justify-between">
+						<div class="space-y-0.5">
+							<Label for="cache-bepinex">Keep Local Copy</Label>
+							<p class="text-sm text-muted-foreground">
+								Cache BepInEx locally for faster profile creation
+							</p>
+						</div>
+						<Switch id="cache-bepinex" bind:checked={localCacheBepInEx} />
+					</div>
+
+					{#if localCacheBepInEx}
+						<div class="flex items-center justify-between rounded-md bg-muted/50 p-3">
+							<div class="space-y-0.5">
+								<p class="text-sm font-medium">Cache Status</p>
+								<p class="text-sm text-muted-foreground">
+									{#if isCacheDownloading}
+										Downloading... {cacheDownloadProgress.toFixed(1)}%
+									{:else if isCacheExists}
+										<span class="text-green-500">Cached</span>
+									{:else}
+										<span class="text-orange-500">Not cached</span>
+									{/if}
+								</p>
+							</div>
+							<div class="flex gap-2">
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={handleDownloadToCache}
+									disabled={isCacheDownloading}
+								>
+									{#if isCacheDownloading}
+										<RefreshCw class="mr-2 h-4 w-4 animate-spin" />
+										Downloading
+									{:else}
+										<Download class="mr-2 h-4 w-4" />
+										{isCacheExists ? 'Re-download' : 'Download'}
+									{/if}
+								</Button>
+								{#if isCacheExists}
+									<Button variant="outline" size="sm" onclick={handleClearCache}>
+										<Trash2 class="mr-2 h-4 w-4" />
+										Clear
+									</Button>
+								{/if}
+							</div>
+						</div>
+					{/if}
 				</div>
 			</div>
 
