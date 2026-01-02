@@ -11,7 +11,7 @@
 	import { modInstallService, type DependencyWithMeta } from '../mod-install-service';
 	import { profileService } from '../profile-service';
 	import { type ModDependency } from '$lib/features/mods/schema';
-	import { AlertTriangle } from '@lucide/svelte';
+	import { TriangleAlert } from '@lucide/svelte';
 
 	const queryClient = useQueryClient();
 
@@ -221,7 +221,7 @@
 			{#if conflictsInProfile.length > 0}
 				<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3">
 					<div class="flex items-start gap-2">
-						<AlertTriangle class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+						<TriangleAlert class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
 						<div class="space-y-1">
 							<p class="text-sm font-medium text-destructive">Conflicts Detected</p>
 							<p class="text-xs text-destructive/80">
