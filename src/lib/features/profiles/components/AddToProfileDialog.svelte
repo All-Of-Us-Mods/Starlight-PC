@@ -104,11 +104,14 @@
 
 			const modsToInstall = [{ modId, version: selectedVersion }];
 
-		for (const dep of installableDependencies) {
-			if (selectedDependencies.has(dep.mod_id) && !selectedProfile.mods.some(m => m.mod_id === dep.mod_id)) {
-				modsToInstall.push({ modId: dep.mod_id, version: dep.resolvedVersion });
+			for (const dep of installableDependencies) {
+				if (
+					selectedDependencies.has(dep.mod_id) &&
+					!selectedProfile.mods.some((m) => m.mod_id === dep.mod_id)
+				) {
+					modsToInstall.push({ modId: dep.mod_id, version: dep.resolvedVersion });
+				}
 			}
-		}
 
 			const results = await modInstallService.installModsToProfile(
 				modsToInstall,
@@ -186,15 +189,21 @@
 					<Label>Dependencies</Label>
 					<div class="space-y-2 rounded-md border p-3">
 						{#each installableDependencies as dep (dep.mod_id)}
+							{@const isInstalled = selectedProfile?.mods.some((m) => m.mod_id === dep.mod_id)}
 							<div class="flex items-center justify-between">
 								<div class="flex items-center gap-2">
 									<Switch
 										checked={selectedDependencies.has(dep.mod_id)}
 										onCheckedChange={() => toggleDependency(dep.mod_id)}
-										disabled={isInstalling}
+										disabled={isInstalling || isInstalled}
 									/>
 									<span class="text-sm">{dep.modName}</span>
 									<span class="text-xs text-muted-foreground">v{dep.resolvedVersion}</span>
+									{#if isInstalled}
+										<span class="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+											>Installed</span
+										>
+									{/if}
 								</div>
 								<span
 									class="text-xs {dep.type === 'required'
