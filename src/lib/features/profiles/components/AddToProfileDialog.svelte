@@ -104,11 +104,11 @@
 
 			const modsToInstall = [{ modId, version: selectedVersion }];
 
-			for (const dep of installableDependencies) {
-				if (selectedDependencies.has(dep.mod_id)) {
-					modsToInstall.push({ modId: dep.mod_id, version: dep.resolvedVersion });
-				}
+		for (const dep of installableDependencies) {
+			if (selectedDependencies.has(dep.mod_id) && !selectedProfile.mods.some(m => m.mod_id === dep.mod_id)) {
+				modsToInstall.push({ modId: dep.mod_id, version: dep.resolvedVersion });
 			}
+		}
 
 			const results = await modInstallService.installModsToProfile(
 				modsToInstall,
