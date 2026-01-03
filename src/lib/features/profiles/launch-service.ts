@@ -36,21 +36,26 @@ class LaunchService {
 			await epicService.ensureLoggedIn();
 		}
 
-		await invoke('save_game_copy', { path: settings.among_us_path });
-		await invoke('launch_modded', {
-			gameExe: gameExePath,
-			profilePath: profile.path,
-			bepinexDll: bepinexDll,
-			dotnetDir: dotnetDir,
-			coreclrPath: coreClr
-		});
+		try { 
+			await invoke('save_game_copy', { path: settings.among_us_path });
+		} catch (e) {
 
-		await profileService.updateLastLaunched(profile.id);
-		gameState.setRunningProfile(profile.id);
+		} finally {
+			await invoke('launch_modded', {
+				gameExe: gameExePath,
+				profilePath: profile.path,
+				bepinexDll: bepinexDll,
+				dotnetDir: dotnetDir,
+				coreclrPath: coreClr
+			});
 
-		if (settings.close_on_launch) {
-			const { getCurrentWindow } = await import('@tauri-apps/api/window');
-			getCurrentWindow().close();
+			await profileService.updateLastLaunched(profile.id);
+			gameState.setRunningProfile(profile.id);
+
+			if (settings.close_on_launch) {
+				const { getCurrentWindow } = await import('@tauri-apps/api/window');
+				getCurrentWindow().close();
+			}
 		}
 	}
 
@@ -65,9 +70,14 @@ class LaunchService {
 			throw new Error('Among Us.exe not found at configured path');
 		}
 
-		await invoke('save_game_copy', { path: settings.among_us_path });
-		await invoke('launch_vanilla', { gameExe: gameExePath });
-		gameState.setRunningProfile(null);
+		try { 
+			await invoke('save_game_copy', { path: settings.among_us_path });
+		} catch (e) {
+
+		} finally {
+			await invoke('launch_vanilla', { gameExe: gameExePath });
+			gameState.setRunningProfile(null);
+		}
 	}
 }
 
