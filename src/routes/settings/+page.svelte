@@ -80,6 +80,7 @@
 				cache_bepinex: localCacheBepInEx
 			});
 			await handleAutoSetBepinex();
+			await invoke('save_game_copy', { path: localAmongUsPath });
 			queryClient.invalidateQueries({ queryKey: ['settings'] });
 			showToastSuccess('Settings saved successfully');
 		} catch (e) {

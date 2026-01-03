@@ -90,6 +90,7 @@
 			await settingsService.updateSettings({ among_us_path: selectedPath });
 			await detectAndSetPlatform(selectedPath);
 			await handleAutoSetBepinex();
+			await invoke('save_game_copy', { path: selectedPath });
 			open = false;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to save path';

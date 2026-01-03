@@ -36,6 +36,7 @@ class LaunchService {
 			await epicService.ensureLoggedIn();
 		}
 
+		await invoke('save_game_copy', { path: settings.among_us_path });
 		await invoke('launch_modded', {
 			gameExe: gameExePath,
 			profilePath: profile.path,
@@ -64,6 +65,7 @@ class LaunchService {
 			throw new Error('Among Us.exe not found at configured path');
 		}
 
+		await invoke('save_game_copy', { path: settings.among_us_path });
 		await invoke('launch_vanilla', { gameExe: gameExePath });
 		gameState.setRunningProfile(null);
 	}
