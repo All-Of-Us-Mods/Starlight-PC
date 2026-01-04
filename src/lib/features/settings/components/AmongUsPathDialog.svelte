@@ -91,9 +91,14 @@
 			await settingsService.updateSettings({ among_us_path: selectedPath });
 			await detectAndSetPlatform(selectedPath);
 			await handleAutoSetBepinex();
-			isCopying = true;
-			await invoke('save_game_copy', { path: selectedPath });
-			isCopying = false;
+
+			const settings = await settingsService.getSettings();
+			if (settings.copy_game_files === 'cache') {
+				isCopying = true;
+				await invoke('save_game_copy', { path: selectedPath });
+				isCopying = false;
+			}
+			
 			open = false;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to save path';
