@@ -1,7 +1,7 @@
 use base64::Engine;
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use keyring::Entry;
-use log::debug;
+use log::{debug, error, info};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
@@ -41,7 +41,10 @@ impl EpicApi {
             .gzip(true)
             .build()
             .map(|client| Self { client })
-            .map_err(|e| format!("Failed to create HTTP client: {e}"))
+            .map_err(|e| {
+                error!("Failed to create HTTP client: {}", e);
+                format!("Failed to create HTTP client: {e}")
+            })
     }
 
     fn get_basic_auth() -> String {
@@ -59,6 +62,7 @@ impl EpicApi {
     }
 
     pub async fn login_with_auth_code(&self, code: &str) -> Result<EpicSession, String> {
+        info!("Logging in with Epic authorization code");
         self.oauth_request(&[
             ("grant_type", "authorization_code"),
             ("code", code),
@@ -68,6 +72,7 @@ impl EpicApi {
     }
 
     pub async fn refresh_session(&self, refresh_token: &str) -> Result<EpicSession, String> {
+        debug!("Refreshing Epic session");
         self.oauth_request(&[
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token),
@@ -84,40 +89,58 @@ impl EpicApi {
             .form(params)
             .send()
             .await
-            .map_err(|e| format!("Request failed: {e}"))?;
+            .map_err(|e| {
+                error!("Epic OAuth request failed: {}", e);
+                format!("Request failed: {e}")
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
+            error!("Epic OAuth request failed ({}): {}", status, body);
             return Err(format!("OAuth request failed ({status}): {body}"));
         }
 
         response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse response: {e}"))
+            .map_err(|e| {
+                error!("Failed to parse Epic OAuth response: {}", e);
+                format!("Failed to parse response: {e}")
+            })
     }
 
     pub async fn get_game_token(&self, session: &EpicSession) -> Result<String, String> {
+        debug!("Requesting Epic game token");
         let response = self
             .client
             .get(format!("https://{OAUTH_HOST}/account/api/oauth/exchange"))
             .header("Authorization", format!("Bearer {}", session.access_token))
             .send()
             .await
-            .map_err(|e| format!("Request failed: {e}"))?;
+            .map_err(|e| {
+                error!("Epic game token request failed: {}", e);
+                format!("Request failed: {e}")
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
+            error!("Failed to get Epic game token ({}): {}", status, body);
             return Err(format!("Failed to get game token ({status}): {body}"));
         }
 
         response
             .json::<GameTokenResponse>()
             .await
-            .map(|t| t.code)
-            .map_err(|e| format!("Failed to parse token: {e}"))
+            .map(|t| {
+                debug!("Epic game token obtained");
+                t.code
+            })
+            .map_err(|e| {
+                error!("Failed to parse Epic game token: {}", e);
+                format!("Failed to parse token: {e}")
+            })
     }
 }
 
@@ -125,7 +148,10 @@ impl EpicApi {
 
 fn keyring_entry(suffix: &str) -> Result<Entry, String> {
     Entry::new(KEYRING_SERVICE, &format!("{KEYRING_KEY}_{suffix}"))
-        .map_err(|e| format!("Keyring access failed: {e}"))
+        .map_err(|e| {
+            error!("Keyring access failed: {}", e);
+            format!("Keyring access failed: {e}")
+        })
 }
 
 fn compress(data: &[u8]) -> Result<Vec<u8>, String> {
@@ -133,7 +159,10 @@ fn compress(data: &[u8]) -> Result<Vec<u8>, String> {
     encoder
         .write_all(data)
         .and_then(|_| encoder.finish())
-        .map_err(|e| format!("Compression failed: {e}"))
+        .map_err(|e| {
+            error!("Compression failed: {}", e);
+            format!("Compression failed: {e}")
+        })
 }
 
 fn decompress(data: &[u8]) -> Result<Vec<u8>, String> {
@@ -141,16 +170,22 @@ fn decompress(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     decoder
         .read_to_end(&mut out)
-        .map_err(|e| format!("Decompression failed: {e}"))?;
+        .map_err(|e| {
+            error!("Decompression failed: {}", e);
+            format!("Decompression failed: {e}")
+        })?;
     Ok(out)
 }
 
 pub fn save_session(session: &EpicSession) -> Result<(), String> {
-    debug!("Saving Epic session to keyring");
+    info!("Saving Epic session to keyring");
     clear_session()?;
 
     // Serialize -> compress -> base64 encode
-    let json = serde_json::to_vec(session).map_err(|e| format!("Serialize failed: {e}"))?;
+    let json = serde_json::to_vec(session).map_err(|e| {
+        error!("Failed to serialize session: {}", e);
+        format!("Serialize failed: {e}")
+    })?;
     let encoded = B64.encode(compress(&json)?);
 
     // Store chunks (base64 is ASCII, safe to split at any byte boundary)
@@ -158,16 +193,22 @@ pub fn save_session(session: &EpicSession) -> Result<(), String> {
 
     keyring_entry("n")?
         .set_password(&chunks.len().to_string())
-        .map_err(|e| format!("Failed to save chunk count: {e}"))?;
+        .map_err(|e| {
+            error!("Failed to save chunk count: {}", e);
+            format!("Failed to save chunk count: {e}")
+        })?;
 
     for (i, chunk) in chunks.iter().enumerate() {
         let chunk_str = std::str::from_utf8(chunk).unwrap(); // Safe: base64 is ASCII
         keyring_entry(&i.to_string())?
             .set_password(chunk_str)
-            .map_err(|e| format!("Failed to save chunk {i}: {e}"))?;
+            .map_err(|e| {
+                error!("Failed to save chunk {}: {}", i, e);
+                format!("Failed to save chunk {i}: {e}")
+            })?;
     }
 
-    debug!("Epic session saved ({} chunks)", chunks.len());
+    info!("Epic session saved ({} chunks)", chunks.len());
     Ok(())
 }
 
@@ -198,7 +239,7 @@ pub fn clear_session() -> Result<(), String> {
         return Ok(());
     }
 
-    debug!("Clearing Epic session ({count} chunks)");
+    info!("Clearing Epic session ({count} chunks)");
     let _ = keyring_entry("n").map(|e| e.delete_credential());
     for i in 0..count {
         let _ = keyring_entry(&i.to_string()).map(|e| e.delete_credential());

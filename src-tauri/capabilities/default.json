@@ -27,6 +27,7 @@
 		"store:default",
 		"fs:default",
 		"os:default",
+		"log:default",
 		"fs:allow-mkdir",
 		"fs:allow-remove",
 		"fs:allow-write",

@@ -8,12 +8,15 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { settingsService } from '$lib/features/settings/settings-service';
 	import { onMount } from 'svelte';
+	import { info, warn } from '@tauri-apps/plugin-log';
 
 	let { children } = $props();
 	let dialogOpen = $state(false);
 	let detectedPath = $state('');
 
 	onMount(async () => {
+		info('Starlight frontend initialized');
+
 		const settings = await settingsService.getSettings();
 		if (!settings.among_us_path) {
 			try {
@@ -21,6 +24,7 @@
 				detectedPath = path ?? '';
 				dialogOpen = true;
 			} catch {
+				warn('Failed to auto-detect Among Us path');
 				dialogOpen = true;
 			}
 		}

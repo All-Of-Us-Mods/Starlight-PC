@@ -1,11 +1,34 @@
 mod commands;
 mod utils;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_updater::UpdaterExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut log_builder = tauri_plugin_log::Builder::new();
+
+    if cfg!(debug_assertions) {
+        // Dev Mode: Terminal only, Info level
+        log_builder = log_builder
+            .targets([Target::new(TargetKind::Stdout)])
+            .level(log::LevelFilter::Info);
+    } else {
+        // Prod Mode: File only, Error level
+        log_builder = log_builder
+            .targets([Target::new(TargetKind::LogDir {
+                file_name: Some("logs".to_string()),
+            })])
+            .level(log::LevelFilter::Error);
+    }
+
     tauri::Builder::default()
+        .plugin(
+            log_builder
+                .level_for("hyper", log::LevelFilter::Warn)
+                .level_for("reqwest", log::LevelFilter::Warn)
+                .build(),
+        )
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -44,13 +67,7 @@ pub fn run() {
                 update(handle).await.unwrap();
             });
 
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            log::info!("Starlight started");
 
             Ok(())
         })
@@ -74,7 +91,9 @@ pub fn run() {
 }
 
 async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
+    log::info!("Checking for updates...");
     if let Some(update) = app.updater()?.check().await? {
+        log::info!("Update available, downloading...");
         let mut downloaded = 0;
 
         // alternatively we could also call update.download() and update.install() separately
@@ -82,16 +101,18 @@ async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
             .download_and_install(
                 |chunk_length, content_length| {
                     downloaded += chunk_length;
-                    println!("downloaded {downloaded} from {content_length:?}");
+                    log::debug!("Downloaded {downloaded} from {content_length:?}");
                 },
                 || {
-                    println!("download finished");
+                    log::info!("Download finished");
                 },
             )
             .await?;
 
-        println!("update installed");
+        log::info!("Update installed, restarting application");
         app.restart();
+    } else {
+        log::info!("No updates available");
     }
 
     Ok(())

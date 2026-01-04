@@ -9,7 +9,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import { showToastError, showToastSuccess } from '$lib/utils/toast';
+	import { showError, showSuccess } from '$lib/utils/toast';
 	import { epicService } from '../epic-service';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 	import { LogOut, ExternalLink } from '@lucide/svelte';
@@ -35,20 +35,20 @@
 
 	async function handleLogin() {
 		if (!authCode.trim()) {
-			showToastError('Please enter the authorization code');
+			showError('Please enter the authorization code');
 			return;
 		}
 
 		isLoggingIn = true;
 		try {
 			await epicService.login(authCode.trim());
-			showToastSuccess('Successfully logged into Epic Games');
+			showSuccess('Successfully logged into Epic Games');
 			authCode = '';
 			open = false;
 			isLoggedIn = true;
 			onChange?.();
 		} catch (e) {
-			showToastError(e);
+			showError(e);
 		} finally {
 			isLoggingIn = false;
 		}
@@ -59,7 +59,7 @@
 			const url = await epicService.getAuthUrl();
 			await openUrl(url);
 		} catch (e) {
-			showToastError(e);
+			showError(e);
 		}
 	}
 
@@ -67,11 +67,11 @@
 		isLoggingOut = true;
 		try {
 			await epicService.logout();
-			showToastSuccess('Logged out of Epic Games');
+			showSuccess('Logged out of Epic Games');
 			isLoggedIn = false;
 			onChange?.();
 		} catch (e) {
-			showToastError(e);
+			showError(e);
 		} finally {
 			isLoggingOut = false;
 		}

@@ -19,7 +19,7 @@
 	import { launchService } from '$lib/features/profiles/launch-service';
 	import { profileService } from '$lib/features/profiles/profile-service';
 	import type { Profile } from '$lib/features/profiles/schema';
-	import { showToastError, showToastSuccess } from '$lib/utils/toast';
+	import { showError, showSuccess } from '$lib/utils/toast';
 
 	const queryClient = useQueryClient();
 	const profilesQuery = createQuery(() => profileQueries.all());
@@ -36,7 +36,7 @@
 		try {
 			await launchService.launchVanilla();
 		} catch (e) {
-			showToastError(e);
+			showError(e);
 		} finally {
 			isLaunchingVanilla = false;
 		}
@@ -57,7 +57,7 @@
 			queryClient.invalidateQueries({ queryKey: ['profiles', 'active'] });
 		} catch (e) {
 			queryClient.setQueryData(['profiles'], previousProfiles);
-			showToastError(e);
+			showError(e);
 		}
 	}
 
@@ -84,10 +84,10 @@
 
 		try {
 			await profileService.deleteProfile(profileId);
-			showToastSuccess(`Profile "${profileName}" deleted`);
+			showSuccess(`Profile "${profileName}" deleted`);
 		} catch (e) {
 			queryClient.setQueryData(['profiles'], previousProfiles);
-			showToastError(e);
+			showError(e);
 		} finally {
 			profileToDelete = null;
 		}
