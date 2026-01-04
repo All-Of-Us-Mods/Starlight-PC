@@ -1,11 +1,34 @@
 mod commands;
 mod utils;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_updater::UpdaterExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut log_builder = tauri_plugin_log::Builder::new();
+
+    if cfg!(debug_assertions) {
+        // Dev Mode: Terminal only, Info level
+        log_builder = log_builder
+            .targets([Target::new(TargetKind::Stdout)])
+            .level(log::LevelFilter::Info);
+    } else {
+        // Prod Mode: File only, Error level
+        log_builder = log_builder
+            .targets([Target::new(TargetKind::LogDir {
+                file_name: Some("logs".to_string()),
+            })])
+            .level(log::LevelFilter::Error);
+    }
+
     tauri::Builder::default()
+        .plugin(
+            log_builder
+                .level_for("hyper", log::LevelFilter::Warn)
+                .level_for("reqwest", log::LevelFilter::Warn)
+                .build(),
+        )
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -22,13 +45,13 @@ pub fn run() {
                 .resizable(true)
                 .visible(false);
 
-            // macOS: Keep native buttons, make bar transparent
+            // macOS: Use overlay to show native buttons over custom titlebar
             #[cfg(target_os = "macos")]
             {
                 use tauri::TitleBarStyle;
                 win_builder = win_builder
-                    .title_bar_style(TitleBarStyle::Transparent)
-                    .fullsize_content_view(true);
+                    .title_bar_style(TitleBarStyle::Overlay)
+                    .title("");
             }
 
             // Windows/Linux: Hide native bar to use our custom one
@@ -39,37 +62,12 @@ pub fn run() {
 
             let _window = win_builder.build().unwrap();
 
-            // macOS specific background styling
-            #[cfg(target_os = "macos")]
-            {
-                use cocoa::appkit::{NSColor, NSWindow};
-                use cocoa::base::{id, nil};
-
-                let ns_window = window.ns_window().unwrap() as id;
-                unsafe {
-                    let bg_color = NSColor::colorWithRed_green_blue_alpha_(
-                        nil,
-                        18.0 / 255.0, // Match your bg-card color
-                        18.0 / 255.0,
-                        18.0 / 255.0,
-                        1.0,
-                    );
-                    ns_window.setBackgroundColor_(bg_color);
-                }
-            }
-
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 update(handle).await.unwrap();
             });
 
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            log::info!("Starlight started");
 
             Ok(())
         })
@@ -94,7 +92,9 @@ pub fn run() {
 }
 
 async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
+    log::info!("Checking for updates...");
     if let Some(update) = app.updater()?.check().await? {
+        log::info!("Update available, downloading...");
         let mut downloaded = 0;
 
         // alternatively we could also call update.download() and update.install() separately
@@ -102,16 +102,18 @@ async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
             .download_and_install(
                 |chunk_length, content_length| {
                     downloaded += chunk_length;
-                    println!("downloaded {downloaded} from {content_length:?}");
+                    log::debug!("Downloaded {downloaded} from {content_length:?}");
                 },
                 || {
-                    println!("download finished");
+                    log::info!("Download finished");
                 },
             )
             .await?;
 
-        println!("update installed");
+        log::info!("Update installed, restarting application");
         app.restart();
+    } else {
+        log::info!("No updates available");
     }
 
     Ok(())

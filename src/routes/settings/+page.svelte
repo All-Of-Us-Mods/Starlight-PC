@@ -9,7 +9,7 @@
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { settingsService } from '$lib/features/settings/settings-service';
 	import type { AppSettings, GamePlatform } from '$lib/features/settings/schema';
-	import { showToastError, showToastSuccess } from '$lib/utils/toast';
+	import { showError, showSuccess } from '$lib/utils/toast';
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { exists } from '@tauri-apps/plugin-fs';
@@ -66,7 +66,7 @@
 		if (localAmongUsPath) {
 			const exePath = `${localAmongUsPath}/Among Us.exe`;
 			if (!(await exists(exePath))) {
-				showToastError('Selected folder does not contain Among Us.exe');
+				showError('Selected folder does not contain Among Us.exe');
 				return;
 			}
 		}
@@ -85,9 +85,9 @@
 			await invoke('save_game_copy', { path: localAmongUsPath });
 			isCopying = false;
 			queryClient.invalidateQueries({ queryKey: ['settings'] });
-			showToastSuccess('Settings saved successfully');
+			showSuccess('Settings saved successfully');
 		} catch (e) {
-			showToastError(e);
+			showError(e);
 		} finally {
 			isSaving = false;
 			isCopying = false;
@@ -102,12 +102,12 @@
 				localAmongUsPath = path;
 				const platform = await invoke<string>('get_game_platform', { path });
 				localGamePlatform = platform as GamePlatform;
-				showToastSuccess('Among Us path detected successfully');
+				showSuccess('Among Us path detected successfully');
 			} else {
-				showToastError('Could not auto-detect Among Us installation');
+				showError('Could not auto-detect Among Us installation');
 			}
 		} catch (e) {
-			showToastError(e);
+			showError(e);
 		} finally {
 			isDetecting = false;
 		}
@@ -138,13 +138,13 @@
 				localAmongUsPath = selected;
 			}
 		} catch (e) {
-			showToastError(e);
+			showError(e);
 		}
 	}
 
 	async function handleDownloadToCache() {
 		if (!localBepInExUrl) {
-			showToastError('BepInEx URL is required');
+			showError('BepInEx URL is required');
 			return;
 		}
 
@@ -163,9 +163,9 @@
 				cachePath
 			});
 			isCacheExists = true;
-			showToastSuccess('BepInEx downloaded to cache');
+			showSuccess('BepInEx downloaded to cache');
 		} catch (e) {
-			showToastError(e);
+			showError(e);
 		} finally {
 			unlisten?.();
 			isCacheDownloading = false;
@@ -178,9 +178,9 @@
 			const cachePath = await settingsService.getBepInExCachePath();
 			await invoke('clear_bepinex_cache', { cachePath });
 			isCacheExists = false;
-			showToastSuccess('Cache cleared');
+			showSuccess('Cache cleared');
 		} catch (e) {
-			showToastError(e);
+			showError(e);
 		}
 	}
 </script>

@@ -19,7 +19,7 @@
 	import { launchService } from '$lib/features/profiles/launch-service';
 	import { profileService } from '$lib/features/profiles/profile-service';
 	import type { Profile } from '$lib/features/profiles/schema';
-	import { showToastError, showToastSuccess } from '$lib/utils/toast';
+	import { showError, showSuccess } from '$lib/utils/toast';
 	import { invoke } from '@tauri-apps/api/core';
 
 	const queryClient = useQueryClient();
@@ -38,7 +38,7 @@
 			isCopying = true;
 			await invoke('save_game_copy', { path: settings?.among_us_path });
 		} catch (e) {
-			showToastError(e);
+			showError(e);
 		} finally {
 			isCopying = false;
 
@@ -46,7 +46,7 @@
 			try {
 				await launchService.launchVanilla();
 			} catch (e) {
-				showToastError(e);
+				showError(e);
 			} finally {
 				isLaunchingVanilla = false;
 			}
@@ -69,15 +69,15 @@
 			showToastError(e);
 		} finally {
 			isCopying = false;
+		}
 
-			try {
-				await launchService.launchProfile(profile);
-				queryClient.invalidateQueries({ queryKey: ['profiles'] });
-				queryClient.invalidateQueries({ queryKey: ['profiles', 'active'] });
-			} catch (e) {
-				queryClient.setQueryData(['profiles'], previousProfiles);
-				showToastError(e);
-			}
+		try {
+			await launchService.launchProfile(profile);
+			queryClient.invalidateQueries({ queryKey: ['profiles'] });
+			queryClient.invalidateQueries({ queryKey: ['profiles', 'active'] });
+		} catch (e) {
+			queryClient.setQueryData(['profiles'], previousProfiles);
+			showToastError(e);
 		}
 	}
 
@@ -104,10 +104,10 @@
 
 		try {
 			await profileService.deleteProfile(profileId);
-			showToastSuccess(`Profile "${profileName}" deleted`);
+			showSuccess(`Profile "${profileName}" deleted`);
 		} catch (e) {
 			queryClient.setQueryData(['profiles'], previousProfiles);
-			showToastError(e);
+			showError(e);
 		} finally {
 			profileToDelete = null;
 		}
@@ -116,6 +116,11 @@
 	function cancelDelete() {
 		deleteDialogOpen = false;
 		profileToDelete = null;
+	}
+
+
+	function showToastError(e: unknown) {
+		throw new Error('Function not implemented.');
 	}
 </script>
 

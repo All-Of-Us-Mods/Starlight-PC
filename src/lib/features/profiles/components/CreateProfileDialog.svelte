@@ -7,7 +7,6 @@
 	import { profileService } from '../profile-service';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import type { Profile } from '../schema';
-	import { handleError } from '$lib/utils/error-handler';
 
 	const queryClient = useQueryClient();
 
@@ -58,7 +57,7 @@
 			name = '';
 			open = false;
 		} catch (e) {
-			error = handleError(e);
+			error = e instanceof Error ? e.message : 'An unknown error occurred';
 		} finally {
 			isCreating = false;
 		}

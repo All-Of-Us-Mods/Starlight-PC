@@ -1,4 +1,4 @@
-use log::info;
+use log::{debug, info, warn};
 use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "windows")]
@@ -101,12 +101,16 @@ pub fn detect_platform(path: &str) -> Result<String, String> {
     let path = PathBuf::from(path);
 
     if !verify_among_us_directory(&path) {
+        warn!("Invalid Among Us installation directory: {:?}", path);
         return Err("Invalid Among Us installation directory".to_string());
     }
 
-    if is_epic_installation(&path) {
-        Ok("epic".to_string())
+    let platform = if is_epic_installation(&path) {
+        "epic"
     } else {
-        Ok("steam".to_string())
-    }
+        "steam"
+    };
+
+    debug!("Detected platform '{}' for path: {:?}", platform, path);
+    Ok(platform.to_string())
 }

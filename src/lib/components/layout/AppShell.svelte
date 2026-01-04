@@ -14,7 +14,7 @@
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { launchService } from '$lib/features/profiles/launch-service';
 	import type { Profile } from '$lib/features/profiles/schema';
-	import { showToastError } from '$lib/utils/toast';
+	import { showError } from '$lib/utils/toast';
 	import { gameState } from '$lib/features/profiles/game-state-service.svelte';
 	import CreateProfileDialog from '$lib/features/profiles/components/CreateProfileDialog.svelte';
 
@@ -62,7 +62,7 @@
 
 	async function handleLaunchLastUsed() {
 		if (gameState.running) {
-			showToastError(new Error('Among Us is already running'));
+			showError(new Error('Among Us is already running'));
 			return;
 		}
 		if (!activeProfile) return;
@@ -72,7 +72,7 @@
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
 			queryClient.invalidateQueries({ queryKey: ['profiles', 'active'] });
 		} catch (e) {
-			showToastError(e);
+			showError(e);
 		}
 	}
 </script>
