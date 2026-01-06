@@ -269,6 +269,27 @@
 							{/if}
 						</p>
 					</div>
+					{#if localGamePlatform === 'epic'}
+						<div class="flex items-center justify-between rounded-md bg-muted/50 p-3">
+							<div class="space-y-0.5">
+								<p class="text-sm font-medium">Account Status</p>
+								<p class="text-sm text-muted-foreground">
+									{#if isLoggedIn}
+										<span class="text-green-500">Logged in</span>
+									{:else}
+										<span class="text-orange-500">Not logged in</span>
+									{/if}
+								</p>
+							</div>
+							<Button variant="outline" size="sm" onclick={() => (epicLoginOpen = true)}>
+								{#if isLoggedIn}
+									Manage Account
+								{:else}
+									Login to Epic Games
+								{/if}
+							</Button>
+						</div>
+					{/if}
 				</div>
 			</div>
 
@@ -347,39 +368,6 @@
 					<Switch id="close-on-launch" bind:checked={localCloseOnLaunch} />
 				</div>
 			</div>
-
-			{#if localGamePlatform === 'epic'}
-				<div class="rounded-lg border border-border p-6">
-					<h2 class="mb-4 text-lg font-semibold">Epic Games Account</h2>
-					<div class="space-y-4">
-						<div class="flex items-center justify-between">
-							<div class="space-y-0.5">
-								<p class="font-medium">Account Status</p>
-								<p class="text-sm text-muted-foreground">
-									{#if isLoggedIn}
-										<span class="text-green-500">Logged in</span>
-									{:else}
-										<span class="text-orange-500">Not logged in</span>
-									{/if}
-								</p>
-							</div>
-							<Button variant="outline" onclick={() => (epicLoginOpen = true)}>
-								{#if isLoggedIn}
-									Manage Account
-								{:else}
-									Login to Epic Games
-								{/if}
-							</Button>
-						</div>
-						{#if !isLoggedIn}
-							<p class="text-sm text-muted-foreground">
-								You must login to your Epic Games account to launch the Epic Games version of Among
-								Us. Your session will be saved and restored automatically.
-							</p>
-						{/if}
-					</div>
-				</div>
-			{/if}
 
 			<div class="flex justify-end gap-2">
 				<Button onclick={handleSave} disabled={isSaving}>
