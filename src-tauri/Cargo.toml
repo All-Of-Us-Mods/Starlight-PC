@@ -1,6 +1,6 @@
 [package]
 name = "Starlight"
-version = "0.0.7"
+version = "0.0.8"
 description = "Among Us mod manager"
 authors = ["yanpla"]
 license = ""
@@ -36,6 +36,7 @@ keyring = "3.6.3"
 flate2 = "1.1.5"
 zip = "2"
 futures-util = "0.3"
+url = "2.5.7"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

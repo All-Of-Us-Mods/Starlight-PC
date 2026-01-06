@@ -83,6 +83,7 @@ pub fn run() {
             commands::launch::launch_vanilla,
             commands::epic_commands::get_epic_auth_url,
             commands::epic_commands::epic_login_with_code,
+            commands::epic_commands::epic_login_with_webview,
             commands::epic_commands::epic_try_restore_session,
             commands::epic_commands::epic_logout,
             commands::epic_commands::epic_is_logged_in,

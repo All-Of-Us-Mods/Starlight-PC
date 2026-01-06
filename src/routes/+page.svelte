@@ -77,7 +77,7 @@
 					</Carousel.Item>
 				{:else if newsQuery.isSuccess && newsQuery.data}
 					{#each newsQuery.data as post (post.id)}
-						<Carousel.Item class="pl-4 @lg:basis-1/2 @2xl:basis-1/3">
+						<Carousel.Item class="pl-4 select-none @lg:basis-1/2 @2xl:basis-1/3">
 							<NewsCard
 								{post}
 								isSelected={selectedPost?.id === post.id}

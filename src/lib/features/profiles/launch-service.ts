@@ -51,7 +51,8 @@ class LaunchService {
 			profilePath: profile.path,
 			bepinexDll: bepinexDll,
 			dotnetDir: dotnetDir,
-			coreclrPath: coreClr
+			coreclrPath: coreClr,
+			platform: settings.game_platform || 'steam'
 		});
 
 		await profileService.updateLastLaunched(profile.id);
@@ -82,7 +83,10 @@ class LaunchService {
 		}
 
 		debug('Invoking launch_vanilla command');
-		await invoke('launch_vanilla', { gameExe: gameExePath });
+		await invoke('launch_vanilla', {
+			gameExe: gameExePath,
+			platform: settings.game_platform || 'steam'
+		});
 		gameState.setRunningProfile(null);
 		info('Vanilla game launched successfully');
 	}

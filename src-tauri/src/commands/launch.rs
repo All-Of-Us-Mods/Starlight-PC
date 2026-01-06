@@ -88,6 +88,7 @@ pub async fn launch_modded<R: Runtime>(
     bepinex_dll: String,
     dotnet_dir: String,
     coreclr_path: String,
+    platform: String,
 ) -> Result<(), String> {
     info!("launch_modded: game_exe={}", game_exe);
     debug!(
@@ -111,7 +112,9 @@ pub async fn launch_modded<R: Runtime>(
         .args(["--doorstop-clr-corlib-dir", &dotnet_dir])
         .args(["--doorstop-clr-runtime-coreclr-path", &coreclr_path]);
 
-    if let Some(session) = epic_api::load_session() {
+    if platform == "epic"
+        && let Some(session) = epic_api::load_session()
+    {
         info!("Epic session found, obtaining game token");
         let api = EpicApi::new()?;
         match api.get_game_token(&session).await {
@@ -129,11 +132,17 @@ pub async fn launch_modded<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn launch_vanilla<R: Runtime>(app: AppHandle<R>, game_exe: String) -> Result<(), String> {
+pub async fn launch_vanilla<R: Runtime>(
+    app: AppHandle<R>,
+    game_exe: String,
+    platform: String,
+) -> Result<(), String> {
     info!("launch_vanilla: game_exe={}", game_exe);
     let mut cmd = Command::new(&game_exe);
 
-    if let Some(session) = epic_api::load_session() {
+    if platform == "epic"
+        && let Some(session) = epic_api::load_session()
+    {
         info!("Epic session found, obtaining game token");
         let api = EpicApi::new()?;
         match api.get_game_token(&session).await {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import DOMPurify from 'dompurify';
+	import { openUrl } from '@tauri-apps/plugin-opener';
 
 	interface Props {
 		content: string | Promise<string>;
@@ -8,30 +9,62 @@
 
 	let { content, class: className = '' }: Props = $props();
 
-	const sanitizedContent = $derived.by(async () => {
-		const resolvedContent = await Promise.resolve(content);
-		return DOMPurify.sanitize(resolvedContent);
-	});
+	async function getSanitizedHtml(input: typeof content) {
+		const raw = await input;
+		return DOMPurify.sanitize(raw);
+	}
+
+	function handleLinkClick(event: MouseEvent) {
+		const anchor = (event.target as HTMLElement).closest('a');
+		if (anchor?.href.startsWith('http')) {
+			event.preventDefault();
+			openUrl(anchor.href).catch(console.error);
+		}
+	}
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-	class="prose prose-sm max-w-none dark:prose-invert
-    prose-h1:scroll-m-20 prose-h1:text-4xl prose-h1:font-extrabold prose-h1:tracking-tight prose-h1:lg:text-5xl
-    prose-h2:scroll-m-20 prose-h2:border-b prose-h2:pb-2 prose-h2:text-3xl prose-h2:font-semibold prose-h2:tracking-tight prose-h2:transition-colors prose-h2:first:mt-0
-    prose-h3:scroll-m-20 prose-h3:text-2xl prose-h3:font-semibold prose-h3:tracking-tight
-    prose-h4:scroll-m-20 prose-h4:text-xl prose-h4:font-semibold prose-h4:tracking-tight
-    prose-p:leading-7 prose-p:not-first:mt-6
-    prose-blockquote:mt-6 prose-blockquote:border-l-2 prose-blockquote:pl-6 prose-blockquote:italic
-    prose-code:relative prose-code:rounded prose-code:bg-muted prose-code:px-[0.3rem]
-    prose-code:py-[0.2rem] prose-code:font-mono prose-code:text-sm prose-code:font-semibold prose-ul:my-6 prose-ul:ml-6 prose-ul:list-disc prose-ul:[&>li]:mt-2
-    {className}"
+	onclick={handleLinkClick}
+	class="custom-prose prose prose-sm max-w-none dark:prose-invert {className}"
 >
-	{#await sanitizedContent}
+	{#await getSanitizedHtml(content)}
 		<p class="text-muted-foreground">Loading content...</p>
 	{:then html}
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 		{@html html}
 	{:catch error}
-		<p class="text-destructive">Error loading content: {error.message}</p>
+		<p class="text-destructive">Error: {error.message}</p>
 	{/await}
 </div>
+
+<style lang="postcss">
+	@reference "$lib/../app.css";
+	.custom-prose {
+		:global(h1) {
+			@apply scroll-m-20 text-4xl font-extrabold tracking-tight lg:text-5xl;
+		}
+		:global(h2) {
+			@apply scroll-m-20 border-b pb-2 text-3xl font-semibold tracking-tight transition-colors first:mt-0;
+		}
+		:global(h3) {
+			@apply scroll-m-20 text-2xl font-semibold tracking-tight;
+		}
+		:global(h4) {
+			@apply scroll-m-20 text-xl font-semibold tracking-tight;
+		}
+		:global(p) {
+			@apply leading-7 not-first:mt-6;
+		}
+		:global(blockquote) {
+			@apply mt-6 border-l-2 pl-6 italic;
+		}
+		:global(code) {
+			@apply relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm font-semibold;
+		}
+		:global(ul) {
+			@apply my-6 ml-6 list-disc [&>li]:mt-2;
+		}
+	}
+</style>
