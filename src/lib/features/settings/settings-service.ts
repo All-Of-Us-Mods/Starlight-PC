@@ -19,7 +19,8 @@ class SettingsService {
 				among_us_path: '',
 				close_on_launch: false,
 				game_platform: 'steam',
-				cache_bepinex: false
+				cache_bepinex: false,
+				copy_game_files: 'ignore'
 			}
 		);
 	}

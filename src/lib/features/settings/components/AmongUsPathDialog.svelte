@@ -16,6 +16,7 @@
 
 	let selectedPath = $state('');
 	let error = $state('');
+	let isCopying = $state(false);
 
 	$effect(() => {
 		if (open && detectedPath) {
@@ -90,9 +91,19 @@
 			await settingsService.updateSettings({ among_us_path: selectedPath });
 			await detectAndSetPlatform(selectedPath);
 			await handleAutoSetBepinex();
+
+			const settings = await settingsService.getSettings();
+			if (settings.copy_game_files === 'cache') {
+				isCopying = true;
+				await invoke('save_game_copy', { path: selectedPath });
+				isCopying = false;
+			}
+
 			open = false;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to save path';
+		} finally {
+			isCopying = false;
 		}
 	}
 
@@ -128,7 +139,9 @@
 			<div class="flex gap-2">
 				<Button variant="outline" onclick={handleAutoDetect}>Auto-detect</Button>
 				<Button variant="ghost" onclick={handleSkip}>Skip</Button>
-				<Button onclick={handleConfirm} disabled={!selectedPath}>Confirm</Button>
+				<Button onclick={handleConfirm} disabled={!selectedPath || isCopying}>
+					{isCopying ? 'Backing up game files...' : 'Confirm'}
+				</Button>
 			</div>
 
 			{#if error}<p class="text-sm text-destructive">{error}</p>{/if}

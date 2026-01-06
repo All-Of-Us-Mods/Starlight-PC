@@ -78,6 +78,7 @@ pub fn run() {
             commands::download::check_bepinex_cache_exists,
             commands::finder::detect_among_us,
             commands::finder::get_game_platform,
+            commands::game::save_game_copy,
             commands::launch::launch_modded,
             commands::launch::launch_vanilla,
             commands::epic_commands::get_epic_auth_url,

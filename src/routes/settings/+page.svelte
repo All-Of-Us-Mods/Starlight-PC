@@ -3,12 +3,13 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
+	import * as Select from '$lib/components/ui/select';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { Settings, Save, RefreshCw, Download, Trash2 } from '@lucide/svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { settingsService } from '$lib/features/settings/settings-service';
-	import type { AppSettings, GamePlatform } from '$lib/features/settings/schema';
+	import type { AppSettings, GamePlatform, CopyGameFiles } from '$lib/features/settings/schema';
 	import { showError, showSuccess } from '$lib/utils/toast';
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -29,6 +30,7 @@
 	let isCacheDownloading = $state(false);
 	let cacheDownloadProgress = $state(0);
 	let isCacheExists = $state(false);
+	let isCopying = $state(false);
 
 	async function refreshEpicAuth() {
 		isLoggedIn = await epicService.isLoggedIn();
@@ -48,6 +50,7 @@
 	let localCloseOnLaunch = $state(false);
 	let localGamePlatform = $state<GamePlatform>('steam');
 	let localCacheBepInEx = $state(false);
+	let localCopyGameFiles = $state<CopyGameFiles>('ignore');
 
 	$effect(() => {
 		if (settings) {
@@ -56,6 +59,8 @@
 			localCloseOnLaunch = settings.close_on_launch ?? false;
 			localGamePlatform = settings.game_platform ?? 'steam';
 			localCacheBepInEx = settings.cache_bepinex ?? false;
+			localCopyGameFiles =
+				settings.copy_game_files ?? (settings.game_platform === 'epic' ? 'cache' : 'ignore');
 			refreshEpicAuth();
 			checkCacheExists();
 		}
@@ -77,15 +82,22 @@
 				bepinex_url: localBepInExUrl,
 				close_on_launch: localCloseOnLaunch,
 				game_platform: localGamePlatform,
-				cache_bepinex: localCacheBepInEx
+				cache_bepinex: localCacheBepInEx,
+				copy_game_files: localCopyGameFiles
 			});
 			await handleAutoSetBepinex();
+			if (localCopyGameFiles === 'cache') {
+				isCopying = true;
+				await invoke('save_game_copy', { path: localAmongUsPath });
+				isCopying = false;
+			}
 			queryClient.invalidateQueries({ queryKey: ['settings'] });
 			showSuccess('Settings saved successfully');
 		} catch (e) {
 			showError(e);
 		} finally {
 			isSaving = false;
+			isCopying = false;
 		}
 	}
 
@@ -357,6 +369,28 @@
 			</div>
 
 			<div class="rounded-lg border border-border p-6">
+				<h2 class="mb-4 text-lg font-semibold">Game Files</h2>
+				<div class="space-y-4">
+					<div class="space-y-2">
+						<Label>Cache Game Files</Label>
+						<Select.Root type="single" bind:value={localCopyGameFiles}>
+							<Select.Trigger>
+								{localCopyGameFiles === 'cache' ? 'Cache (Recommended for Epic)' : 'Ignore'}
+							</Select.Trigger>
+							<Select.Content>
+								<Select.Item value="cache">Cache (Recommended for Epic Games)</Select.Item>
+								<Select.Item value="ignore">Ignore</Select.Item>
+							</Select.Content>
+						</Select.Root>
+						<p class="text-sm text-muted-foreground">
+							Whether to keep a cached copy of the game files. Recommended for Epic Games to prevent
+							problems if downgrading becomes impossible.
+						</p>
+					</div>
+				</div>
+			</div>
+
+			<div class="rounded-lg border border-border p-6">
 				<h2 class="mb-4 text-lg font-semibold">App Behavior</h2>
 				<div class="flex items-center justify-between">
 					<div class="space-y-0.5">
@@ -372,7 +406,7 @@
 			<div class="flex justify-end gap-2">
 				<Button onclick={handleSave} disabled={isSaving}>
 					{#if isSaving}
-						Saving...
+						{isCopying ? 'Backing up game files...' : 'Saving...'}
 					{:else}
 						<Save class="mr-2 h-4 w-4" />
 						Save Settings

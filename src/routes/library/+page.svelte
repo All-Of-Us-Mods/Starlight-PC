@@ -20,6 +20,7 @@
 	import { profileService } from '$lib/features/profiles/profile-service';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { showError, showSuccess } from '$lib/utils/toast';
+	import { invoke } from '@tauri-apps/api/core';
 
 	const queryClient = useQueryClient();
 	const profilesQuery = createQuery(() => profileQueries.all());
@@ -30,15 +31,25 @@
 	let deleteDialogOpen = $state(false);
 	let profileToDelete = $state<Profile | null>(null);
 	let isLaunchingVanilla = $state(false);
+	let isCopying = $state(false);
 
 	async function handleLaunchVanilla() {
-		isLaunchingVanilla = true;
 		try {
-			await launchService.launchVanilla();
+			isCopying = true;
+			await invoke('save_game_copy', { path: settings?.among_us_path });
 		} catch (e) {
 			showError(e);
 		} finally {
-			isLaunchingVanilla = false;
+			isCopying = false;
+
+			isLaunchingVanilla = true;
+			try {
+				await launchService.launchVanilla();
+			} catch (e) {
+				showError(e);
+			} finally {
+				isLaunchingVanilla = false;
+			}
 		}
 	}
 
@@ -52,12 +63,21 @@
 		);
 
 		try {
+			isCopying = true;
+			await invoke('save_game_copy', { path: settings?.among_us_path });
+		} catch (e) {
+			showToastError(e);
+		} finally {
+			isCopying = false;
+		}
+
+		try {
 			await launchService.launchProfile(profile);
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
 			queryClient.invalidateQueries({ queryKey: ['profiles', 'active'] });
 		} catch (e) {
 			queryClient.setQueryData(['profiles'], previousProfiles);
-			showError(e);
+			showToastError(e);
 		}
 	}
 
@@ -97,6 +117,10 @@
 		deleteDialogOpen = false;
 		profileToDelete = null;
 	}
+
+	function showToastError(e: unknown) {
+		throw new Error('Function not implemented.');
+	}
 </script>
 
 <div class="px-10 py-8">
@@ -124,7 +148,7 @@
 				class="flex items-center gap-3 rounded-lg border border-border bg-muted/20 p-4 text-left transition-colors hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-50"
 			>
 				<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
-					{#if isLaunchingVanilla}
+					{#if isLaunchingVanilla || isCopying}
 						<div
 							class="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent"
 						></div>
@@ -135,7 +159,11 @@
 				<div class="flex min-w-0 flex-1 flex-col">
 					<div class="flex items-center gap-2">
 						<div class="font-semibold">
-							{isLaunchingVanilla ? 'Launching...' : 'Launch Vanilla'}
+							{isLaunchingVanilla
+								? 'Launching...'
+								: isCopying
+									? 'Backing up game files...'
+									: 'Launch Vanilla'}
 						</div>
 						{#if settings?.game_platform}
 							<span
