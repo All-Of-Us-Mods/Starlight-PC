@@ -118,7 +118,6 @@
 		profileToDelete = null;
 	}
 
-
 	function showToastError(e: unknown) {
 		throw new Error('Function not implemented.');
 	}
@@ -160,7 +159,11 @@
 				<div class="flex min-w-0 flex-1 flex-col">
 					<div class="flex items-center gap-2">
 						<div class="font-semibold">
-							{isLaunchingVanilla ? 'Launching...' : isCopying ? 'Backing up game files...' : 'Launch Vanilla'}
+							{isLaunchingVanilla
+								? 'Launching...'
+								: isCopying
+									? 'Backing up game files...'
+									: 'Launch Vanilla'}
 						</div>
 						{#if settings?.game_platform}
 							<span

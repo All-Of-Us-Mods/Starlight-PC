@@ -375,9 +375,7 @@
 						<Label>Cache Game Files</Label>
 						<Select.Root type="single" bind:value={localCopyGameFiles}>
 							<Select.Trigger>
-								{localCopyGameFiles === 'cache'
-									? 'Cache (Recommended for Epic)'
-									: 'Ignore'}
+								{localCopyGameFiles === 'cache' ? 'Cache (Recommended for Epic)' : 'Ignore'}
 							</Select.Trigger>
 							<Select.Content>
 								<Select.Item value="cache">Cache (Recommended for Epic Games)</Select.Item>
@@ -385,8 +383,8 @@
 							</Select.Content>
 						</Select.Root>
 						<p class="text-sm text-muted-foreground">
-							Whether to keep a cached copy of the game files. Recommended for Epic Games to prevent problems if 
-							downgrading becomes impossible.
+							Whether to keep a cached copy of the game files. Recommended for Epic Games to prevent
+							problems if downgrading becomes impossible.
 						</p>
 					</div>
 				</div>

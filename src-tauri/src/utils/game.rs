@@ -22,22 +22,19 @@ pub fn extract_game_version(game_path: &Path) -> Result<String, String> {
     })?;
 
     let pattern = b"public.app-category.games";
-    let index = find_pattern(&bytes, pattern)
-        .ok_or_else(|| {
-            let err = "Version pattern not found in globalgamemanagers";
-            warn!("{}", err);
-            err.to_string()
-        })?
-        + pattern.len();
+    let index = find_pattern(&bytes, pattern).ok_or_else(|| {
+        let err = "Version pattern not found in globalgamemanagers";
+        warn!("{}", err);
+        err.to_string()
+    })? + pattern.len();
 
     let remaining = &bytes[index..];
     let version_pattern = b"20";
-    let version_index = find_pattern(remaining, version_pattern)
-        .ok_or_else(|| {
-            let err = "Version number not found in globalgamemanagers";
-            warn!("{}", err);
-            err.to_string()
-        })?;
+    let version_index = find_pattern(remaining, version_pattern).ok_or_else(|| {
+        let err = "Version number not found in globalgamemanagers";
+        warn!("{}", err);
+        err.to_string()
+    })?;
 
     let version_start = index + version_index;
 
@@ -52,7 +49,7 @@ pub fn extract_game_version(game_path: &Path) -> Result<String, String> {
         error!("{}", err);
         err
     })?;
-    
+
     info!("Extracted game version: {}", version);
     Ok(version)
 }

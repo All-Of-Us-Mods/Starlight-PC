@@ -98,7 +98,7 @@
 				await invoke('save_game_copy', { path: selectedPath });
 				isCopying = false;
 			}
-			
+
 			open = false;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to save path';
