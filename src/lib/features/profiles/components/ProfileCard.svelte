@@ -13,7 +13,9 @@
 		EllipsisVertical,
 		Download,
 		LoaderCircle,
-		Clock
+		Clock,
+		AlertCircle,
+		RotateCcw
 	} from '@lucide/svelte';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { createQuery } from '@tanstack/svelte-query';
@@ -77,11 +79,18 @@
 	);
 
 	const isRunning = $derived(gameState.isProfileRunning(profile.id));
-	const currentProgress = $derived(installProgress.getProgress(profile.id));
+	const installState = $derived(installProgress.getState(profile.id));
 	const isInstalling = $derived(
-		profile.bepinex_installed === false || currentProgress !== undefined
+		profile.bepinex_installed === false || installState?.status === 'installing'
 	);
+	const hasInstallError = $derived(installState?.status === 'error');
 	const isDisabled = $derived(isInstalling || isRunning);
+
+	async function handleRetryInstall() {
+		installProgress.clearProgress(profile.id);
+		await profileService.retryBepInExInstall(profile.id, profile.path);
+		queryClient.invalidateQueries({ queryKey: ['profiles'] });
+	}
 
 	const totalPlayTime = $derived(
 		(profile.total_play_time ?? 0) + (isRunning ? gameState.getSessionDuration() : 0)
@@ -133,13 +142,29 @@
 					<Card.Title class="truncate" title={profile.name}>
 						{profile.name}
 					</Card.Title>
-					{#if isInstalling}
+					{#if hasInstallError}
+						<Badge variant="outline" class="gap-1.5 border-destructive/50 text-destructive">
+							<AlertCircle class="size-3" />
+							Install failed
+						</Badge>
+						<Button
+							variant="ghost"
+							size="icon"
+							class="size-6"
+							onclick={handleRetryInstall}
+							title="Retry installation"
+						>
+							<RotateCcw class="size-3" />
+						</Button>
+					{:else if isInstalling}
 						<Badge
 							variant="outline"
 							class="gap-1.5 border-amber-500/50 text-amber-600 dark:text-amber-400"
 						>
 							<Download class="size-3 animate-pulse" />
-							{currentProgress?.message ?? 'Installing...'}
+							{installState?.status === 'installing'
+								? installState.progress.message
+								: 'Installing...'}
 						</Badge>
 					{/if}
 				</div>

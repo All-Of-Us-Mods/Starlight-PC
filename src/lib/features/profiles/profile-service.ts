@@ -7,6 +7,7 @@ import type { Profile, UnifiedMod } from './schema';
 import { downloadBepInEx } from './bepinex-download';
 import { settingsService } from '../settings/settings-service';
 import { installProgress } from './install-progress.svelte';
+import { showError } from '$lib/utils/toast';
 
 class ProfileService {
 	async getStore(): Promise<Store> {
@@ -94,9 +95,18 @@ class ProfileService {
 				queryClient.invalidateQueries({ queryKey: ['profiles'] });
 				info(`BepInEx installed for profile: ${profileId}`);
 			}
-		} finally {
 			installProgress.clearProgress(profileId);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Unknown error';
+			logError(`BepInEx installation failed for profile ${profileId}: ${message}`);
+			installProgress.setError(profileId, message);
+			showError(err, 'BepInEx installation');
 		}
+	}
+
+	async retryBepInExInstall(profileId: string, profilePath: string): Promise<void> {
+		installProgress.clearProgress(profileId);
+		await this.installBepInExInBackground(profileId, profilePath);
 	}
 
 	async deleteProfile(profileId: string): Promise<void> {
@@ -109,6 +119,9 @@ class ProfileService {
 			logError(`Profile not found: ${profileId}`);
 			throw new Error(`Profile '${profileId}' not found`);
 		}
+
+		// Clear any install progress/error state
+		installProgress.clearProgress(profileId);
 
 		await remove(profile.path, { recursive: true });
 		await store.set(
