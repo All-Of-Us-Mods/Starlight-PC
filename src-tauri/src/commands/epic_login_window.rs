@@ -17,7 +17,6 @@ const CALLBACK_SCHEME: &str = "starlight";
 /// Navigates to our custom scheme URL which we intercept in `on_navigation`.
 const EXTRACT_CODE_JS: &str = r#"
 (function() {
-(function() {
     if (window.__STARLIGHT_EXTRACTED__) return;
     window.__STARLIGHT_EXTRACTED__ = true;
     try {
@@ -25,8 +24,6 @@ const EXTRACT_CODE_JS: &str = r#"
         if (!bodyText.includes("authorizationCode")) return;
         const json = JSON.parse(bodyText);
         if (json.authorizationCode) {
-            location.href = 'starlight://auth?code=' + encodeURIComponent(json.authorizationCode);
-        }
             location.href = 'starlight://auth?code=' + encodeURIComponent(json.authorizationCode);
         }
     } catch(e) {
