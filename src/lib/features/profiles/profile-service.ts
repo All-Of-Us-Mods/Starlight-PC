@@ -1,6 +1,5 @@
 import { mkdir, remove, readDir } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
-import { queryClient } from '$lib/state/queryClient';
 import { getStore } from '$lib/state/store';
 import { info, warn, error as logError, debug } from '@tauri-apps/plugin-log';
 import { type } from 'arktype';
@@ -9,6 +8,7 @@ import { downloadBepInEx } from './bepinex-download';
 import { settingsService } from '../settings/settings-service';
 import { installProgress } from './install-progress.svelte';
 import { showError } from '$lib/utils/toast';
+import { queryClient } from '$lib/state/queryClient';
 
 const ProfilesArray = type(ProfileEntry.array());
 
@@ -96,8 +96,9 @@ class ProfileService {
 				profiles[profileIndex].bepinex_installed = true;
 				await store.set('profiles', profiles);
 				await store.save();
-				queryClient.invalidateQueries({ queryKey: ['profiles'] });
 				info(`BepInEx installed for profile: ${profileId}`);
+				// Invalidate profiles query to reflect BepInEx installation status
+				queryClient.invalidateQueries({ queryKey: ['profiles'] });
 			}
 			installProgress.clearProgress(profileId);
 		} catch (err) {
@@ -205,7 +206,6 @@ class ProfileService {
 
 		await store.set('profiles', profiles);
 		await store.save();
-		queryClient.invalidateQueries({ queryKey: ['profiles'] });
 		debug(`Added ${durationMs}ms play time to profile ${profileId}`);
 	}
 

@@ -9,20 +9,24 @@
 	import { gameState } from '../game-state-service.svelte';
 	import { profileService } from '../profile-service';
 	import { installProgress } from '../install-progress.svelte';
-	import { queryClient } from '$lib/state/queryClient';
+	import { useDeleteUnifiedMod, useRetryBepInExInstall } from '../mutations';
 	import { showError } from '$lib/utils/toast';
 	import { formatPlayTime } from '$lib/utils';
 	import { join } from '@tauri-apps/api/path';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import ProfileCardActions from './ProfileCardActions.svelte';
 	import ProfileModsList from './ProfileModsList.svelte';
-	import { Package, Calendar, Clock, AlertCircle, RotateCcw, Download } from '@lucide/svelte';
+	import { Package, CircleAlert } from '@lucide/svelte';
+	import { CalendarDays, Clock, RotateCcw, Download } from '@jis3r/icons';
 
 	let {
 		profile,
 		onlaunch,
 		ondelete
 	}: { profile: Profile; onlaunch?: () => void; ondelete?: () => void } = $props();
+
+	const deleteMod = useDeleteUnifiedMod();
+	const retryBepInExInstall = useRetryBepInExInstall();
 
 	let showAllMods = $state(false);
 
@@ -41,10 +45,8 @@
 				m.source === 'managed' ? m.mod_id === mod.id : m.file === mod.id
 			);
 			if (unifiedMod) {
-				await profileService.deleteUnifiedMod(profile.id, unifiedMod);
+				await deleteMod.mutateAsync({ profileId: profile.id, mod: unifiedMod });
 			}
-			queryClient.invalidateQueries({ queryKey: ['unified-mods', profile.id] });
-			queryClient.invalidateQueries({ queryKey: ['profiles'] });
 		} catch (error) {
 			showError(error, 'Remove mod');
 		}
@@ -64,8 +66,7 @@
 
 	async function handleRetryInstall() {
 		installProgress.clearProgress(profile.id);
-		await profileService.retryBepInExInstall(profile.id, profile.path);
-		queryClient.invalidateQueries({ queryKey: ['profiles'] });
+		await retryBepInExInstall.mutateAsync({ profileId: profile.id, profilePath: profile.path });
 	}
 
 	const totalPlayTime = $derived(
@@ -117,7 +118,7 @@
 					</Card.Title>
 					{#if hasInstallError}
 						<Badge variant="outline" class="gap-1.5 border-destructive/50 text-destructive">
-							<AlertCircle class="size-3" />
+							<CircleAlert class="size-3" />
 							Install failed
 						</Badge>
 						<Button
@@ -134,7 +135,7 @@
 							variant="outline"
 							class="gap-1.5 border-amber-500/50 text-amber-600 dark:text-amber-400"
 						>
-							<Download class="size-3 animate-pulse" />
+							<Download class="animate-pulse" size={12} />
 							{installState?.status === 'installing'
 								? installState.progress.message
 								: 'Installing...'}
@@ -147,11 +148,11 @@
 						{modCount} mod{modCount !== 1 ? 's' : ''}
 					</span>
 					<span class="inline-flex items-center gap-1.5">
-						<Calendar class="size-3.5" />
+						<CalendarDays size={14} />
 						{lastLaunched}
 					</span>
 					<span class="inline-flex items-center gap-1.5">
-						<Clock class="size-3.5" />
+						<Clock size={14} />
 						{formatPlayTime(totalPlayTime)}
 					</span>
 				</Card.Description>

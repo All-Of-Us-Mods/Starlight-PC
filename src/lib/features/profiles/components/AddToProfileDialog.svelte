@@ -4,14 +4,14 @@
 	import * as Select from '$lib/components/ui/select';
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
-	import { Plus, Loader2, Check } from '@lucide/svelte';
+	import { Loader2 } from '@lucide/svelte';
+	import { Plus, Check, TriangleAlert } from '@jis3r/icons';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { profileQueries } from '../queries';
 	import { modQueries } from '$lib/features/mods/queries';
 	import { modInstallService, type DependencyWithMeta } from '../mod-install-service';
 	import { profileService } from '../profile-service';
 	import { type ModDependency } from '$lib/features/mods/schema';
-	import { TriangleAlert } from '@lucide/svelte';
 	import { modDownloadProgress } from '../mod-download-progress.svelte';
 	import { onDestroy } from 'svelte';
 	import type { UnlistenFn } from '@tauri-apps/api/event';

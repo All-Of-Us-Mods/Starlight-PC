@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import { RefreshCw } from '@lucide/svelte';
+	import { RefreshCw } from '@jis3r/icons';
 	import type { GamePlatform } from '../schema';
 	import { showError, showSuccess } from '$lib/utils/toast';
 	import { invoke } from '@tauri-apps/api/core';

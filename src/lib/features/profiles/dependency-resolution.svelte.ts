@@ -5,7 +5,7 @@ import { SvelteSet } from 'svelte/reactivity';
 interface DependencyResolutionState {
 	isLoadingDeps: boolean;
 	resolvedDependencies: DependencyWithMeta[];
-	selectedDependencies: Set<string>;
+	selectedDependencies: SvelteSet<string>;
 	installableDependencies: DependencyWithMeta[];
 }
 
@@ -50,7 +50,7 @@ export function useDependencyResolution(
 			loadDependencies(versionInfo.dependencies);
 		} else if (versionInfo) {
 			state.resolvedDependencies = [];
-			state.selectedDependencies = new Set();
+			state.selectedDependencies = new SvelteSet();
 		}
 		state.installableDependencies = state.resolvedDependencies.filter(
 			(d: DependencyWithMeta) => d.type !== 'conflict'

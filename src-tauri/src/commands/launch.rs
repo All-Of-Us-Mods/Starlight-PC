@@ -15,36 +15,36 @@ pub struct GameStatePayload {
 
 /// Monitors the game process and emits state changes.
 fn monitor_game_process<R: Runtime>(app: AppHandle<R>) {
-	std::thread::spawn(move || {
-		let _ = app.emit("game-state-changed", GameStatePayload { running: true });
-		info!("Game process started, monitoring state");
+    std::thread::spawn(move || {
+        let _ = app.emit("game-state-changed", GameStatePayload { running: true });
+        info!("Game process started, monitoring state");
 
-		loop {
-			std::thread::sleep(Duration::from_millis(500));
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
 
-			let Ok(mut guard) = GAME_PROCESS.lock() else {
-				error!("Failed to acquire game process lock");
-				break;
-			};
+            let Ok(mut guard) = GAME_PROCESS.lock() else {
+                error!("Failed to acquire game process lock");
+                break;
+            };
 
-			match guard.as_mut().and_then(|c| c.try_wait().ok()) {
-				Some(Some(status)) => {
-					info!("Game process exited with status: {:?}", status);
-					*guard = None;
-					break;
-				}
-				None => {
-					debug!("Game process no longer available");
-					*guard = None;
-					break;
-				}
-				Some(None) => {}
-			}
-		}
+            match guard.as_mut().and_then(|c| c.try_wait().ok()) {
+                Some(Some(status)) => {
+                    info!("Game process exited with status: {:?}", status);
+                    *guard = None;
+                    break;
+                }
+                None => {
+                    debug!("Game process no longer available");
+                    *guard = None;
+                    break;
+                }
+                Some(None) => {}
+            }
+        }
 
-		let _ = app.emit("game-state-changed", GameStatePayload { running: false });
-		info!("Game state changed to not running");
-	});
+        let _ = app.emit("game-state-changed", GameStatePayload { running: false });
+        info!("Game state changed to not running");
+    });
 }
 
 #[cfg(windows)]

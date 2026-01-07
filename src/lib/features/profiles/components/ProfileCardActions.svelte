@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-	import { Play, FolderOpen, Trash2, Package, EllipsisVertical } from '@lucide/svelte';
+	import { Play, FolderOpen, Package, EllipsisVertical } from '@lucide/svelte';
+	import { Trash2 } from '@jis3r/icons';
 
 	let {
 		onlaunch,

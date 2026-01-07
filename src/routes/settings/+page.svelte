@@ -2,7 +2,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
-	import { Settings, Save } from '@lucide/svelte';
+	import { Save } from '@lucide/svelte';
+	import { Settings } from '@jis3r/icons';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { settingsService } from '$lib/features/settings/settings-service';

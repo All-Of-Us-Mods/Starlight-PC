@@ -10,7 +10,7 @@ export const modQueries = {
 	latest: (limit = 20, offset = 0) =>
 		queryOptions({
 			queryKey: ['mods', 'list', { limit, offset }] as const,
-			queryFn: () => apiFetch('/api/v2/mods', ModArrayValidator)
+			queryFn: () => apiFetch(`/api/v2/mods?limit=${limit}&offset=${offset}`, ModArrayValidator)
 		}),
 
 	explore: (search: string, limit: number, offset: number, sort: string = 'trending') => {

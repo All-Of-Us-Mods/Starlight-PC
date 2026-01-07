@@ -7,8 +7,8 @@
 	import * as Select from '$lib/components/ui/select';
 	import { Button } from '$lib/components/ui/button';
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
-	import { Search, ArrowUpDown, X } from '@lucide/svelte';
-	import { Compass, ChevronLeft, ChevronRight } from '@jis3r/icons';
+	import { ArrowUpDown, X } from '@lucide/svelte';
+	import { Search, Compass, ChevronLeft, ChevronRight } from '@jis3r/icons';
 
 	type SortKey = 'trending' | 'latest';
 	const ITEMS_PER_PAGE = 12;
@@ -66,7 +66,8 @@
 		<div class="flex items-center gap-3">
 			<div class="relative max-w-xs">
 				<Search
-					class="absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground/70"
+					class="absolute top-1/2 left-3.5 -translate-y-1/2 text-muted-foreground/70"
+					size={16}
 				/>
 				<Input
 					placeholder={searchPlaceholder}
