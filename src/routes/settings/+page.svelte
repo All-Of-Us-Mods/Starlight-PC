@@ -16,7 +16,7 @@
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import EpicLoginDialog from '$lib/features/settings/components/EpicLoginDialog.svelte';
 	import { epicService } from '$lib/features/settings/epic-service';
-	import type { DownloadProgress } from '$lib/features/profiles/bepinex-download';
+	import type { BepInExProgress } from '$lib/features/profiles/bepinex-download';
 
 	const settingsQuery = createQuery(() => settingsQueries.get());
 	const settings = $derived(settingsQuery.data as AppSettings | undefined);
@@ -148,7 +148,7 @@
 		let unlisten: UnlistenFn | undefined;
 
 		try {
-			unlisten = await listen<DownloadProgress>('download-progress', (event) => {
+			unlisten = await listen<BepInExProgress>('bepinex-progress', (event) => {
 				cacheDownloadProgress = event.payload.progress;
 			});
 
