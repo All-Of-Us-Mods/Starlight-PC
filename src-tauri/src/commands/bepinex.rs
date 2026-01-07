@@ -4,7 +4,7 @@ use crate::utils::download::{download_file, extract_zip};
 use log::{debug, error, info, warn};
 use std::fs;
 use std::path::Path;
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Runtime};
 
 #[derive(Clone, serde::Serialize)]
 struct Progress {
@@ -35,7 +35,6 @@ pub async fn install_bepinex<R: Runtime>(
     info!("install_bepinex: {} -> {}", url, destination);
 
     let dest = Path::new(&destination);
-    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
 
     // Use cache if available
     if let Some(ref cache) = cache_path {
@@ -111,7 +110,6 @@ pub async fn download_bepinex_to_cache<R: Runtime>(
     info!("download_bepinex_to_cache: {}", cache_path);
 
     let cache_file = Path::new(&cache_path);
-    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
 
     emit(&app, "downloading", 0.0, "Downloading...");
     download_file(&url, cache_file, |dl, total| {
