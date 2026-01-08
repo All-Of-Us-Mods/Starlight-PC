@@ -90,7 +90,7 @@
 		</div>
 
 		<div class="space-y-2">
-			<Label for="game-platform">Game Platform</Label>
+			<Label>Game Platform</Label>
 			<div class="flex gap-2">
 				<Button
 					variant={gamePlatform === 'steam' ? 'default' : 'outline'}
