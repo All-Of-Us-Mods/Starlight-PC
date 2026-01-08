@@ -1,7 +1,14 @@
 import { queryOptions } from '@tanstack/svelte-query';
 import { type } from 'arktype';
 import { apiFetch } from '$lib/api/client';
-import { ModResponse, ModInfoResponse, ModVersion, ModVersionInfo } from './schema';
+import {
+	ModResponse,
+	ModInfoResponse,
+	ModVersion,
+	ModVersionInfo,
+	type ModDependency
+} from './schema';
+import { modInstallService } from '$lib/features/profiles/mod-install-service';
 
 // Pre-create validators (avoid recreating on every call)
 const ModArrayValidator = type(ModResponse.array());
@@ -74,5 +81,19 @@ export const modQueries = {
 			queryKey: ['mods', 'versionInfo', modId, version] as const,
 			queryFn: () => apiFetch(`/api/v2/mods/${modId}/versions/${version}/info`, ModVersionInfo),
 			enabled: !!modId && !!version
-		})
+		}),
+
+	resolvedDependencies: (dependencies: ModDependency[]) => {
+		const queryKey = dependencies
+			.map((d) => `${d.mod_id}:${d.version_constraint}`)
+			.sort()
+			.join(',');
+
+		return queryOptions({
+			queryKey: ['resolved-deps', queryKey] as const,
+			queryFn: () => modInstallService.resolveDependencies(dependencies),
+			enabled: dependencies.length > 0,
+			staleTime: 1000 * 60 * 5
+		});
+	}
 };

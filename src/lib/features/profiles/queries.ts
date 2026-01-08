@@ -19,5 +19,12 @@ export const profileQueries = {
 			queryKey: ['profiles', 'hasAny'] as const,
 			queryFn: () => profileService.getProfiles().then((profiles) => profiles.length > 0),
 			staleTime: Infinity
+		}),
+	unifiedMods: (profileId: string) =>
+		queryOptions({
+			queryKey: ['unified-mods', profileId] as const,
+			queryFn: () => profileService.getUnifiedMods(profileId),
+			enabled: !!profileId,
+			staleTime: 1000 * 10
 		})
 };
