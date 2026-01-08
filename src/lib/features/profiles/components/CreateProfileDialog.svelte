@@ -14,7 +14,6 @@
 	let name = $state('');
 	let error = $state('');
 	let pollTimer: number | null = null;
-	let createdProfileId = $state<string | null>(null); // eslint-disable-line @typescript-eslint/no-unused-vars
 
 	const isCreating = $derived(createProfile.isPending);
 
@@ -29,7 +28,6 @@
 				if (profile?.bepinex_installed) {
 					if (pollTimer) clearInterval(pollTimer);
 					pollTimer = null;
-					createdProfileId = null;
 				}
 			}
 		}, checkInterval);
@@ -43,7 +41,6 @@
 			const trimmed = name.trim();
 			const result = await createProfile.mutateAsync(trimmed);
 
-			createdProfileId = result.id;
 			waitForBepInEx(result.id);
 
 			name = '';
