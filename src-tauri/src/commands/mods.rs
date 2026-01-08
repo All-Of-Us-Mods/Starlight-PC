@@ -1,5 +1,3 @@
-//! Mod download and installation commands
-
 use futures_util::StreamExt;
 use log::{debug, error, info};
 use sha2::{Digest, Sha256};
@@ -31,7 +29,7 @@ fn emit_progress<R: Runtime>(
     let progress = total
         .map(|t| downloaded as f64 / t as f64 * 100.0)
         .unwrap_or(0.0);
-    let _ = app.emit(
+    if let Err(e) = app.emit(
         "mod-download-progress",
         ModDownloadProgress {
             mod_id: mod_id.to_string(),
@@ -40,7 +38,9 @@ fn emit_progress<R: Runtime>(
             progress,
             stage: stage.to_string(),
         },
-    );
+    ) {
+        error!("Failed to emit download progress: {}", e);
+    }
 }
 
 /// Downloads a mod file with progress tracking and SHA-256 checksum verification
