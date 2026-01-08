@@ -1,11 +1,29 @@
-import { writeFile, mkdir, remove } from '@tauri-apps/plugin-fs';
+import { mkdir, remove } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { apiFetch } from '$lib/api/client';
-import { ModVersionInfo, ModVersion, ModResponse, type ModDependency } from '../mods/schema';
+import {
+	ModVersionInfo as ModVersionInfoSchema,
+	ModVersion,
+	ModResponse,
+	type ModVersionInfo,
+	type ModDependency
+} from '../mods/schema';
 import { type } from 'arktype';
 import * as semver from 'semver';
 
 const ModVersionsArray = type(ModVersion.array());
+const ModVersionInfoValidator = type(ModVersionInfoSchema);
+
+/** Progress event payload from Rust download_mod command */
+export interface ModDownloadProgress {
+	mod_id: string;
+	downloaded: number;
+	total: number | null;
+	progress: number; // 0-100
+	stage: 'connecting' | 'downloading' | 'verifying' | 'writing' | 'complete';
+}
 
 export interface DependencyWithMeta extends ModDependency {
 	modName: string;
@@ -18,7 +36,10 @@ class ModInstallService {
 	}
 
 	async getModVersionInfo(modId: string, version: string): Promise<ModVersionInfo> {
-		return await apiFetch(`/api/v2/mods/${modId}/versions/${version}/info`, type(ModVersionInfo));
+		return await apiFetch(
+			`/api/v2/mods/${modId}/versions/${version}/info`,
+			ModVersionInfoValidator
+		);
 	}
 
 	async getModById(modId: string): Promise<typeof ModResponse.infer> {
@@ -70,25 +91,30 @@ class ModInstallService {
 		return resolved;
 	}
 
+	/**
+	 * Listens for mod download progress events
+	 * Returns an unlisten function to stop listening
+	 */
+	async onDownloadProgress(callback: (progress: ModDownloadProgress) => void): Promise<UnlistenFn> {
+		return await listen<ModDownloadProgress>('mod-download-progress', (event) => {
+			callback(event.payload);
+		});
+	}
+
 	async installModToProfile(modId: string, version: string, profilePath: string): Promise<string> {
 		const info = await this.getModVersionInfo(modId, version);
-		const response = await fetch(info.download_url);
-		if (!response.ok) throw new Error('Download failed');
-
-		const data = new Uint8Array(await response.arrayBuffer());
-
-		const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-		const hashArray = Array.from(new Uint8Array(hashBuffer));
-		const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-
-		if (hashHex !== info.checksum) {
-			throw new Error(`Checksum mismatch: expected ${info.checksum}, got ${hashHex}`);
-		}
 
 		const pluginsDir = await join(profilePath, 'BepInEx', 'plugins');
-
 		await mkdir(pluginsDir, { recursive: true });
-		await writeFile(await join(pluginsDir, info.file_name), data);
+
+		const destination = await join(pluginsDir, info.file_name);
+
+		await invoke('download_mod', {
+			modId,
+			url: info.download_url,
+			destination,
+			expectedChecksum: info.checksum
+		});
 
 		return info.file_name;
 	}

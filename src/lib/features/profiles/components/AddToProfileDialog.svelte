@@ -4,14 +4,17 @@
 	import * as Select from '$lib/components/ui/select';
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
-	import { Plus } from '@lucide/svelte';
+	import { Loader2 } from '@lucide/svelte';
+	import { Plus, Check, TriangleAlert } from '@jis3r/icons';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { profileQueries } from '../queries';
 	import { modQueries } from '$lib/features/mods/queries';
 	import { modInstallService, type DependencyWithMeta } from '../mod-install-service';
 	import { profileService } from '../profile-service';
 	import { type ModDependency } from '$lib/features/mods/schema';
-	import { TriangleAlert } from '@lucide/svelte';
+	import { modDownloadProgress } from '../mod-download-progress.svelte';
+	import { onDestroy } from 'svelte';
+	import type { UnlistenFn } from '@tauri-apps/api/event';
 
 	const queryClient = useQueryClient();
 
@@ -25,6 +28,8 @@
 	let resolvedDependencies = $state<DependencyWithMeta[]>([]);
 	let selectedDependencies = $state<Set<string>>(new Set());
 	let isLoadingDeps = $state(false);
+	let modsBeingInstalled = $state<string[]>([]);
+	let progressUnlisten: UnlistenFn | null = null;
 
 	const profilesQuery = createQuery(() => ({
 		...profileQueries.all(),
@@ -113,6 +118,14 @@
 				}
 			}
 
+			// Track which mods are being installed for progress display
+			modsBeingInstalled = modsToInstall.map((m) => m.modId);
+
+			// Set up progress listener
+			progressUnlisten = await modInstallService.onDownloadProgress((progress) => {
+				modDownloadProgress.setProgress(progress.mod_id, progress);
+			});
+
 			const results = await modInstallService.installModsToProfile(
 				modsToInstall,
 				selectedProfile.path
@@ -133,6 +146,16 @@
 			error = e instanceof Error ? e.message : 'Failed to install';
 		} finally {
 			isInstalling = false;
+			// Clean up listener
+			if (progressUnlisten) {
+				progressUnlisten();
+				progressUnlisten = null;
+			}
+			// Clear progress state
+			for (const id of modsBeingInstalled) {
+				modDownloadProgress.clear(id);
+			}
+			modsBeingInstalled = [];
 		}
 	}
 
@@ -143,6 +166,14 @@
 		resolvedDependencies = [];
 		selectedDependencies = new Set();
 	}
+
+	// Cleanup listener on component destroy
+	onDestroy(() => {
+		if (progressUnlisten) {
+			progressUnlisten();
+			progressUnlisten = null;
+		}
+	});
 </script>
 
 <Dialog.Root bind:open onOpenChange={(v) => !v && reset()}>
@@ -234,6 +265,44 @@
 								{/each}
 							</ul>
 						</div>
+					</div>
+				</div>
+			{/if}
+
+			{#if isInstalling && modsBeingInstalled.length > 0}
+				<div class="space-y-2">
+					<Label>Download Progress</Label>
+					<div class="space-y-2 rounded-md border p-3">
+						{#each modsBeingInstalled as downloadingModId (downloadingModId)}
+							{@const state = modDownloadProgress.getState(downloadingModId)}
+							<div class="flex items-center gap-2">
+								{#if state?.status === 'downloading'}
+									<Loader2 class="h-4 w-4 animate-spin text-primary" />
+									<div class="flex-1">
+										<div class="flex items-center justify-between text-sm">
+											<span class="truncate">{downloadingModId}</span>
+											<span class="text-xs text-muted-foreground">
+												{modDownloadProgress.getStageText(state.progress.stage)}
+											</span>
+										</div>
+										{#if state.progress.stage === 'downloading'}
+											<div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+												<div
+													class="h-full bg-primary transition-all duration-150"
+													style="width: {state.progress.progress}%"
+												></div>
+											</div>
+										{/if}
+									</div>
+								{:else if state?.status === 'complete'}
+									<Check class="h-4 w-4 text-green-500" />
+									<span class="text-sm">{downloadingModId}</span>
+								{:else}
+									<Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
+									<span class="text-sm text-muted-foreground">{downloadingModId}</span>
+								{/if}
+							</div>
+						{/each}
 					</div>
 				</div>
 			{/if}

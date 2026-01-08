@@ -3,25 +3,19 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import { Plus } from '@lucide/svelte';
-	import { profileService } from '../profile-service';
+	import { useCreateProfile } from '../mutations';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import type { Profile } from '../schema';
 
 	const queryClient = useQueryClient();
+	const createProfile = useCreateProfile();
 
-	let open = $state(false);
-	let { onReady }: { onReady?: (open: () => void) => void } = $props();
+	let { open = $bindable(false) }: { open?: boolean } = $props();
 	let name = $state('');
-	let isCreating = $state(false);
 	let error = $state('');
 	let pollTimer: number | null = null;
 
-	$effect(() => {
-		onReady?.(() => {
-			open = true;
-		});
-	});
+	const isCreating = $derived(createProfile.isPending);
 
 	async function waitForBepInEx(profileId: string) {
 		const checkInterval = 2000;
@@ -44,22 +38,15 @@
 		if (!name.trim()) return;
 
 		try {
-			isCreating = true;
-
 			const trimmed = name.trim();
+			const result = await createProfile.mutateAsync(trimmed);
 
-			const createdProfile = await profileService.createProfile(trimmed);
-
-			queryClient.setQueryData(['profiles'], (old: Profile[] = []) => [...old, createdProfile]);
-
-			waitForBepInEx(createdProfile.id);
+			waitForBepInEx(result.id);
 
 			name = '';
 			open = false;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'An unknown error occurred';
-		} finally {
-			isCreating = false;
 		}
 	}
 
@@ -74,15 +61,15 @@
 			}
 		}
 	}
+
+	$effect(() => {
+		return () => {
+			if (pollTimer) clearInterval(pollTimer);
+		};
+	});
 </script>
 
 <Dialog.Root bind:open {onOpenChange}>
-	<Dialog.Trigger>
-		<Button>
-			<Plus class="mr-2 h-4 w-4" />
-			Create Profile
-		</Button>
-	</Dialog.Trigger>
 	<Dialog.Content>
 		<Dialog.Header>
 			<Dialog.Title>Create New Profile</Dialog.Title>

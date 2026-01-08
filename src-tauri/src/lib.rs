@@ -80,6 +80,7 @@ pub fn run() {
             commands::finder::get_game_platform,
             commands::launch::launch_modded,
             commands::launch::launch_vanilla,
+            commands::mods::download_mod,
             commands::epic_commands::get_epic_auth_url,
             commands::epic_commands::epic_login_with_code,
             commands::epic_commands::epic_login_with_webview,

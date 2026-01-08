@@ -14,7 +14,15 @@
 
 	let { post, isSelected = false, onclick }: Props = $props();
 
-	const renderedContent = $derived(marked.parse(post.content));
+	function safeParseMarkdown(content: string): string {
+		try {
+			return marked.parse(content, { async: false });
+		} catch {
+			return '<p>Failed to render content</p>';
+		}
+	}
+
+	const renderedContent = $derived(safeParseMarkdown(post.content));
 </script>
 
 <Card.Root

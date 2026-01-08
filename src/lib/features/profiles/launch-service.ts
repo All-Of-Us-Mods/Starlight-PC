@@ -1,7 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { exists } from '@tauri-apps/plugin-fs';
-import { profileService } from './profile-service';
 import { settingsService } from '../settings/settings-service';
 import { gameState } from './game-state-service.svelte';
 import { epicService } from '$lib/features/settings/epic-service';
@@ -55,7 +54,6 @@ class LaunchService {
 			platform: settings.game_platform || 'steam'
 		});
 
-		await profileService.updateLastLaunched(profile.id);
 		gameState.setRunningProfile(profile.id);
 		info(`Profile ${profile.name} launched successfully`);
 

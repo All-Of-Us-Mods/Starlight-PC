@@ -13,6 +13,40 @@ pub struct GameStatePayload {
     pub running: bool,
 }
 
+/// Monitors the game process and emits state changes.
+fn monitor_game_process<R: Runtime>(app: AppHandle<R>) {
+    std::thread::spawn(move || {
+        let _ = app.emit("game-state-changed", GameStatePayload { running: true });
+        info!("Game process started, monitoring state");
+
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+
+            let Ok(mut guard) = GAME_PROCESS.lock() else {
+                error!("Failed to acquire game process lock");
+                break;
+            };
+
+            match guard.as_mut().and_then(|c| c.try_wait().ok()) {
+                Some(Some(status)) => {
+                    info!("Game process exited with status: {:?}", status);
+                    *guard = None;
+                    break;
+                }
+                None => {
+                    debug!("Game process no longer available");
+                    *guard = None;
+                    break;
+                }
+                Some(None) => {}
+            }
+        }
+
+        let _ = app.emit("game-state-changed", GameStatePayload { running: false });
+        info!("Game state changed to not running");
+    });
+}
+
 #[cfg(windows)]
 fn set_dll_directory(path: &str) -> Result<(), String> {
     use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
@@ -46,36 +80,7 @@ fn launch<R: Runtime>(app: AppHandle<R>, mut cmd: Command) -> Result<(), String>
         *guard = Some(child);
     }
 
-    std::thread::spawn(move || {
-        let _ = app.emit("game-state-changed", GameStatePayload { running: true });
-        info!("Game process started, monitoring state");
-
-        loop {
-            std::thread::sleep(Duration::from_millis(500));
-
-            let Ok(mut guard) = GAME_PROCESS.lock() else {
-                error!("Failed to acquire game process lock");
-                break;
-            };
-
-            match guard.as_mut().and_then(|c| c.try_wait().ok()) {
-                Some(Some(status)) => {
-                    info!("Game process exited with status: {:?}", status);
-                    *guard = None;
-                    break;
-                }
-                None => {
-                    debug!("Game process no longer available");
-                    *guard = None;
-                    break;
-                }
-                Some(None) => {}
-            }
-        }
-
-        let _ = app.emit("game-state-changed", GameStatePayload { running: false });
-        info!("Game state changed to not running");
-    });
+    monitor_game_process(app);
 
     Ok(())
 }

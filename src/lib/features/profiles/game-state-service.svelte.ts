@@ -1,5 +1,6 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { profileService } from './profile-service';
+import { queryClient } from '$lib/state/queryClient';
 
 interface GameStatePayload {
 	running: boolean;
@@ -39,6 +40,8 @@ class GameStateService {
 				// if #runningProfileId changes during the await
 				const pid = this.#runningProfileId;
 				await profileService.addPlayTime(pid, duration);
+				// Invalidate profiles query to reflect updated play time
+				queryClient.invalidateQueries({ queryKey: ['profiles'] });
 			}
 		}
 
