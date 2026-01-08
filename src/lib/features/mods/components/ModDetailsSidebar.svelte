@@ -358,9 +358,6 @@
 						Licensed under {modInfo.license}
 					</p>
 				{/if}
-
-				<!-- Spacer for sticky footer -->
-				<div class="h-20"></div>
 			</div>
 		{:else}
 			<!-- Error State -->
@@ -375,7 +372,7 @@
 	<!-- Sticky Footer Action Bar -->
 	{#if mod && !isLoading}
 		<div
-			class="sticky bottom-0 border-t border-border/50 bg-background/95 backdrop-blur-sm transition-all duration-300"
+			class="shrink-0 border-t border-border/50 bg-background/95 backdrop-blur-sm transition-all duration-300"
 		>
 			{#if profileId && unifiedMod}
 				<!-- Profile context: Remove button -->
