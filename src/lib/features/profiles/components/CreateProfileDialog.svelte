@@ -3,7 +3,6 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import { Plus } from '@jis3r/icons';
 	import { useCreateProfile } from '../mutations';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import type { Profile } from '../schema';
@@ -11,20 +10,13 @@
 	const queryClient = useQueryClient();
 	const createProfile = useCreateProfile();
 
-	let open = $state(false);
-	let { onReady }: { onReady?: (open: () => void) => void } = $props();
+	let { open = $bindable(false) }: { open?: boolean } = $props();
 	let name = $state('');
 	let error = $state('');
 	let pollTimer: number | null = null;
 	let createdProfileId = $state<string | null>(null); // eslint-disable-line @typescript-eslint/no-unused-vars
 
 	const isCreating = $derived(createProfile.isPending);
-
-	$effect(() => {
-		onReady?.(() => {
-			open = true;
-		});
-	});
 
 	async function waitForBepInEx(profileId: string) {
 		const checkInterval = 2000;
@@ -81,12 +73,6 @@
 </script>
 
 <Dialog.Root bind:open {onOpenChange}>
-	<Dialog.Trigger>
-		<Button>
-			<Plus class="mr-2 h-4 w-4" />
-			Create Profile
-		</Button>
-	</Dialog.Trigger>
 	<Dialog.Content>
 		<Dialog.Header>
 			<Dialog.Title>Create New Profile</Dialog.Title>

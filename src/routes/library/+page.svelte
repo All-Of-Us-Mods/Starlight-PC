@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { Library, Play, Ghost } from '@lucide/svelte';
+	import { Library, Play, Ghost, Plus } from '@lucide/svelte';
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
 	import ProfileCard from '$lib/features/profiles/components/ProfileCard.svelte';
 	import CreateProfileDialog from '$lib/features/profiles/components/CreateProfileDialog.svelte';
+	import { Button } from '$lib/components/ui/button';
 	import {
 		AlertDialog,
 		AlertDialogAction,
@@ -29,6 +30,7 @@
 	const settings = $derived(settingsQuery.data);
 
 	let deleteDialogOpen = $state(false);
+	let createDialogOpen = $state(false);
 	let profileToDelete = $state<Profile | null>(null);
 	let isLaunchingVanilla = $state(false);
 
@@ -106,8 +108,12 @@
 		description="Manage your profiles and launch the game."
 		icon={Library}
 	>
-		<CreateProfileDialog />
+		<Button onclick={() => (createDialogOpen = true)}>
+			<Plus class="mr-2 h-4 w-4" />
+			Create Profile
+		</Button>
 	</PageHeader>
+	<CreateProfileDialog bind:open={createDialogOpen} />
 
 	<div class="mb-6">
 		<h2 class="mb-3 text-lg font-semibold">Quick Actions</h2>
@@ -176,7 +182,10 @@
 				<p class="mb-4 text-sm text-muted-foreground">
 					Create a profile to manage your modded installations.
 				</p>
-				<CreateProfileDialog />
+				<Button onclick={() => (createDialogOpen = true)}>
+					<Plus class="mr-2 h-4 w-4" />
+					Create Profile
+				</Button>
 			</div>
 		{:else}
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">

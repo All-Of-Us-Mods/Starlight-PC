@@ -4,7 +4,7 @@
 	import { Library } from '@lucide/svelte';
 	import CreateProfileDialog from '$lib/features/profiles/components/CreateProfileDialog.svelte';
 
-	let openCreateDialog: () => void = () => {};
+	let createDialogOpen = $state(false);
 </script>
 
 <nav class="side-nav">
@@ -28,12 +28,10 @@
 
 	<div class="nav-divider"></div>
 
-	<NavButton to={() => openCreateDialog()} tooltip="Create New">
+	<NavButton to={() => (createDialogOpen = true)} tooltip="Create New">
 		<Plus class="h-6 w-6" />
 	</NavButton>
-	<div class="hidden">
-		<CreateProfileDialog onReady={(fn) => (openCreateDialog = fn)} />
-	</div>
+	<CreateProfileDialog bind:open={createDialogOpen} />
 
 	<div class="grow"></div>
 
