@@ -19,19 +19,10 @@
 	const sidebar = getSidebar();
 
 	let selectedPost = $state<Post | null>(null);
-	let displayedPost = $state<Post | null>(null);
 
 	function toggleNews(item: Post) {
-		if (selectedPost?.id === item.id) {
-			selectedPost = null;
-			sidebar.close();
-		} else {
-			selectedPost = item;
-			displayedPost = item;
-			sidebar.open(NewsDetailSidebar, () => {
-				displayedPost = null;
-			});
-		}
+		const opened = sidebar.open(NewsDetailSidebar, () => (selectedPost = null), `news-${item.id}`);
+		selectedPost = opened ? item : null;
 	}
 
 	function closeSidebar() {
@@ -41,8 +32,8 @@
 </script>
 
 {#snippet NewsDetailSidebar()}
-	{#if displayedPost}
-		<NewsDetail post={displayedPost} onclose={closeSidebar} />
+	{#if selectedPost}
+		<NewsDetail post={selectedPost} onclose={closeSidebar} />
 	{/if}
 {/snippet}
 
