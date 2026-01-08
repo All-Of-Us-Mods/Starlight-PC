@@ -66,8 +66,8 @@
 	}
 </script>
 
-<div class="rounded-lg border border-border p-6">
-	<h2 class="mb-4 text-lg font-semibold">BepInEx Configuration</h2>
+<div class="rounded-xl border border-border/50 bg-card/30 p-6 backdrop-blur-sm">
+	<h2 class="mb-4 text-lg font-semibold tracking-tight">BepInEx Configuration</h2>
 	<div class="space-y-4">
 		<div class="space-y-2">
 			<Label for="bepinex-url">BepInEx Download URL</Label>

@@ -64,8 +64,8 @@
 	}
 </script>
 
-<div class="rounded-lg border border-border p-6">
-	<h2 class="mb-4 text-lg font-semibold">Game Configuration</h2>
+<div class="rounded-xl border border-border/50 bg-card/30 p-6 backdrop-blur-sm">
+	<h2 class="mb-4 text-lg font-semibold tracking-tight">Game Configuration</h2>
 	<div class="space-y-4">
 		<div class="space-y-2">
 			<Label for="among-us-path">Among Us Installation Path</Label>

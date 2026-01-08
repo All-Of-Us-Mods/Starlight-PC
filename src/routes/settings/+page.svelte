@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
-	import { Save } from '@lucide/svelte';
+	import { Save, LoaderCircle } from '@lucide/svelte';
 	import { Settings } from '@jis3r/icons';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { settingsQueries } from '$lib/features/settings/queries';
@@ -15,6 +15,7 @@
 	import GamePathSection from '$lib/features/settings/components/GamePathSection.svelte';
 	import BepInExSection from '$lib/features/settings/components/BepInExSection.svelte';
 	import AppBehaviorSection from '$lib/features/settings/components/AppBehaviorSection.svelte';
+	import AboutSection from '$lib/features/settings/components/AboutSection.svelte';
 
 	const settingsQuery = createQuery(() => settingsQueries.get());
 	const settings = $derived(settingsQuery.data as AppSettings | undefined);
@@ -84,44 +85,46 @@
 	}
 </script>
 
-<div class="px-10 py-8">
+<div class="scrollbar-styled h-full overflow-y-auto px-10 py-8">
 	<PageHeader
 		title="Settings"
 		description="Configure your Among Us path and app preferences."
 		icon={Settings}
-	/>
+	>
+		<Button onclick={handleSave} disabled={isSaving || settingsQuery.isPending} class="gap-2">
+			{#if isSaving}
+				<LoaderCircle class="h-4 w-4 animate-spin" />
+				Saving...
+			{:else}
+				<Save class="h-4 w-4" />
+				Save Settings
+			{/if}
+		</Button>
+	</PageHeader>
 
 	{#if settingsQuery.isPending}
-		<div class="max-w-2xl space-y-6">
-			<div class="space-y-4 rounded-lg border border-border p-6">
-				<Skeleton class="h-6 w-1/3" />
-				<Skeleton class="h-10 w-full" />
-				<Skeleton class="h-4 w-2/3" />
-			</div>
-			<div class="space-y-4 rounded-lg border border-border p-6">
-				<Skeleton class="h-6 w-1/3" />
-				<Skeleton class="h-10 w-full" />
-				<Skeleton class="h-10 w-full" />
-			</div>
-			<div class="rounded-lg border border-border p-6">
-				<Skeleton class="h-6 w-1/3" />
-				<div class="mt-4 flex items-center justify-between">
-					<div class="space-y-2">
-						<Skeleton class="h-4 w-32" />
-						<Skeleton class="h-3 w-48" />
-					</div>
-					<Skeleton class="h-6 w-12" />
+		<div class="grid max-w-4xl gap-6 lg:grid-cols-2">
+			{#each [1, 2, 3] as i (i)}
+				<div
+					class="space-y-4 rounded-xl border border-border/50 bg-card/30 p-6 backdrop-blur-sm"
+					style="animation: pulse 2s ease-in-out infinite; animation-delay: {i * 150}ms"
+				>
+					<Skeleton class="h-5 w-1/3" />
+					<Skeleton class="h-10 w-full" />
+					<Skeleton class="h-4 w-2/3" />
 				</div>
-			</div>
+			{/each}
 		</div>
 	{:else}
-		<div class="max-w-2xl space-y-6">
-			<GamePathSection
-				bind:amongUsPath={localAmongUsPath}
-				bind:gamePlatform={localGamePlatform}
-				bind:isLoggedIn
-				onRefreshAuth={refreshEpicAuth}
-			/>
+		<div class="grid max-w-4xl gap-6 lg:grid-cols-2">
+			<div class="space-y-6 lg:col-span-2">
+				<GamePathSection
+					bind:amongUsPath={localAmongUsPath}
+					bind:gamePlatform={localGamePlatform}
+					bind:isLoggedIn
+					onRefreshAuth={refreshEpicAuth}
+				/>
+			</div>
 
 			<BepInExSection
 				bind:bepInExUrl={localBepInExUrl}
@@ -131,15 +134,8 @@
 
 			<AppBehaviorSection bind:closeOnLaunch={localCloseOnLaunch} />
 
-			<div class="flex justify-end gap-2">
-				<Button onclick={handleSave} disabled={isSaving}>
-					{#if isSaving}
-						Saving...
-					{:else}
-						<Save class="mr-2 h-4 w-4" />
-						Save Settings
-					{/if}
-				</Button>
+			<div class="lg:col-span-2">
+				<AboutSection />
 			</div>
 		</div>
 	{/if}
