@@ -59,8 +59,8 @@ class SettingsService {
 
 		const is64Bit = await exists(crashHandlerPath);
 		const updatedUrl = is64Bit
-			? currentUrl.replace('x86', 'x64')
-			: currentUrl.replace('x64', 'x86');
+			? currentUrl.replace(/win-x86(?=-)/i, 'win-x64')
+			: currentUrl.replace(/win-x64(?=-)/i, 'win-x86');
 
 		if (updatedUrl !== currentUrl) {
 			await this.updateSettings({ bepinex_url: updatedUrl });
