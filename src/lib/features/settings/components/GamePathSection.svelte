@@ -8,6 +8,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import EpicLoginDialog from './EpicLoginDialog.svelte';
+	import { error } from '@tauri-apps/plugin-log';
 
 	let {
 		amongUsPath = $bindable(''),
@@ -30,8 +31,12 @@
 			const path = await invoke<string | null>('detect_among_us');
 			if (path) {
 				amongUsPath = path;
-				const platform = await invoke<string>('get_game_platform', { path });
-				gamePlatform = platform as GamePlatform;
+				try {
+					const platform = await invoke<string>('get_game_platform', { path });
+					gamePlatform = platform as GamePlatform;
+				} catch (platformError) {
+					error(`Platform detection failed: ${platformError}`);
+				}
 				showSuccess('Among Us path detected successfully');
 			} else {
 				showError('Could not auto-detect Among Us installation');
