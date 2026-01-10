@@ -100,11 +100,7 @@
 		)
 	);
 
-	const unifiedModsQuery = createQuery(() => ({
-		queryKey: ['unified-mods', profile.id],
-		queryFn: () => profileService.getUnifiedMods(profile.id),
-		staleTime: 1000 * 10
-	}));
+	const unifiedModsQuery = createQuery(() => profileQueries.unifiedMods(profile.id));
 
 	const modCount = $derived(unifiedModsQuery.data?.length ?? 0);
 

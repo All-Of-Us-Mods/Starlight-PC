@@ -41,7 +41,10 @@
 	const modInfoQuery = createQuery(() => modQueries.info(modId));
 	const versionsQuery = createQuery(() => modQueries.versions(modId));
 	const profilesQuery = createQuery(() => profileQueries.all());
-	const unifiedModsQuery = createQuery(() => profileQueries.unifiedMods(profileId ?? ''));
+	const unifiedModsQuery = createQuery(() => ({
+		...profileQueries.unifiedMods(profileId ?? ''),
+		enabled: !!profileId
+	}));
 
 	// ============ STATE ============
 
@@ -49,6 +52,7 @@
 	let showFullDescription = $state(false);
 	let showInstallPanel = $state(false);
 	let isRemoving = $state(false);
+	let hasSetProfileVersion = $state(false);
 
 	// ============ DERIVED ============
 
@@ -80,17 +84,22 @@
 	const isLoading = $derived(modQuery.isPending || modInfoQuery.isPending);
 
 	// Description helpers
-	const renderedDescription = $derived(
-		modInfo?.long_description ? marked.parse(modInfo.long_description, { async: false }) : ''
-	);
-	const renderedChangelog = $derived(
-		versionInfo?.changelog ? marked.parse(versionInfo.changelog, { async: false }) : ''
-	);
+	function safeParseMarkdown(content: string | undefined): string {
+		if (!content) return '';
+		try {
+			return marked.parse(content, { async: false });
+		} catch {
+			return content;
+		}
+	}
+
+	const renderedDescription = $derived(safeParseMarkdown(modInfo?.long_description));
+	const renderedChangelog = $derived(safeParseMarkdown(versionInfo?.changelog));
 	const descriptionLength = $derived(modInfo?.long_description?.length ?? 0);
 	const shouldTruncate = $derived(descriptionLength > 500);
 	const truncatedDescription = $derived(
 		shouldTruncate && !showFullDescription
-			? marked.parse((modInfo?.long_description ?? '').slice(0, 500) + '...', { async: false })
+			? safeParseMarkdown((modInfo?.long_description ?? '').slice(0, 500) + '...')
 			: renderedDescription
 	);
 
@@ -104,10 +113,16 @@
 		}
 	});
 
-	// Update selected version to match installed version when profile changes
+	// Update selected version to match installed version when profile context is provided initially
 	$effect(() => {
-		if (unifiedMod && unifiedMod.source === 'managed' && unifiedMod.version) {
+		if (
+			unifiedMod &&
+			unifiedMod.source === 'managed' &&
+			unifiedMod.version &&
+			!hasSetProfileVersion
+		) {
 			selectedVersion = unifiedMod.version;
+			hasSetProfileVersion = true;
 		}
 	});
 
