@@ -78,6 +78,12 @@
 			});
 			if (selected) {
 				amongUsPath = selected;
+				try {
+					const platform = await invoke<string>('get_game_platform', { path: selected });
+					gamePlatform = platform as GamePlatform;
+				} catch (platformError) {
+					error(`Platform detection failed: ${platformError}`);
+				}
 			}
 		} catch (e) {
 			showError(e);
