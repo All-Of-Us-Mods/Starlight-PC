@@ -42,12 +42,12 @@
 	let pathDebounceTimeout: ReturnType<typeof setTimeout> | null = null;
 	let urlDebounceTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	// Track previous values for change detection
-	let prevPath = $state<string | null>(null);
-	let prevPlatform = $state<GamePlatform | null>(null);
-	let prevUrl = $state<string | null>(null);
-	let prevCacheBepInEx = $state<boolean | null>(null);
-	let prevCloseOnLaunch = $state<boolean | null>(null);
+	// Track previous values for change detection (non-reactive to avoid retriggering effects)
+	let prevPath: string | null = null;
+	let prevPlatform: GamePlatform | null = null;
+	let prevUrl: string | null = null;
+	let prevCacheBepInEx: boolean | null = null;
+	let prevCloseOnLaunch: boolean | null = null;
 
 	async function refreshEpicAuth() {
 		isLoggedIn = await epicService.isLoggedIn();
@@ -140,9 +140,9 @@
 		}
 	}
 
-	// Initialize local state from settings
+	// Initialize local state from settings (only once)
 	$effect(() => {
-		if (settings) {
+		if (settings && !initialized) {
 			localAmongUsPath = settings.among_us_path ?? '';
 			localBepInExUrl = settings.bepinex_url ?? '';
 			localCloseOnLaunch = settings.close_on_launch ?? false;
@@ -150,30 +150,26 @@
 			localCacheBepInEx = settings.cache_bepinex ?? false;
 			refreshEpicAuth();
 			checkCacheExists();
-			// Mark as initialized after first sync
-			if (!initialized) initialized = true;
+			initialized = true;
 		}
 	});
 
-	// Auto-save for Game Config (path + platform) - debounced
+	// Auto-save for path - debounced
 	$effect(() => {
 		const path = localAmongUsPath;
-		const platform = localGamePlatform;
 
 		if (!initialized) return;
 
-		// First run - just record initial values
+		// First run - just record initial value
 		if (prevPath === null) {
 			prevPath = path;
-			prevPlatform = platform;
 			return;
 		}
 
 		// No change
-		if (path === prevPath && platform === prevPlatform) return;
+		if (path === prevPath) return;
 
 		prevPath = path;
-		prevPlatform = platform;
 
 		// Clear previous timeout
 		if (pathDebounceTimeout) clearTimeout(pathDebounceTimeout);
@@ -184,6 +180,31 @@
 				saveGameConfig();
 			}
 		}, 500);
+
+		// Cleanup function to clear timeout when effect reruns or component unmounts
+		return () => {
+			if (pathDebounceTimeout) {
+				clearTimeout(pathDebounceTimeout);
+				pathDebounceTimeout = null;
+			}
+		};
+	});
+
+	// Auto-save for platform - immediate (like a toggle)
+	$effect(() => {
+		const platform = localGamePlatform;
+
+		if (!initialized) return;
+
+		if (prevPlatform === null) {
+			prevPlatform = platform;
+			return;
+		}
+
+		if (platform === prevPlatform) return;
+
+		prevPlatform = platform;
+		saveGameConfig();
 	});
 
 	// Auto-save for BepInEx URL - debounced
@@ -204,6 +225,14 @@
 		if (urlDebounceTimeout) clearTimeout(urlDebounceTimeout);
 
 		urlDebounceTimeout = setTimeout(() => saveBepInExConfig(), 500);
+
+		// Cleanup function to clear timeout when effect reruns or component unmounts
+		return () => {
+			if (urlDebounceTimeout) {
+				clearTimeout(urlDebounceTimeout);
+				urlDebounceTimeout = null;
+			}
+		};
 	});
 
 	// Auto-save for cacheBepInEx toggle - immediate

@@ -89,7 +89,7 @@
 				id="bepinex-url"
 				bind:value={bepInExUrl}
 				placeholder="https://builds.bepinex.dev/..."
-				onblur={onUrlBlur}
+				onblur={() => onUrlBlur?.()}
 			/>
 		</div>
 
