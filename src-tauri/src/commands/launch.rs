@@ -247,10 +247,18 @@ pub async fn prepare_xbox_launch(game_dir: String, profile_path: String) -> Resu
         format!("Failed to copy winhttp.dll: {e}")
     })?;
 
+    // Helper to clean up on failure
+    let cleanup_dll = || {
+        if dst_dll.exists() {
+            let _ = std::fs::remove_file(&dst_dll);
+        }
+    };
+
     // Read and modify doorstop_config.ini
     debug!("Reading doorstop_config.ini");
     let ini_content = std::fs::read_to_string(&src_ini).map_err(|e| {
         error!("Failed to read doorstop_config.ini: {}", e);
+        cleanup_dll();
         format!("Failed to read doorstop_config.ini: {e}")
     })?;
 
@@ -291,6 +299,7 @@ pub async fn prepare_xbox_launch(game_dir: String, profile_path: String) -> Resu
     debug!("Writing modified doorstop_config.ini to game directory");
     std::fs::write(&dst_ini, modified_content).map_err(|e| {
         error!("Failed to write doorstop_config.ini: {}", e);
+        cleanup_dll();
         format!("Failed to write doorstop_config.ini: {e}")
     })?;
 
