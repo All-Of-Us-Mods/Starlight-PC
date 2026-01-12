@@ -191,7 +191,8 @@ pub async fn get_xbox_app_id() -> Result<String, String> {
         return Err(format!("PowerShell command failed: {stderr}"));
     }
 
-    let app_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let app_id = stdout.lines().next().unwrap_or("").trim().to_string();
 
     if app_id.is_empty() {
         error!("Among Us not found in Microsoft Store apps");
@@ -203,6 +204,12 @@ pub async fn get_xbox_app_id() -> Result<String, String> {
 
     info!("Found Xbox AppUserModelId: {}", app_id);
     Ok(app_id)
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+pub async fn get_xbox_app_id() -> Result<String, String> {
+    Err("Xbox game launching is only supported on Windows".to_string())
 }
 
 /// Prepares an Xbox launch by copying doorstop files and modifying the config.
@@ -307,7 +314,15 @@ pub async fn prepare_xbox_launch(game_dir: String, profile_path: String) -> Resu
     Ok(())
 }
 
+#[cfg(not(windows))]
+#[tauri::command]
+pub async fn prepare_xbox_launch() -> Result<String, String> {
+    Err("Xbox game launching is only supported on Windows".to_string())
+}
+
 /// Launches the Xbox/Microsoft Store version of Among Us.
+/// Note: UWP app lifecycle cannot be tracked, so game state will show as "running"
+/// but won't automatically reset when the game closes.
 #[tauri::command]
 pub async fn launch_xbox<R: Runtime>(app: AppHandle<R>, app_id: String) -> Result<(), String> {
     info!("launch_xbox: app_id={}", app_id);
@@ -316,30 +331,26 @@ pub async fn launch_xbox<R: Runtime>(app: AppHandle<R>, app_id: String) -> Resul
     let uri = format!("shell:AppsFolder\\{}", app_id);
     debug!("Launching via: {}", uri);
 
-    // Use 'explorer' to open the shell URI (more reliable than 'start')
-    let status = Command::new("explorer")
+    // Use 'explorer' to open the shell URI - it returns immediately after launching
+    Command::new("explorer")
         .arg(&uri)
         .spawn()
         .map_err(|e| {
             error!("Failed to launch Xbox game: {}", e);
             format!("Failed to launch Xbox game: {e}")
-        })?
-        .wait()
-        .map_err(|e| {
-            error!("Failed to wait for explorer: {}", e);
-            format!("Failed to wait for explorer: {e}")
         })?;
 
-    if !status.success() {
-        error!("Explorer exited with non-zero status");
-        return Err("Failed to launch Xbox game".to_string());
-    }
-
-    // Emit game state (we can't track Xbox app lifecycle)
+    // Emit game state (UWP app lifecycle cannot be tracked)
     let _ = app.emit("game-state-changed", GameStatePayload { running: true });
-    info!("Xbox game launched (no process monitoring available)");
+    info!("Xbox game launched (no process monitoring available for UWP apps)");
 
     Ok(())
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+pub async fn launch_xbox() -> Result<String, String> {
+    Err("Xbox game launching is only supported on Windows".to_string())
 }
 
 /// Cleans up Xbox doorstop files from the game directory.
@@ -371,4 +382,10 @@ pub async fn cleanup_xbox_files(game_dir: String) -> Result<(), String> {
 
     info!("Xbox cleanup complete");
     Ok(())
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+pub async fn cleanup_xbox_files() -> Result<String, String> {
+    Err("Xbox game launching is only supported on Windows".to_string())
 }
