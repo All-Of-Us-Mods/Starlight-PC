@@ -332,13 +332,10 @@ pub async fn launch_xbox<R: Runtime>(app: AppHandle<R>, app_id: String) -> Resul
     debug!("Launching via: {}", uri);
 
     // Use 'explorer' to open the shell URI - it returns immediately after launching
-    Command::new("explorer")
-        .arg(&uri)
-        .spawn()
-        .map_err(|e| {
-            error!("Failed to launch Xbox game: {}", e);
-            format!("Failed to launch Xbox game: {e}")
-        })?;
+    Command::new("explorer").arg(&uri).spawn().map_err(|e| {
+        error!("Failed to launch Xbox game: {}", e);
+        format!("Failed to launch Xbox game: {e}")
+    })?;
 
     // Emit game state (UWP app lifecycle cannot be tracked)
     let _ = app.emit("game-state-changed", GameStatePayload { running: true });
