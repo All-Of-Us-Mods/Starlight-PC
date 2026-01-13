@@ -1,6 +1,6 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { profileService } from './profile-service';
-import { queryClient } from '$lib/state/queryClient';
+import { queryClient } from '$lib/state/query-client';
 
 interface GameStatePayload {
 	running: boolean;

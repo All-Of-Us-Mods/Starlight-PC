@@ -8,7 +8,7 @@ import { downloadBepInEx } from './bepinex-download';
 import { settingsService } from '../settings/settings-service';
 import { installProgress } from './install-progress.svelte';
 import { showError } from '$lib/utils/toast';
-import { queryClient } from '$lib/state/queryClient';
+import { queryClient } from '$lib/state/query-client';
 
 const ProfilesArray = type(ProfileEntry.array());
 

@@ -6,7 +6,6 @@
       "dependencies": {
         "@tanstack/query-async-storage-persister": "^5.90.16",
         "@tanstack/svelte-query": "^6.0.3",
-        "@tanstack/svelte-query-persist-client": "^6.0.14",
         "@tauri-apps/api": "^2.9.0",
         "@tauri-apps/plugin-dialog": "~2",
         "@tauri-apps/plugin-fs": "~2",
@@ -281,8 +280,6 @@
     "@tanstack/query-persist-client-core": ["@tanstack/query-persist-client-core@5.91.13", "", { "dependencies": { "@tanstack/query-core": "5.90.14" } }, "sha512-0pximJKPb4Tp61v94QYo/Ia/BZuV76XsKvtw+sPBBLBw2iqBSvR8vyP3S5qa7DeICApckktAvIlpDxSxqyouAw=="],
 
     "@tanstack/svelte-query": ["@tanstack/svelte-query@6.0.3", "", { "dependencies": { "@tanstack/query-core": "5.90.5" }, "peerDependencies": { "svelte": "^5.25.0" } }, "sha512-+elBl7JMr5C5RVHYu/DMxH06IrDZPpORFm4Rtyg9Qe9ww6gvG9naCvPw5arMoMq7si4Y3pJDTuX8PbQgy/RRMQ=="],
-
-    "@tanstack/svelte-query-persist-client": ["@tanstack/svelte-query-persist-client@6.0.14", "", { "dependencies": { "@tanstack/query-persist-client-core": "5.91.13" }, "peerDependencies": { "@tanstack/svelte-query": "^6.0.12", "svelte": "^5.25.0" } }, "sha512-ef6EOQavo5cfxwlQ27lyvhFxrWMkOoOWC1fuBAvgvg/d2YoT6R2Bu1totJNgymQwH1VMVPme9asvR9QDpX78qQ=="],
 
     "@tauri-apps/api": ["@tauri-apps/api@2.9.0", "", {}, "sha512-qD5tMjh7utwBk9/5PrTA/aGr3i5QaJ/Mlt7p8NilQ45WgbifUNPyKWsA63iQ8YfQq6R8ajMapU+/Q8nMcPRLNw=="],
 

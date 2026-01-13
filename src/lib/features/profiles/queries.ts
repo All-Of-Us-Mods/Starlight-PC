@@ -5,26 +5,22 @@ export const profileQueries = {
 	all: () =>
 		queryOptions({
 			queryKey: ['profiles'] as const,
-			queryFn: () => profileService.getProfiles(),
-			staleTime: Infinity
+			queryFn: () => profileService.getProfiles()
 		}),
 	active: () =>
 		queryOptions({
 			queryKey: ['profiles', 'active'] as const,
-			queryFn: () => profileService.getActiveProfile(),
-			staleTime: Infinity
+			queryFn: () => profileService.getActiveProfile()
 		}),
 	hasAny: () =>
 		queryOptions({
 			queryKey: ['profiles', 'hasAny'] as const,
-			queryFn: () => profileService.getProfiles().then((profiles) => profiles.length > 0),
-			staleTime: Infinity
+			queryFn: () => profileService.getProfiles().then((profiles) => profiles.length > 0)
 		}),
 	unifiedMods: (profileId: string) =>
 		queryOptions({
 			queryKey: ['unified-mods', profileId] as const,
 			queryFn: () => profileService.getUnifiedMods(profileId),
-			enabled: !!profileId,
-			staleTime: 1000 * 10
+			enabled: !!profileId
 		})
 };

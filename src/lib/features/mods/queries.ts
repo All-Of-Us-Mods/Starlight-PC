@@ -26,7 +26,6 @@ export const modQueries = {
 
 		return queryOptions({
 			queryKey: ['mods', 'explore', q, limit, offset, sort] as const,
-			gcTime: 1000 * 60 * 5,
 			queryFn: () => {
 				if (q) {
 					return apiFetch(
@@ -92,8 +91,7 @@ export const modQueries = {
 		return queryOptions({
 			queryKey: ['resolved-deps', queryKey] as const,
 			queryFn: () => modInstallService.resolveDependencies(dependencies),
-			enabled: dependencies.length > 0,
-			staleTime: 1000 * 60 * 5
+			enabled: dependencies.length > 0
 		});
 	}
 };
