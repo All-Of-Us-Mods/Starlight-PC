@@ -19,11 +19,13 @@
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { launchService } from '$lib/features/profiles/launch-service';
 	import { profileService } from '$lib/features/profiles/profile-service';
+	import { useUpdateLastLaunched } from '$lib/features/profiles/mutations';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { showError, showSuccess } from '$lib/utils/toast';
 
 	const queryClient = useQueryClient();
 	const profilesQuery = createQuery(() => profileQueries.all());
+	const updateLastLaunched = useUpdateLastLaunched();
 	const profiles = $derived((profilesQuery.data ?? []) as Profile[]);
 
 	let deleteDialogOpen = $state(false);
@@ -53,8 +55,7 @@
 
 		try {
 			await launchService.launchProfile(profile);
-			queryClient.invalidateQueries({ queryKey: ['profiles'] });
-			queryClient.invalidateQueries({ queryKey: ['profiles', 'active'] });
+			await updateLastLaunched.mutateAsync(profile.id);
 		} catch (e) {
 			queryClient.setQueryData(['profiles'], previousProfiles);
 			showError(e);
