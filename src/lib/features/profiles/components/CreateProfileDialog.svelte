@@ -3,12 +3,12 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import { useCreateProfile } from '../mutations';
-	import { useQueryClient } from '@tanstack/svelte-query';
+	import { profileMutations } from '../mutations';
+	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import type { Profile } from '../schema';
 
 	const queryClient = useQueryClient();
-	const createProfile = useCreateProfile();
+	const createProfile = createMutation(() => profileMutations.create(queryClient));
 
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 	let name = $state('');

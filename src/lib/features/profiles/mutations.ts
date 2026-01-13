@@ -1,92 +1,101 @@
-import { createMutation, useQueryClient } from '@tanstack/svelte-query';
+import type { QueryClient } from '@tanstack/svelte-query';
 import { profileService } from './profile-service';
-import type { Profile, UnifiedMod } from './schema';
+import { modInstallService } from './mod-install-service';
+import type { UnifiedMod } from './schema';
 
-export function useCreateProfile() {
-	const queryClient = useQueryClient();
-	return createMutation<Profile, Error, string>(() => ({
-		mutationFn: (name) => profileService.createProfile(name),
+export const profileMutations = {
+	create: (queryClient: QueryClient) => ({
+		mutationFn: (name: string) => profileService.createProfile(name),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
 		}
-	}));
-}
+	}),
 
-export function useDeleteProfile() {
-	const queryClient = useQueryClient();
-	return createMutation<void, Error, string>(() => ({
-		mutationFn: (profileId) => profileService.deleteProfile(profileId),
+	delete: (queryClient: QueryClient) => ({
+		mutationFn: (profileId: string) => profileService.deleteProfile(profileId),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
 		}
-	}));
-}
+	}),
 
-export function useAddModToProfile() {
-	const queryClient = useQueryClient();
-	return createMutation<
-		void,
-		Error,
-		{ profileId: string; modId: string; version: string; file: string }
-	>(() => ({
-		mutationFn: (args) =>
+	addMod: (queryClient: QueryClient) => ({
+		mutationFn: (args: { profileId: string; modId: string; version: string; file: string }) =>
 			profileService.addModToProfile(args.profileId, args.modId, args.version, args.file),
-		onSuccess: (_data, args) => {
+		onSuccess: (_data: void, args: { profileId: string }) => {
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
 			queryClient.invalidateQueries({ queryKey: ['unified-mods', args.profileId] });
 		}
-	}));
-}
+	}),
 
-export function useRemoveModFromProfile() {
-	const queryClient = useQueryClient();
-	return createMutation<void, Error, { profileId: string; modId: string }>(() => ({
-		mutationFn: (args) => profileService.removeModFromProfile(args.profileId, args.modId),
-		onSuccess: (_data, args) => {
+	removeMod: (queryClient: QueryClient) => ({
+		mutationFn: (args: { profileId: string; modId: string }) =>
+			profileService.removeModFromProfile(args.profileId, args.modId),
+		onSuccess: (_data: void, args: { profileId: string }) => {
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
 			queryClient.invalidateQueries({ queryKey: ['unified-mods', args.profileId] });
 		}
-	}));
-}
+	}),
 
-export function useDeleteUnifiedMod() {
-	const queryClient = useQueryClient();
-	return createMutation<void, Error, { profileId: string; mod: UnifiedMod }>(() => ({
-		mutationFn: (args) => profileService.deleteUnifiedMod(args.profileId, args.mod),
-		onSuccess: (_data, args) => {
+	deleteUnifiedMod: (queryClient: QueryClient) => ({
+		mutationFn: (args: { profileId: string; mod: UnifiedMod }) =>
+			profileService.deleteUnifiedMod(args.profileId, args.mod),
+		onSuccess: (_data: void, args: { profileId: string }) => {
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
 			queryClient.invalidateQueries({ queryKey: ['unified-mods', args.profileId] });
 		}
-	}));
-}
+	}),
 
-export function useUpdatePlayTime() {
-	const queryClient = useQueryClient();
-	return createMutation<void, Error, { profileId: string; durationMs: number }>(() => ({
-		mutationFn: (args) => profileService.addPlayTime(args.profileId, args.durationMs),
+	updatePlayTime: (queryClient: QueryClient) => ({
+		mutationFn: (args: { profileId: string; durationMs: number }) =>
+			profileService.addPlayTime(args.profileId, args.durationMs),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
 		}
-	}));
-}
+	}),
 
-export function useRetryBepInExInstall() {
-	const queryClient = useQueryClient();
-	return createMutation<void, Error, { profileId: string; profilePath: string }>(() => ({
-		mutationFn: (args) => profileService.retryBepInExInstall(args.profileId, args.profilePath),
+	retryBepInExInstall: (queryClient: QueryClient) => ({
+		mutationFn: (args: { profileId: string; profilePath: string }) =>
+			profileService.retryBepInExInstall(args.profileId, args.profilePath),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
 		}
-	}));
-}
+	}),
 
-export function useUpdateLastLaunched() {
-	const queryClient = useQueryClient();
-	return createMutation<void, Error, string>(() => ({
-		mutationFn: (profileId) => profileService.updateLastLaunched(profileId),
+	updateLastLaunched: (queryClient: QueryClient) => ({
+		mutationFn: (profileId: string) => profileService.updateLastLaunched(profileId),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
 			queryClient.invalidateQueries({ queryKey: ['profiles', 'active'] });
 		}
-	}));
-}
+	}),
+
+	installMods: (queryClient: QueryClient) => ({
+		mutationFn: async (args: {
+			profileId: string;
+			profilePath: string;
+			mods: Array<{ modId: string; version: string }>;
+		}) => {
+			const results = await modInstallService.installModsToProfile(args.mods, args.profilePath);
+			for (const result of results) {
+				await profileService.addModToProfile(
+					args.profileId,
+					result.modId,
+					result.version,
+					result.fileName
+				);
+			}
+			return results;
+		},
+		onSuccess: (
+			_data: Array<{ modId: string; version: string; fileName: string }>,
+			args: { profileId: string }
+		) => {
+			queryClient.invalidateQueries({ queryKey: ['profiles'] });
+			queryClient.invalidateQueries({ queryKey: ['unified-mods', args.profileId] });
+		}
+	})
+};
+
+// Type helpers for mutation results
+export type CreateProfileMutation = ReturnType<typeof profileMutations.create>;
+export type DeleteProfileMutation = ReturnType<typeof profileMutations.delete>;

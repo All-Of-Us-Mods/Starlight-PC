@@ -23,3 +23,19 @@ export type ProfileMod = typeof ProfileModEntry.infer;
 export type UnifiedMod =
 	| { source: 'managed'; mod_id: string; version: string; file: string }
 	| { source: 'custom'; file: string };
+
+// Progress types for BepInEx installation
+export interface BepInExProgress {
+	stage: 'downloading' | 'extracting' | 'complete';
+	progress: number;
+	message: string;
+}
+
+// Progress types for mod downloads
+export interface ModDownloadProgress {
+	mod_id: string;
+	downloaded: number;
+	total: number | null;
+	progress: number; // 0-100
+	stage: 'connecting' | 'downloading' | 'verifying' | 'writing' | 'complete';
+}

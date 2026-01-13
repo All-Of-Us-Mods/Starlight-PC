@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { exists } from '@tauri-apps/plugin-fs';
 import { settingsService } from '../settings/settings-service';
-import { gameState } from './game-state-service.svelte';
+import { gameState } from './game-state.svelte';
 import { epicService } from '$lib/features/settings/epic-service';
 import { info, error as logError, debug } from '@tauri-apps/plugin-log';
 import type { Profile } from './schema';

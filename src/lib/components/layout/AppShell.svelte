@@ -3,13 +3,13 @@
 	import { setSidebar } from '$lib/state/sidebar.svelte';
 	import { platform } from '@tauri-apps/plugin-os';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { launchService } from '$lib/features/profiles/launch-service';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { showError } from '$lib/utils/toast';
-	import { gameState } from '$lib/features/profiles/game-state-service.svelte';
-	import { useUpdateLastLaunched } from '$lib/features/profiles/mutations';
+	import { gameState } from '$lib/features/profiles/game-state.svelte';
+	import { profileMutations } from '$lib/features/profiles/mutations';
 	import TopBar from './TopBar.svelte';
 	import SideNav from './SideNav.svelte';
 	import StarBackground from '$lib/components/shared/StarBackground.svelte';
@@ -17,8 +17,9 @@
 
 	let { children } = $props();
 
+	const queryClient = useQueryClient();
 	const sidebar = setSidebar();
-	const updateLastLaunched = useUpdateLastLaunched();
+	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
 	const activeProfileQuery = createQuery(() => profileQueries.active());
 
 	let platformName = $state<Platform>('other');

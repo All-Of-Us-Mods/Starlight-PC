@@ -1,14 +1,14 @@
 import { mkdir, remove, readDir } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getStore } from '$lib/state/store';
 import { info, warn, error as logError, debug } from '@tauri-apps/plugin-log';
 import { type } from 'arktype';
-import { ProfileEntry, type Profile, type UnifiedMod } from './schema';
-import { downloadBepInEx } from './bepinex-download';
+import { ProfileEntry, type Profile, type UnifiedMod, type BepInExProgress } from './schema';
 import { settingsService } from '../settings/settings-service';
-import { installProgress } from './install-progress.svelte';
+import { gameState, invalidateProfiles } from './game-state.svelte';
 import { showError } from '$lib/utils/toast';
-import { queryClient } from '$lib/state/query-client';
 
 const ProfilesArray = type(ProfileEntry.array());
 
@@ -82,8 +82,8 @@ class ProfileService {
 		const bepinexUrl = await this.getBepInExUrl();
 
 		try {
-			await downloadBepInEx(profilePath, bepinexUrl, (progress) => {
-				installProgress.setProgress(profileId, progress);
+			await this.downloadBepInEx(profilePath, bepinexUrl, (progress) => {
+				gameState.setBepInExProgress(profileId, progress);
 			});
 
 			const store = await getStore();
@@ -97,21 +97,47 @@ class ProfileService {
 				await store.set('profiles', profiles);
 				await store.save();
 				info(`BepInEx installed for profile: ${profileId}`);
-				// Invalidate profiles query to reflect BepInEx installation status
-				queryClient.invalidateQueries({ queryKey: ['profiles'] });
+				invalidateProfiles();
 			}
-			installProgress.clearProgress(profileId);
+			gameState.clearBepInExProgress(profileId);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Unknown error';
 			logError(`BepInEx installation failed for profile ${profileId}: ${message}`);
-			installProgress.setError(profileId, message);
+			gameState.setBepInExError(profileId, message);
 			showError(err, 'BepInEx installation');
 		}
 	}
 
 	async retryBepInExInstall(profileId: string, profilePath: string): Promise<void> {
-		installProgress.clearProgress(profileId);
+		gameState.clearBepInExProgress(profileId);
 		await this.installBepInExInBackground(profileId, profilePath);
+	}
+
+	private async downloadBepInEx(
+		profilePath: string,
+		bepinexUrl: string,
+		onProgress?: (progress: BepInExProgress) => void
+	): Promise<void> {
+		let unlisten: UnlistenFn | undefined;
+
+		try {
+			if (onProgress) {
+				unlisten = await listen<BepInExProgress>('bepinex-progress', (event) => {
+					onProgress(event.payload);
+				});
+			}
+
+			const settings = await settingsService.getSettings();
+			const cachePath = settings.cache_bepinex ? await settingsService.getBepInExCachePath() : null;
+
+			await invoke('install_bepinex', {
+				url: bepinexUrl,
+				destination: profilePath,
+				cachePath
+			});
+		} finally {
+			unlisten?.();
+		}
 	}
 
 	async deleteProfile(profileId: string): Promise<void> {
@@ -126,7 +152,7 @@ class ProfileService {
 		}
 
 		// Clear any install progress/error state
-		installProgress.clearProgress(profileId);
+		gameState.clearBepInExProgress(profileId);
 
 		await remove(profile.path, { recursive: true });
 		await store.set(

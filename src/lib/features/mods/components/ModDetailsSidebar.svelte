@@ -18,10 +18,10 @@
 		Trash2,
 		LoaderCircle
 	} from '@lucide/svelte';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { modQueries } from '../queries';
 	import { profileQueries } from '$lib/features/profiles/queries';
-	import { useDeleteUnifiedMod } from '$lib/features/profiles/mutations';
+	import { profileMutations } from '$lib/features/profiles/mutations';
 	import { showError, showSuccess } from '$lib/utils/toast';
 	import type { UnifiedMod, Profile } from '$lib/features/profiles/schema';
 
@@ -33,7 +33,8 @@
 
 	let { modId, profileId, onclose }: Props = $props();
 
-	const deleteMod = useDeleteUnifiedMod();
+	const queryClient = useQueryClient();
+	const deleteMod = createMutation(() => profileMutations.deleteUnifiedMod(queryClient));
 
 	// ============ QUERIES ============
 

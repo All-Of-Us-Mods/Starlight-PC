@@ -10,20 +10,12 @@ import {
 	type ModVersionInfo,
 	type ModDependency
 } from '../mods/schema';
+import { type ModDownloadProgress } from './schema';
 import { type } from 'arktype';
 import * as semver from 'semver';
 
 const ModVersionsArray = type(ModVersion.array());
 const ModVersionInfoValidator = type(ModVersionInfoSchema);
-
-/** Progress event payload from Rust download_mod command */
-export interface ModDownloadProgress {
-	mod_id: string;
-	downloaded: number;
-	total: number | null;
-	progress: number; // 0-100
-	stage: 'connecting' | 'downloading' | 'verifying' | 'writing' | 'complete';
-}
 
 export interface DependencyWithMeta extends ModDependency {
 	modName: string;

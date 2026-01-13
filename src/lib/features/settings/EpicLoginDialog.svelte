@@ -10,7 +10,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { showError, showSuccess } from '$lib/utils/toast';
-	import { epicService } from '../epic-service';
+	import { epicService } from './epic-service';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 	import { ExternalLink, LoaderCircle } from '@lucide/svelte';
 	import { LogOut, ChevronDown, ChevronUp } from '@jis3r/icons';

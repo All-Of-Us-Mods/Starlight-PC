@@ -2,23 +2,21 @@
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import { createQuery } from '@tanstack/svelte-query';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { modQueries } from '$lib/features/mods/queries';
 	import type { Profile, UnifiedMod } from '../schema';
 	import type { Mod } from '$lib/features/mods/schema';
-	import { gameState } from '../game-state-service.svelte';
-	import { installProgress } from '../install-progress.svelte';
-	import { useDeleteUnifiedMod, useRetryBepInExInstall } from '../mutations';
+	import { gameState } from '../game-state.svelte';
+	import { profileMutations } from '../mutations';
 	import { showError } from '$lib/utils/toast';
 	import { formatPlayTime } from '$lib/utils';
 	import { join } from '@tauri-apps/api/path';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
-	import ProfileCardActions from './ProfileCardActions.svelte';
-	import ProfileModsList from './ProfileModsList.svelte';
 	import ModDetailsSidebar from '$lib/features/mods/components/ModDetailsSidebar.svelte';
 	import { getSidebar } from '$lib/state/sidebar.svelte';
-	import { Package, CircleAlert } from '@lucide/svelte';
-	import { CalendarDays, Clock, RotateCcw, Download } from '@jis3r/icons';
+	import { Package, CircleAlert, Play, FolderOpen, EllipsisVertical } from '@lucide/svelte';
+	import { CalendarDays, Clock, RotateCcw, Download, Trash2 } from '@jis3r/icons';
 	import { profileQueries } from '../queries';
 
 	let {
@@ -27,6 +25,7 @@
 		ondelete
 	}: { profile: Profile; onlaunch?: () => void; ondelete?: () => void } = $props();
 
+	const queryClient = useQueryClient();
 	const sidebar = getSidebar();
 	let selectedModId = $state<string | null>(null);
 
@@ -41,8 +40,10 @@
 		sidebar.close();
 	}
 
-	const deleteMod = useDeleteUnifiedMod();
-	const retryBepInExInstall = useRetryBepInExInstall();
+	const deleteMod = createMutation(() => profileMutations.deleteUnifiedMod(queryClient));
+	const retryBepInExInstall = createMutation(() =>
+		profileMutations.retryBepInExInstall(queryClient)
+	);
 
 	let showAllMods = $state(false);
 
@@ -73,7 +74,7 @@
 	);
 
 	const isRunning = $derived(gameState.isProfileRunning(profile.id));
-	const installState = $derived(installProgress.getState(profile.id));
+	const installState = $derived(gameState.getBepInExState(profile.id));
 	const isInstalling = $derived(
 		profile.bepinex_installed === false || installState?.status === 'installing'
 	);
@@ -81,7 +82,7 @@
 	const isDisabled = $derived(isInstalling || isRunning);
 
 	async function handleRetryInstall() {
-		installProgress.clearProgress(profile.id);
+		gameState.clearBepInExProgress(profile.id);
 		await retryBepInExInstall.mutateAsync({ profileId: profile.id, profilePath: profile.path });
 	}
 
@@ -114,6 +115,10 @@
 			return { id: mod.file, name: mod.file, source: 'custom' as const };
 		});
 	});
+
+	// Mods list display helpers
+	const displayedMods = $derived(showAllMods ? allMods() : allMods().slice(0, 3));
+	const hiddenModCount = $derived(allMods().length - 3);
 </script>
 
 <div class="@container">
@@ -170,23 +175,103 @@
 				</Card.Description>
 			</div>
 
-			<ProfileCardActions
-				onlaunch={() => onlaunch?.()}
-				onOpenFolder={handleOpenFolder}
-				ondelete={() => ondelete?.()}
-				allMods={allMods()}
-				onRemoveMod={handleRemoveMod}
-				{isDisabled}
-			/>
+			<!-- Actions -->
+			<div class="flex items-center gap-2 @md:shrink-0">
+				<Button size="sm" onclick={() => onlaunch?.()} disabled={isDisabled}>
+					<Play class="size-4 fill-current" />
+					<span>Launch</span>
+				</Button>
+
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger>
+						{#snippet child({ props })}
+							<Button {...props} variant="ghost" size="icon" class="size-8">
+								<EllipsisVertical class="size-4" />
+								<span class="sr-only">Profile actions</span>
+							</Button>
+						{/snippet}
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content align="end" class="w-48">
+						<DropdownMenu.Group>
+							<DropdownMenu.Item onclick={() => onlaunch?.()} disabled={isDisabled}>
+								<Play class="size-4" />
+								Launch
+							</DropdownMenu.Item>
+							<DropdownMenu.Item onclick={handleOpenFolder}>
+								<FolderOpen class="size-4" />
+								Open Folder
+							</DropdownMenu.Item>
+						</DropdownMenu.Group>
+
+						{#if allMods().length > 0}
+							<DropdownMenu.Separator />
+							<DropdownMenu.Sub>
+								<DropdownMenu.SubTrigger disabled={isDisabled}>
+									<Package class="size-4" />
+									Manage Mods
+								</DropdownMenu.SubTrigger>
+								<DropdownMenu.SubContent class="max-h-64 overflow-y-auto">
+									{#each allMods() as mod (mod.id)}
+										<DropdownMenu.Item
+											onclick={() => handleRemoveMod(mod)}
+											class="justify-between"
+											disabled={isDisabled}
+										>
+											<span class="truncate">{mod.name}</span>
+											<Trash2 class="size-4 shrink-0 text-destructive" />
+										</DropdownMenu.Item>
+									{/each}
+								</DropdownMenu.SubContent>
+							</DropdownMenu.Sub>
+						{/if}
+
+						<DropdownMenu.Separator />
+						<DropdownMenu.Item
+							onclick={() => ondelete?.()}
+							class="text-destructive focus:bg-destructive focus:text-destructive-foreground"
+							disabled={isDisabled}
+						>
+							<Trash2 class="size-4" />
+							Delete Profile
+						</DropdownMenu.Item>
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
+			</div>
 		</Card.Header>
 
 		<Card.Content class="pt-4">
-			<ProfileModsList
-				allMods={allMods()}
-				{showAllMods}
-				onToggleShowAll={() => (showAllMods = !showAllMods)}
-				onModClick={handleModClick}
-			/>
+			<!-- Mods List -->
+			{#if allMods().length > 0}
+				<div class="flex flex-wrap items-center gap-1.5">
+					{#each displayedMods as mod (mod.id)}
+						{#if mod.source === 'managed'}
+							<button
+								type="button"
+								onclick={(e) => {
+									e.stopPropagation();
+									handleModClick(mod.id);
+								}}
+								class="inline-flex max-w-32 items-center truncate rounded-md border border-transparent bg-secondary px-2.5 py-0.5 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-secondary/80 hover:text-primary"
+							>
+								{mod.name}
+							</button>
+						{:else}
+							<Badge variant="secondary" class="max-w-32 truncate text-xs">
+								{mod.name}
+							</Badge>
+						{/if}
+					{/each}
+					{#if hiddenModCount > 0}
+						<button
+							type="button"
+							onclick={() => (showAllMods = !showAllMods)}
+							class="rounded-md px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						>
+							{showAllMods ? 'Show less' : `+${hiddenModCount} more`}
+						</button>
+					{/if}
+				</div>
+			{/if}
 		</Card.Content>
 	</Card.Root>
 </div>

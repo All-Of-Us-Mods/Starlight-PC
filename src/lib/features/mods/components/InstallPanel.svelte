@@ -6,12 +6,12 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import { Download, Check, TriangleAlert } from '@jis3r/icons';
 	import { LoaderCircle, Package } from '@lucide/svelte';
-	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import { modQueries } from '../queries';
 	import { profileQueries } from '$lib/features/profiles/queries';
+	import { profileMutations } from '$lib/features/profiles/mutations';
 	import { modInstallService } from '$lib/features/profiles/mod-install-service';
-	import { profileService } from '$lib/features/profiles/profile-service';
-	import { modDownloadProgress } from '$lib/features/profiles/mod-download-progress.svelte';
+	import { gameState } from '$lib/features/profiles/game-state.svelte';
 	import { showSuccess } from '$lib/utils/toast';
 	import type { ModDependency } from '../schema';
 	import type { Profile } from '$lib/features/profiles/schema';
@@ -87,6 +87,10 @@
 		}
 	});
 
+	// ============ MUTATIONS ============
+
+	const installModsMutation = createMutation(() => profileMutations.installMods(queryClient));
+
 	// ============ HANDLERS ============
 
 	function toggleDependency(depModId: string) {
@@ -100,41 +104,29 @@
 	async function handleInstall() {
 		if (!selectedProfile || !selectedVersion) return;
 
-		try {
-			isInstalling = true;
-			installError = '';
+		const modsToInstall = [{ modId, version: selectedVersion }];
 
-			const modsToInstall = [{ modId, version: selectedVersion }];
-
-			// Add selected dependencies that aren't already installed
-			for (const dep of installableDependencies) {
-				if (selectedDependencies.has(dep.mod_id) && !installedDepsInProfile.has(dep.mod_id)) {
-					modsToInstall.push({ modId: dep.mod_id, version: dep.resolvedVersion });
-				}
+		// Add selected dependencies that aren't already installed
+		for (const dep of installableDependencies) {
+			if (selectedDependencies.has(dep.mod_id) && !installedDepsInProfile.has(dep.mod_id)) {
+				modsToInstall.push({ modId: dep.mod_id, version: dep.resolvedVersion });
 			}
+		}
 
-			modsBeingInstalled = modsToInstall.map((m) => m.modId);
+		modsBeingInstalled = modsToInstall.map((m) => m.modId);
+		isInstalling = true;
+		installError = '';
 
+		try {
 			progressUnlisten = await modInstallService.onDownloadProgress((progress) => {
-				modDownloadProgress.setProgress(progress.mod_id, progress);
+				gameState.setModDownloadProgress(progress.mod_id, progress);
 			});
 
-			const results = await modInstallService.installModsToProfile(
-				modsToInstall,
-				selectedProfile.path
-			);
-
-			for (const result of results) {
-				await profileService.addModToProfile(
-					selectedProfileId,
-					result.modId,
-					result.version,
-					result.fileName
-				);
-			}
-
-			// Invalidate profiles query to update installed status
-			await queryClient.invalidateQueries({ queryKey: ['profiles'] });
+			await installModsMutation.mutateAsync({
+				profileId: selectedProfileId,
+				profilePath: selectedProfile.path,
+				mods: modsToInstall
+			});
 
 			showSuccess(`Installed to ${selectedProfile.name}`);
 			onInstallComplete?.();
@@ -147,7 +139,7 @@
 				progressUnlisten = null;
 			}
 			for (const id of modsBeingInstalled) {
-				modDownloadProgress.clear(id);
+				gameState.clearModDownload(id);
 			}
 			modsBeingInstalled = [];
 		}
@@ -296,7 +288,7 @@
 					<span class="text-xs font-medium text-muted-foreground">Installing...</span>
 					<div class="space-y-2 rounded-lg border border-border/50 p-2">
 						{#each modsBeingInstalled as downloadingModId (downloadingModId)}
-							{@const state = modDownloadProgress.getState(downloadingModId)}
+							{@const state = gameState.getModDownloadState(downloadingModId)}
 							<div class="flex items-center gap-2 px-1">
 								{#if state?.status === 'downloading'}
 									<LoaderCircle class="h-3.5 w-3.5 animate-spin text-primary" />
@@ -304,7 +296,7 @@
 										<div class="flex items-center justify-between text-xs">
 											<span class="truncate font-medium">{downloadingModId}</span>
 											<span class="text-muted-foreground">
-												{modDownloadProgress.getStageText(state.progress.stage)}
+												{gameState.getModDownloadStageText(state.progress.stage)}
 											</span>
 										</div>
 										{#if state.progress.stage === 'downloading'}

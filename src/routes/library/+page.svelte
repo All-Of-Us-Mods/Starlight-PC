@@ -15,17 +15,17 @@
 		AlertDialogTitle
 	} from '$lib/components/ui/alert-dialog';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { launchService } from '$lib/features/profiles/launch-service';
-	import { profileService } from '$lib/features/profiles/profile-service';
-	import { useUpdateLastLaunched } from '$lib/features/profiles/mutations';
+	import { profileMutations } from '$lib/features/profiles/mutations';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { showError, showSuccess } from '$lib/utils/toast';
 
 	const queryClient = useQueryClient();
 	const profilesQuery = createQuery(() => profileQueries.all());
-	const updateLastLaunched = useUpdateLastLaunched();
+	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
+	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
 	const profiles = $derived((profilesQuery.data ?? []) as Profile[]);
 
 	let deleteDialogOpen = $state(false);
@@ -79,12 +79,15 @@
 
 		const previousProfiles = queryClient.getQueryData<Profile[]>(['profiles']);
 
+		// Optimistic update
 		queryClient.setQueryData(['profiles'], (old = []) =>
 			(old as Profile[]).filter((p) => p.id !== profileId)
 		);
 
 		try {
-			await profileService.deleteProfile(profileId);
+			await deleteProfile.mutateAsync(profileId);
+			// Also remove any cached unified-mods for this profile
+			queryClient.removeQueries({ queryKey: ['unified-mods', profileId] });
 			showSuccess(`Profile "${profileName}" deleted`);
 		} catch (e) {
 			queryClient.setQueryData(['profiles'], previousProfiles);

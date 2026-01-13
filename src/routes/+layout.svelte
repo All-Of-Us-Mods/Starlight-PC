@@ -4,15 +4,22 @@
 	import { queryClient } from '$lib/state/query-client';
 	import { Toaster } from '$lib/components/ui/sonner';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
-	import AmongUsPathDialog from '$lib/features/settings/components/AmongUsPathDialog.svelte';
+	import AmongUsPathDialog from '$lib/features/settings/AmongUsPathDialog.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { settingsService } from '$lib/features/settings/settings-service';
+	import { registerProfilesInvalidateCallback } from '$lib/features/profiles/game-state.svelte';
 	import { onMount } from 'svelte';
 	import { info, warn } from '@tauri-apps/plugin-log';
 
 	let { children } = $props();
 	let dialogOpen = $state(false);
 	let detectedPath = $state('');
+
+	// Register the invalidation callback so game-state can trigger query invalidation
+	// without importing queryClient directly
+	registerProfilesInvalidateCallback(() => {
+		queryClient.invalidateQueries({ queryKey: ['profiles'] });
+	});
 
 	onMount(async () => {
 		info('Starlight frontend initialized');
@@ -37,6 +44,6 @@
 	<AppShell>
 		{@render children()}
 	</AppShell>
+	<Toaster />
+	<AmongUsPathDialog bind:open={dialogOpen} {detectedPath} />
 </QueryClientProvider>
-<Toaster />
-<AmongUsPathDialog bind:open={dialogOpen} {detectedPath} />
