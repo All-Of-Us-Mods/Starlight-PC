@@ -17,6 +17,12 @@ export const profileQueries = {
 			queryKey: ['profiles', 'hasAny'] as const,
 			queryFn: () => profileService.getProfiles().then((profiles) => profiles.length > 0)
 		}),
+	diskFiles: (profilePath: string) =>
+		queryOptions({
+			queryKey: ['disk-files', profilePath] as const,
+			queryFn: () => profileService.getModFiles(profilePath),
+			enabled: !!profilePath
+		}),
 	unifiedMods: (profileId: string) =>
 		queryOptions({
 			queryKey: ['unified-mods', profileId] as const,

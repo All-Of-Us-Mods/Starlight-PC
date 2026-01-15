@@ -288,10 +288,15 @@ class ProfileService {
 		}
 
 		const diskFiles = await this.getModFiles(profile.path);
-		const managedFiles = new Set(profile.mods.map((m) => m.file).filter(Boolean));
+		const diskFilesSet = new Set(diskFiles);
+		const managedFiles = new Set<string>();
 
 		const unified: UnifiedMod[] = profile.mods
 			.filter((m) => m.file)
+			.filter((m) => {
+				managedFiles.add(m.file!);
+				return diskFilesSet.has(m.file!);
+			})
 			.map((mod) => ({
 				source: 'managed' as const,
 				mod_id: mod.mod_id,
@@ -305,7 +310,57 @@ class ProfileService {
 			}
 		}
 
+		await this.cleanupMissingManagedMods(profileId, profile, diskFilesSet);
+
 		return unified;
+	}
+
+	private async cleanupMissingManagedMods(
+		profileId: string,
+		profile: Profile,
+		diskFiles: Set<string>
+	): Promise<void> {
+		const missingMods = profile.mods.filter((m) => m.file && !diskFiles.has(m.file));
+
+		if (missingMods.length > 0) {
+			info(`Cleaning up ${missingMods.length} missing managed mods from profile ${profileId}`);
+			profile.mods = profile.mods.filter((m) => m.file && diskFiles.has(m.file));
+
+			const store = await getStore();
+			const profiles = await this.getProfiles();
+			const profileIndex = profiles.findIndex((p) => p.id === profileId);
+
+			if (profileIndex >= 0) {
+				profiles[profileIndex].mods = profile.mods;
+				await store.set('profiles', profiles);
+				await store.save();
+				debug(`Removed missing mods from profile ${profileId}`);
+			}
+		}
+	}
+
+	async cleanupMissingMods(profileId: string): Promise<void> {
+		const profiles = await this.getProfiles();
+		const profile = profiles.find((p) => p.id === profileId);
+
+		if (!profile) {
+			logError(`Profile not found: ${profileId}`);
+			throw new Error(`Profile '${profileId}' not found`);
+		}
+
+		const diskFiles = await this.getModFiles(profile.path);
+		const diskFilesSet = new Set(diskFiles);
+
+		const missingMods = profile.mods.filter((m) => m.file && !diskFilesSet.has(m.file));
+		if (missingMods.length > 0) {
+			info(`Cleaning up ${missingMods.length} missing managed mods from profile ${profileId}`);
+			profile.mods = profile.mods.filter((m) => m.file && diskFilesSet.has(m.file));
+
+			const store = await getStore();
+			await store.set('profiles', profiles);
+			await store.save();
+			debug(`Removed missing mods from profile ${profileId}`);
+		}
 	}
 
 	async deleteUnifiedMod(profileId: string, mod: UnifiedMod): Promise<void> {
