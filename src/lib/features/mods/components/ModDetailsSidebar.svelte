@@ -42,10 +42,42 @@
 	const modInfoQuery = createQuery(() => modQueries.info(modId));
 	const versionsQuery = createQuery(() => modQueries.versions(modId));
 	const profilesQuery = createQuery(() => profileQueries.all());
-	const unifiedModsQuery = createQuery(() => ({
-		...profileQueries.unifiedMods(profileId ?? ''),
-		enabled: !!profileId
-	}));
+	const profiles = $derived((profilesQuery.data ?? []) as Profile[]);
+	const profile = $derived(profiles.find((p) => p.id === profileId));
+	const diskFilesQuery = createQuery(() => {
+		if (!profile?.path) {
+			return {
+				queryKey: ['disk-files', ''] as const,
+				queryFn: async () => [],
+				enabled: false
+			};
+		}
+		return profileQueries.diskFiles(profile.path);
+	});
+
+	// Derive unified mods for current profile
+	const unifiedMods = $derived(() => {
+		if (!profile) return [];
+		const diskFiles = diskFilesQuery.data ?? [];
+		const managedFiles = new Set(profile.mods.map((m) => m.file).filter(Boolean));
+
+		const unified: UnifiedMod[] = profile.mods
+			.filter((m) => m.file && diskFiles.includes(m.file))
+			.map((mod) => ({
+				source: 'managed' as const,
+				mod_id: mod.mod_id,
+				version: mod.version,
+				file: mod.file!
+			}));
+
+		for (const file of diskFiles) {
+			if (!managedFiles.has(file)) {
+				unified.push({ source: 'custom' as const, file });
+			}
+		}
+
+		return unified;
+	});
 
 	// ============ STATE ============
 
@@ -60,13 +92,12 @@
 	const mod = $derived(modQuery.data);
 	const modInfo = $derived(modInfoQuery.data);
 	const versions = $derived(versionsQuery.data ?? []);
-	const profiles = $derived((profilesQuery.data ?? []) as Profile[]);
 	const hasProfiles = $derived(profiles.length > 0);
 
-	// Find this mod in the profile's unified mods (for remove context)
+	// Find this mod in profile's unified mods (for remove context)
 	const unifiedMod = $derived(
 		profileId
-			? unifiedModsQuery.data?.find((m: UnifiedMod) => m.source === 'managed' && m.mod_id === modId)
+			? unifiedMods().find((m: UnifiedMod) => m.source === 'managed' && m.mod_id === modId)
 			: null
 	);
 

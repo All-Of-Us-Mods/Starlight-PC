@@ -21,27 +21,39 @@ export const profileMutations = {
 	addMod: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; modId: string; version: string; file: string }) =>
 			profileService.addModToProfile(args.profileId, args.modId, args.version, args.file),
-		onSuccess: (_data: void, args: { profileId: string }) => {
+		onSuccess: async (_data: void, args: { profileId: string }) => {
+			const profiles = queryClient.getQueryData<{ id: string; path: string }[]>(['profiles']);
+			const profile = profiles?.find((p) => p.id === args.profileId);
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
-			queryClient.invalidateQueries({ queryKey: ['unified-mods', args.profileId] });
+			if (profile?.path) {
+				queryClient.invalidateQueries({ queryKey: ['disk-files', profile.path] });
+			}
 		}
 	}),
 
 	removeMod: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; modId: string }) =>
 			profileService.removeModFromProfile(args.profileId, args.modId),
-		onSuccess: (_data: void, args: { profileId: string }) => {
+		onSuccess: async (_data: void, args: { profileId: string }) => {
+			const profiles = queryClient.getQueryData<{ id: string; path: string }[]>(['profiles']);
+			const profile = profiles?.find((p) => p.id === args.profileId);
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
-			queryClient.invalidateQueries({ queryKey: ['unified-mods', args.profileId] });
+			if (profile?.path) {
+				queryClient.invalidateQueries({ queryKey: ['disk-files', profile.path] });
+			}
 		}
 	}),
 
 	deleteUnifiedMod: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; mod: UnifiedMod }) =>
 			profileService.deleteUnifiedMod(args.profileId, args.mod),
-		onSuccess: (_data: void, args: { profileId: string }) => {
+		onSuccess: async (_data: void, args: { profileId: string }) => {
+			const profiles = queryClient.getQueryData<{ id: string; path: string }[]>(['profiles']);
+			const profile = profiles?.find((p) => p.id === args.profileId);
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
-			queryClient.invalidateQueries({ queryKey: ['unified-mods', args.profileId] });
+			if (profile?.path) {
+				queryClient.invalidateQueries({ queryKey: ['disk-files', profile.path] });
+			}
 		}
 	}),
 
@@ -88,10 +100,10 @@ export const profileMutations = {
 		},
 		onSuccess: (
 			_data: Array<{ modId: string; version: string; fileName: string }>,
-			args: { profileId: string }
+			args: { profileId: string; profilePath: string }
 		) => {
 			queryClient.invalidateQueries({ queryKey: ['profiles'] });
-			queryClient.invalidateQueries({ queryKey: ['unified-mods', args.profileId] });
+			queryClient.invalidateQueries({ queryKey: ['disk-files', args.profilePath] });
 		}
 	})
 };

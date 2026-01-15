@@ -20,7 +20,7 @@ tauri-build = { version = "2.4.1", features = [] }
 [dependencies]
 tauri = { version = "2.9.0", features = [] }
 tauri-plugin-log = "2"
-tauri-plugin-fs = "2"
+tauri-plugin-fs = { version = "2", features = ["watch"] }
 tauri-plugin-store = "2"
 tauri-plugin-os = "2"
 log = "0.4"

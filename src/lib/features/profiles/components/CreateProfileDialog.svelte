@@ -6,6 +6,8 @@
 	import { profileMutations } from '../mutations';
 	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import type { Profile } from '../schema';
+	import { watchDirectory } from '$lib/utils/file-watcher';
+	import { join } from '@tauri-apps/api/path';
 
 	const queryClient = useQueryClient();
 	const createProfile = createMutation(() => profileMutations.create(queryClient));
@@ -13,24 +15,29 @@
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 	let name = $state('');
 	let error = $state('');
-	let pollTimer: number | null = null;
+	let unwatchFn: (() => void) | null = null;
 
 	const isCreating = $derived(createProfile.isPending);
 
-	async function waitForBepInEx(profileId: string) {
-		const checkInterval = 2000;
-		pollTimer = window.setInterval(() => {
-			queryClient.invalidateQueries({ queryKey: ['profiles'] });
+	async function watchProfileDirectory(profileId: string, profilePath: string) {
+		const pluginsPath = await join(profilePath, 'BepInEx', 'plugins');
+		unwatchFn = await watchDirectory(
+			pluginsPath,
+			() => {
+				queryClient.invalidateQueries({ queryKey: ['profiles'] });
+				queryClient.invalidateQueries({ queryKey: ['disk-files', profilePath] });
 
-			const profiles = queryClient.getQueryData<Profile[]>(['profiles']);
-			if (profiles) {
-				const profile = profiles.find((p) => p.id === profileId);
-				if (profile?.bepinex_installed) {
-					if (pollTimer) clearInterval(pollTimer);
-					pollTimer = null;
+				const profiles = queryClient.getQueryData<Profile[]>(['profiles']);
+				if (profiles) {
+					const profile = profiles.find((p) => p.id === profileId);
+					if (profile?.bepinex_installed && unwatchFn) {
+						unwatchFn();
+						unwatchFn = null;
+					}
 				}
-			}
-		}, checkInterval);
+			},
+			{ recursive: true }
+		);
 	}
 
 	async function handleCreate() {
@@ -41,7 +48,7 @@
 			const trimmed = name.trim();
 			const result = await createProfile.mutateAsync(trimmed);
 
-			waitForBepInEx(result.id);
+			watchProfileDirectory(result.id, result.path);
 
 			name = '';
 			open = false;
@@ -55,16 +62,19 @@
 			error = '';
 		} else {
 			name = '';
-			if (pollTimer) {
-				clearInterval(pollTimer);
-				pollTimer = null;
+			if (unwatchFn) {
+				unwatchFn();
+				unwatchFn = null;
 			}
 		}
 	}
 
 	$effect(() => {
 		return () => {
-			if (pollTimer) clearInterval(pollTimer);
+			if (unwatchFn) {
+				unwatchFn();
+				unwatchFn = null;
+			}
 		};
 	});
 </script>

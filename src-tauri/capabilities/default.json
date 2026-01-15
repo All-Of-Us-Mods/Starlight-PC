@@ -32,6 +32,7 @@
 		"fs:allow-remove",
 		"fs:allow-write",
 		"fs:allow-appdata-write-recursive",
+		"fs:allow-watch",
 		{
 			"identifier": "fs:scope",
 			"allow": [
