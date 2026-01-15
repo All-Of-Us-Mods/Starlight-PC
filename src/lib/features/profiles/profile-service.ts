@@ -19,6 +19,8 @@ class ProfileService {
 		const result = ProfilesArray(raw ?? []);
 		const profiles = result instanceof type.errors ? [] : result;
 
+		let needsSave = false;
+
 		for (const profile of profiles) {
 			const diskFiles = await this.getModFiles(profile.path);
 			const diskFilesSet = new Set(diskFiles);
@@ -27,10 +29,11 @@ class ProfileService {
 			if (missingMods.length > 0) {
 				info(`Cleaning up ${missingMods.length} missing managed mods from profile ${profile.id}`);
 				profile.mods = profile.mods.filter((m) => m.file && diskFilesSet.has(m.file));
+				needsSave = true;
 			}
 		}
 
-		if (profiles.some((p) => p.mods.some((m) => m.file))) {
+		if (needsSave) {
 			await store.set('profiles', profiles);
 			await store.save();
 		}

@@ -169,8 +169,10 @@
 
 			const effectCleanup = async () => {
 				const cleanup = await setupModsWatcher();
-				if (mounted && cleanup) {
+				if (mounted) {
 					unwatchFn = cleanup;
+				} else if (cleanup) {
+					cleanup();
 				}
 			};
 			effectCleanup();

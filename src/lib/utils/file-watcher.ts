@@ -12,6 +12,11 @@ class FileWatcherManager {
 
 		const existing = this.#watchers.get(path);
 		if (existing) {
+			const originalCallback = existing.callback;
+			existing.callback = () => {
+				originalCallback();
+				callback();
+			};
 			existing.count++;
 			info(`Reusing existing watcher for: ${path} (count: ${existing.count})`);
 			return () => this.unwatchPath(path);
