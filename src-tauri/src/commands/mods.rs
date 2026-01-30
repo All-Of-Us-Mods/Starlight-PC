@@ -6,6 +6,8 @@ use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime};
+use tauri_plugin_store::StoreExt;
+use uuid::Uuid;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
@@ -64,6 +66,11 @@ pub async fn download_mod<R: Runtime>(
         })?;
     }
 
+    let tracking_id = get_tracking_id(&app).map_err(|e| {
+        error!("Failed to get tracking ID: {}", e);
+        format!("Failed to get tracking ID: {}", e)
+    })?;
+
     // Build HTTP client with timeouts
     let client = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
@@ -77,10 +84,15 @@ pub async fn download_mod<R: Runtime>(
     // Start download
     emit_progress(&app, &mod_id, 0, None, "connecting");
 
-    let response = client.get(&url).send().await.map_err(|e| {
-        error!("Download request failed: {}", e);
-        format!("Download failed: {}", e)
-    })?;
+    let response = client
+        .get(&url)
+        .header("X-Starlight-ID", &tracking_id)
+        .send()
+        .await
+        .map_err(|e| {
+            error!("Download request failed: {}", e);
+            format!("Download failed: {}", e)
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -146,4 +158,20 @@ pub async fn download_mod<R: Runtime>(
     info!("Mod download completed: {} -> {:?}", mod_id, dest_path);
 
     Ok(())
+}
+
+fn get_tracking_id<R: Runtime>(app: &AppHandle<R>) -> Result<String, Box<dyn std::error::Error>> {
+    let store = app.store("registry.json")?;
+
+    // Check if tracking_id already exists
+    if let Some(id) = store.get("tracking_id")
+        && let Some(id_str) = id.as_str()
+    {
+        return Ok(id_str.to_string());
+    }
+    let new_id = Uuid::new_v4().to_string();
+    store.set("tracking_id", new_id.clone());
+    store.save()?;
+
+    Ok(new_id)
 }
