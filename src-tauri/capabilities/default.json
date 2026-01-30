@@ -49,7 +49,12 @@
 				}
 			]
 		},
-		"http:default",
+    {
+      "identifier": "http:default",
+      "allow": [{
+          "url": "https://*"
+      }]
+    },
     "opener:default",
 		"updater:default",
 		"dialog:default",

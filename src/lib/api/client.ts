@@ -1,5 +1,6 @@
 import { PUBLIC_API_URL } from '$env/static/public';
 import { debug, error as logError } from '@tauri-apps/plugin-log';
+import { fetch } from '@tauri-apps/plugin-http';
 
 export async function apiFetch<T>(
 	path: string,
