@@ -8,6 +8,7 @@
 	import InstallPanel from './InstallPanel.svelte';
 	import { marked } from 'marked';
 	import { ImageOff, Download, Clock } from '@jis3r/icons';
+	import { openUrl } from '@tauri-apps/plugin-opener';
 	import {
 		ExternalLink,
 		Github,
@@ -404,7 +405,12 @@
 						<div class="flex flex-wrap gap-2">
 							{#each modInfo.links as link, i (`${link.type}-${link.url}-${i}`)}
 								{@const Icon = getLinkIcon(link.type)}
-								<Button variant="outline" size="sm" href={link.url} class="h-8 gap-1.5 text-xs">
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => openUrl(link.url)}
+									class="h-8 gap-1.5 text-xs"
+								>
 									<Icon class="h-4 w-4" />
 									{formatLinkType(link.type)}
 									<ExternalLink class="h-3 w-3 opacity-40" />
