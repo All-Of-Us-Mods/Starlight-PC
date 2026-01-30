@@ -164,10 +164,10 @@ fn get_tracking_id<R: Runtime>(app: &AppHandle<R>) -> Result<String, Box<dyn std
     let store = app.store("registry.json")?;
 
     // Check if tracking_id already exists
-    if let Some(id) = store.get("tracking_id") {
-        if let Some(id_str) = id.as_str() {
-            return Ok(id_str.to_string());
-        }
+    if let Some(id) = store.get("tracking_id")
+        && let Some(id_str) = id.as_str()
+    {
+        return Ok(id_str.to_string());
     }
     let new_id = Uuid::new_v4().to_string();
     store.set("tracking_id", new_id.clone());
