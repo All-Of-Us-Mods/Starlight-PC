@@ -1,6 +1,6 @@
 [package]
 name = "Starlight"
-version = "0.1.0"
+version = "0.1.2"
 description = "Among Us mod manager"
 authors = ["yanpla"]
 license = "GPL-3.0-only"

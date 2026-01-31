@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -126,7 +127,7 @@
 		class="cursor-pointer transition-all hover:bg-accent/50 {isRunning
 			? 'bg-green-500/5 ring-2 ring-green-500/50'
 			: ''}"
-			onclick={() => goto(`/library/${profile.id}`)}
+		onclick={() => goto(`/library/${profile.id}`)}
 	>
 		<Card.Header class="gap-4 @md:flex-row @md:items-start @md:justify-between">
 			<div class="min-w-0 flex-1 space-y-1.5">

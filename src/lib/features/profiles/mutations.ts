@@ -18,6 +18,14 @@ export const profileMutations = {
 		}
 	}),
 
+	rename: (queryClient: QueryClient) => ({
+		mutationFn: (args: { profileId: string; newName: string }) =>
+			profileService.renameProfile(args.profileId, args.newName),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ['profiles'] });
+		}
+	}),
+
 	addMod: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; modId: string; version: string; file: string }) =>
 			profileService.addModToProfile(args.profileId, args.modId, args.version, args.file),
