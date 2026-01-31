@@ -27,6 +27,11 @@ class ProfileService {
 		});
 	}
 
+	async getProfileById(id: string): Promise<Profile | undefined> {
+		const profiles = await this.getProfiles();
+		return profiles.find(profile => profile.id == id);
+	}
+
 	async createProfile(name: string): Promise<Profile> {
 		const trimmed = name.trim();
 		if (!trimmed) {
