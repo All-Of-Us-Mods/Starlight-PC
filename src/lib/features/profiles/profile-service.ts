@@ -27,6 +27,11 @@ class ProfileService {
 		});
 	}
 
+	async getProfileById(id: string): Promise<Profile | undefined> {
+		const profiles = await this.getProfiles();
+		return profiles.find((profile) => profile.id == id);
+	}
+
 	async createProfile(name: string): Promise<Profile> {
 		const trimmed = name.trim();
 		if (!trimmed) {
@@ -161,6 +166,36 @@ class ProfileService {
 		);
 		await store.save();
 		info(`Profile deleted: ${profileId}`);
+	}
+
+	async renameProfile(profileId: string, newName: string): Promise<void> {
+		const trimmed = newName.trim();
+		if (!trimmed) {
+			logError('Attempted to rename profile to empty name');
+			throw new Error('Profile name cannot be empty');
+		}
+
+		info(`Renaming profile ${profileId} to: ${trimmed}`);
+		const store = await getStore();
+		const profiles = await this.getProfiles();
+		const profile = profiles.find((p) => p.id === profileId);
+
+		if (!profile) {
+			logError(`Profile not found: ${profileId}`);
+			throw new Error(`Profile '${profileId}' not found`);
+		}
+
+		if (
+			profiles.some((p) => p.id !== profileId && p.name.toLowerCase() === trimmed.toLowerCase())
+		) {
+			warn(`Profile name '${trimmed}' already exists`);
+			throw new Error(`Profile '${trimmed}' already exists`);
+		}
+
+		profile.name = trimmed;
+		await store.set('profiles', profiles);
+		await store.save();
+		info(`Profile renamed: ${profileId} -> ${trimmed}`);
 	}
 
 	async getActiveProfile(): Promise<Profile | null> {
