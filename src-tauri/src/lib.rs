@@ -45,19 +45,6 @@ pub fn run() {
                 .resizable(true)
                 .visible(false);
 
-            // macOS: Use overlay to show native buttons over custom titlebar
-            #[cfg(target_os = "macos")]
-            let win_builder = {
-                use tauri::TitleBarStyle;
-                win_builder
-                    .title_bar_style(TitleBarStyle::Overlay)
-                    .title("")
-            };
-
-            // Windows/Linux: Hide native bar to use our custom one
-            #[cfg(not(target_os = "macos"))]
-            let win_builder = win_builder.decorations(false);
-
             let _window = win_builder.build().unwrap();
 
             log::info!("Starlight started");
