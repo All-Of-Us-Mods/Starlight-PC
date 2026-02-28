@@ -6,13 +6,14 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 	import { modQueries } from '$lib/features/mods/queries';
 	import { mapModsById } from '$lib/features/mods/ui/mod-query-controller';
 	import type { Profile } from '../schema';
 	import type { Mod } from '$lib/features/mods/schema';
 	import { gameState } from '../game-state.svelte';
 	import { profileMutations } from '../mutations';
-	import { showError } from '$lib/utils/toast';
+	import { showError, showSuccess } from '$lib/utils/toast';
 	import { formatPlayTime } from '$lib/utils';
 	import ModDetailsSidebar from '$lib/features/mods/components/ModDetailsSidebar.svelte';
 	import { getSidebar } from '$lib/state/sidebar.svelte';
@@ -29,8 +30,14 @@
 	let {
 		profile,
 		onlaunch,
-		ondelete
-	}: { profile: Profile; onlaunch?: () => void; ondelete?: () => void } = $props();
+		ondelete,
+		allowMultiInstanceLaunch = false
+	}: {
+		profile: Profile;
+		onlaunch?: () => void;
+		ondelete?: () => void;
+		allowMultiInstanceLaunch?: boolean;
+	} = $props();
 
 	const queryClient = useQueryClient();
 	const sidebar = getSidebar();
@@ -40,6 +47,7 @@
 	const retryBepInExInstall = createMutation(() =>
 		profileMutations.retryBepInExInstall(queryClient)
 	);
+	const exportZip = createMutation(() => profileMutations.exportZip());
 
 	async function handleRemoveMod(mod: { id: string; source: 'managed' | 'custom' }) {
 		try {
@@ -78,6 +86,21 @@
 		await openProfileFolder(profile.path);
 	}
 
+	async function handleExportProfile() {
+		try {
+			const destination = await saveDialog({
+				title: 'Export Profile ZIP',
+				defaultPath: `${profile.name}.zip`,
+				filters: [{ name: 'ZIP Archive', extensions: ['zip'] }]
+			});
+			if (!destination) return;
+			await exportZip.mutateAsync({ profileId: profile.id, destination });
+			showSuccess(`Exported "${profile.name}"`);
+		} catch (error) {
+			showError(error, 'Export profile');
+		}
+	}
+
 	const lastLaunched = $derived(
 		profile.last_launched_at ? new Date(profile.last_launched_at).toLocaleDateString() : 'Never'
 	);
@@ -89,7 +112,10 @@
 	);
 	const hasInstallError = $derived(installState?.status === 'error');
 	const isDisabled = $derived(isInstalling || isRunning);
-	const isLaunchDisabled = $derived(isInstalling);
+	const isLaunchDisabled = $derived(isInstalling || (isRunning && !allowMultiInstanceLaunch));
+	const launchLabel = $derived(
+		isRunning ? (allowMultiInstanceLaunch ? 'Launch Another' : 'Running') : 'Launch'
+	);
 
 	async function handleRetryInstall() {
 		gameState.clearBepInExProgress(profile.id);
@@ -190,7 +216,7 @@
 					disabled={isLaunchDisabled}
 				>
 					<Play class="size-4 fill-current" />
-					<span>{isRunning ? 'Launch Another' : 'Launch'}</span>
+					<span>{launchLabel}</span>
 				</Button>
 
 				<DropdownMenu.Root>
@@ -206,11 +232,15 @@
 						<DropdownMenu.Group>
 							<DropdownMenu.Item onclick={() => onlaunch?.()} disabled={isLaunchDisabled}>
 								<Play class="size-4" />
-								{isRunning ? 'Launch Another' : 'Launch'}
+								{launchLabel}
 							</DropdownMenu.Item>
 							<DropdownMenu.Item onclick={handleOpenFolder}>
 								<FolderOpen class="size-4" />
 								Open Folder
+							</DropdownMenu.Item>
+							<DropdownMenu.Item onclick={handleExportProfile}>
+								<Download class="size-4" />
+								Export ZIP
 							</DropdownMenu.Item>
 						</DropdownMenu.Group>
 

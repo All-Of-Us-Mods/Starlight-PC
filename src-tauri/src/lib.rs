@@ -65,6 +65,8 @@ pub fn run() {
             commands::launch::launch_xbox,
             commands::launch::cleanup_xbox_files,
             commands::mods::download_mod,
+            commands::profile_transfer::export_profile_zip,
+            commands::profile_transfer::import_profile_zip,
             commands::epic_commands::get_epic_auth_url,
             commands::epic_commands::epic_login_with_code,
             commands::epic_commands::epic_login_with_webview,

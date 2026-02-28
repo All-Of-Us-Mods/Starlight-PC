@@ -26,8 +26,7 @@ class ProfileWorkflowService {
 		}
 
 		const timestamp = Date.now();
-		const slug = this.slugify(trimmed);
-		const profileId = slug ? `${slug}-${timestamp}` : `profile-${timestamp}`;
+		const profileId = this.buildProfileId(trimmed, timestamp);
 		const profilePath = await profileRepository.createProfileDir(profileId);
 
 		const profile: Profile = {
@@ -48,6 +47,51 @@ class ProfileWorkflowService {
 			);
 		});
 		return profile;
+	}
+
+	async exportProfileZip(profileId: string, destination: string): Promise<void> {
+		const profile = await this.getProfileById(profileId);
+		if (!profile) throw new Error(`Profile '${profileId}' not found`);
+		await profilePlatformAdapter.exportProfileZip({
+			profilePath: profile.path,
+			destination
+		});
+	}
+
+	async importProfileZip(zipPath: string): Promise<Profile> {
+		const profiles = await this.getProfiles();
+		const zipName = this.deriveNameFromZipPath(zipPath);
+		const timestamp = Date.now();
+		const profileId = this.buildProfileId(zipName, timestamp);
+		const profilePath = await profileRepository.createProfileDir(profileId);
+
+		try {
+			const result = await profilePlatformAdapter.importProfileZip({
+				zipPath,
+				destination: profilePath
+			});
+
+			const importedMetadata = await this.readImportedMetadata(profilePath);
+			const requestedName = result?.metadata_name ?? importedMetadata.name ?? zipName;
+			const uniqueName = this.makeUniqueProfileName(requestedName, profiles);
+
+			const profile: Profile = {
+				id: profileId,
+				name: uniqueName,
+				path: profilePath,
+				created_at: timestamp,
+				last_launched_at: importedMetadata.lastLaunchedAt,
+				bepinex_installed: true,
+				total_play_time: 0,
+				mods: importedMetadata.mods
+			};
+
+			await profileRepository.writeMetadata(profile);
+			return profile;
+		} catch (error) {
+			await profileRepository.deleteProfileDir(profilePath);
+			throw error;
+		}
 	}
 
 	async retryBepInExInstall(profileId: string, profilePath: string, hooks?: ProfileLifecycleHooks) {
@@ -264,6 +308,74 @@ class ProfileWorkflowService {
 			.replace(/[^a-z0-9]/g, '-')
 			.replace(/-+/g, '-')
 			.replace(/^-|-$/g, '');
+	}
+
+	private buildProfileId(name: string, timestamp = Date.now()): string {
+		const slug = this.slugify(name);
+		return slug ? `${slug}-${timestamp}` : `profile-${timestamp}`;
+	}
+
+	private deriveNameFromZipPath(zipPath: string): string {
+		const parts = zipPath.split(/[\\/]/);
+		const fileName = (parts[parts.length - 1] ?? '').trim();
+		const withoutZip = fileName.replace(/\.zip$/i, '').trim();
+		return withoutZip || `Imported Profile ${new Date().toISOString().slice(0, 10)}`;
+	}
+
+	private makeUniqueProfileName(requested: string, profiles: Profile[]): string {
+		const base = requested.trim() || 'Imported Profile';
+		const names = new Set(profiles.map((profile) => profile.name.toLowerCase()));
+		if (!names.has(base.toLowerCase())) return base;
+
+		let suffix = 2;
+		let candidate = `${base} (${suffix})`;
+		while (names.has(candidate.toLowerCase())) {
+			suffix += 1;
+			candidate = `${base} (${suffix})`;
+		}
+		return candidate;
+	}
+
+	private async readImportedMetadata(profilePath: string): Promise<{
+		name?: string;
+		lastLaunchedAt?: number;
+		mods: Profile['mods'];
+	}> {
+		try {
+			const metadataPath = await profilePlatformAdapter.joinPath(profilePath, 'metadata.json');
+			const raw = await profilePlatformAdapter.readJsonFile<Record<string, unknown>>(metadataPath);
+
+			const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : undefined;
+			const lastLaunchedAt =
+				typeof raw.last_launched_at === 'number' && Number.isFinite(raw.last_launched_at)
+					? raw.last_launched_at
+					: undefined;
+			const mods = this.parseImportedMods(raw.mods);
+
+			return { name, lastLaunchedAt, mods };
+		} catch {
+			return { mods: [] };
+		}
+	}
+
+	private parseImportedMods(rawMods: unknown): Profile['mods'] {
+		if (!Array.isArray(rawMods)) return [];
+
+		return rawMods
+			.map((entry) => {
+				if (!entry || typeof entry !== 'object') return null;
+				const mod = entry as Record<string, unknown>;
+				if (typeof mod.mod_id !== 'string' || typeof mod.version !== 'string') {
+					return null;
+				}
+				const file = typeof mod.file === 'string' ? mod.file : undefined;
+				return {
+					mod_id: mod.mod_id,
+					version: mod.version,
+					file
+				};
+			})
+			.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 	}
 
 	private async getBepInExUrl(): Promise<string> {

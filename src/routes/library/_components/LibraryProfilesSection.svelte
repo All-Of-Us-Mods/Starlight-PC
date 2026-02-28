@@ -4,6 +4,7 @@
 	export interface LibraryProfilesSectionProps {
 		isPending: boolean;
 		profiles: Profile[];
+		allowMultiInstanceLaunch: boolean;
 		onCreateProfile: () => void;
 		onLaunchProfile: (profile: Profile) => void;
 		onDeleteProfile: (profileId: string) => void;
@@ -19,6 +20,7 @@
 	let {
 		isPending,
 		profiles,
+		allowMultiInstanceLaunch,
 		onCreateProfile,
 		onLaunchProfile,
 		onDeleteProfile
@@ -60,6 +62,7 @@
 			{#each profiles as profile (profile.id)}
 				<ProfileCard
 					{profile}
+					{allowMultiInstanceLaunch}
 					onlaunch={() => onLaunchProfile(profile)}
 					ondelete={() => onDeleteProfile(profile.id)}
 				/>

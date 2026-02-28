@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { Debounced, watch } from 'runed';
 	import { SvelteSet } from 'svelte/reactivity';
 
 	import { profileQueries } from '$lib/features/profiles/queries';
+	import { settingsQueries } from '$lib/features/settings/queries';
 	import { profileMutations } from '$lib/features/profiles/mutations';
 	import { modQueries } from '$lib/features/mods/queries';
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
@@ -43,6 +45,7 @@
 	const profileId = $derived(page.params.id ?? '');
 
 	const profilesQuery = createQuery(() => profileQueries.all());
+	const settingsQuery = createQuery(() => settingsQueries.get());
 	const unifiedModsQuery = createQuery(() => ({
 		...profileQueries.unifiedMods(profileId),
 		enabled: !!profileId
@@ -55,6 +58,7 @@
 	const renameProfile = createMutation(() => profileMutations.rename(queryClient));
 	const deleteUnifiedMod = createMutation(() => profileMutations.deleteUnifiedMod(queryClient));
 	const installMods = createMutation(() => profileMutations.installMods(queryClient));
+	const exportProfileZip = createMutation(() => profileMutations.exportZip());
 
 	const controller = createProfileDetailController({
 		launchProfile: profileDetailRuntime.launchProfile,
@@ -140,7 +144,10 @@
 	const updatesAvailableCount = $derived(
 		Object.values(modUpdateStatuses).filter((status) => status.isOutdated).length
 	);
-	const isCheckingUpdates = $derived(modUpdatesQuery.isPending || modUpdatesQuery.isFetching);
+	const hasManagedModsForUpdates = $derived(managedModsForUpdates.length > 0);
+	const isCheckingUpdates = $derived(
+		hasManagedModsForUpdates && (modUpdatesQuery.isPending || modUpdatesQuery.isFetching)
+	);
 	const searchPlaceholder = $derived(
 		unifiedModsQuery.data
 			? `Search ${unifiedModsQuery.data.length.toLocaleString()} mods...`
@@ -152,11 +159,14 @@
 	);
 	const isRunning = $derived(runningInstanceCount > 0);
 	const installState = $derived(profile ? gameState.getBepInExState(profile.id) : null);
+	const allowMultiInstanceLaunch = $derived(
+		(settingsQuery.data?.allow_multi_instance_launch ?? false) as boolean
+	);
 	const isInstalling = $derived(
 		profile?.bepinex_installed === false || installState?.status === 'installing'
 	);
 	const isDisabled = $derived(isInstalling || isRunning);
-	const isLaunchDisabled = $derived(isInstalling);
+	const isLaunchDisabled = $derived(isInstalling || (isRunning && !allowMultiInstanceLaunch));
 
 	const totalPlayTime = $derived(
 		(profile?.total_play_time ?? 0) + (isRunning ? gameState.getSessionDuration() : 0)
@@ -174,6 +184,24 @@
 			showError(error);
 		} finally {
 			isLaunching = false;
+		}
+	}
+
+	async function handleExportProfile() {
+		if (!profile) return;
+
+		try {
+			const destination = await saveDialog({
+				title: 'Export Profile ZIP',
+				defaultPath: `${profile.name}.zip`,
+				filters: [{ name: 'ZIP Archive', extensions: ['zip'] }]
+			});
+			if (!destination) return;
+
+			await exportProfileZip.mutateAsync({ profileId: profile.id, destination });
+			showSuccess(`Exported "${profile.name}"`);
+		} catch (error) {
+			showError(error, 'Export profile');
 		}
 	}
 
@@ -372,6 +400,7 @@
 			{profile}
 			{isRunning}
 			{runningInstanceCount}
+			{allowMultiInstanceLaunch}
 			{lastLaunched}
 			totalPlayTimeLabel={formatPlayTime(totalPlayTime)}
 			{isDisabled}
@@ -379,6 +408,7 @@
 			{isLaunching}
 			onLaunch={handleLaunch}
 			onOpenFolder={() => controller.openProfileFolder(profile)}
+			onExport={handleExportProfile}
 			onOpenRename={openRenameDialog}
 			onOpenDelete={() => (deleteDialogOpen = true)}
 		/>

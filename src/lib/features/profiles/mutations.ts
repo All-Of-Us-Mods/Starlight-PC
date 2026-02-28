@@ -132,6 +132,19 @@ export const profileMutations = {
 		}
 	}),
 
+	exportZip: () => ({
+		mutationFn: (args: { profileId: string; destination: string }) =>
+			profileWorkflowService.exportProfileZip(args.profileId, args.destination)
+	}),
+
+	importZip: (queryClient: QueryClient) => ({
+		mutationFn: (zipPath: string) => profileWorkflowService.importProfileZip(zipPath),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+			queryClient.invalidateQueries({ queryKey: profilesActiveQueryKey });
+		}
+	}),
+
 	updateLastLaunched: (queryClient: QueryClient) => ({
 		mutationFn: (profileId: string) => profileWorkflowService.updateLastLaunched(profileId),
 		onSuccess: () => {

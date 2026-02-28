@@ -77,13 +77,15 @@ class LaunchService {
 
 			debug('Invoking launch_modded command');
 			await invoke('launch_modded', {
-				gameExe: gameExePath,
-				profileId: profile.id,
-				profilePath: profile.path,
-				bepinexDll: bepinexDll,
-				dotnetDir: dotnetDir,
-				coreclrPath: coreClr,
-				platform: settings.game_platform || 'steam'
+				args: {
+					gameExe: gameExePath,
+					profileId: profile.id,
+					profilePath: profile.path,
+					bepinexDll: bepinexDll,
+					dotnetDir: dotnetDir,
+					coreclrPath: coreClr,
+					platform: settings.game_platform || 'steam'
+				}
 			});
 			info(`Profile ${profile.name} launched successfully`);
 
