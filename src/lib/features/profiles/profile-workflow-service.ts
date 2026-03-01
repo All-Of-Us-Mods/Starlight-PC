@@ -2,7 +2,7 @@ import { error as logError } from '@tauri-apps/plugin-log';
 import { settingsService } from '../settings/settings-service';
 import { profileRepository } from './profile-repository';
 import { profilePlatformAdapter } from './profile-platform-adapter';
-import type { BepInExProgress, Profile, UnifiedMod } from './schema';
+import type { BepInExProgress, Profile, ProfileIconSelection, UnifiedMod } from './schema';
 
 interface ProfileLifecycleHooks {
 	onBepInExProgress?: (profileId: string, progress: BepInExProgress) => void;
@@ -12,6 +12,8 @@ interface ProfileLifecycleHooks {
 }
 
 class ProfileWorkflowService {
+	private readonly maxCustomIconDataUrlLength = 750_000;
+
 	readonly getProfilesDir = () => profileRepository.getProfilesDir();
 	readonly getProfiles = () => profileRepository.getProfiles();
 	readonly getProfileById = (id: string) => profileRepository.getProfileById(id);
@@ -37,6 +39,7 @@ class ProfileWorkflowService {
 			last_launched_at: undefined,
 			bepinex_installed: false,
 			total_play_time: 0,
+			icon_mode: 'default',
 			mods: []
 		};
 
@@ -83,8 +86,12 @@ class ProfileWorkflowService {
 				last_launched_at: importedMetadata.lastLaunchedAt,
 				bepinex_installed: true,
 				total_play_time: 0,
+				icon_mode: importedMetadata.iconMode ?? 'default',
+				custom_icon_data_url: importedMetadata.customIconDataUrl,
+				icon_mod_id: importedMetadata.iconModId,
 				mods: importedMetadata.mods
 			};
+			this.normalizeProfileIconSelection(profile);
 
 			await profileRepository.writeMetadata(profile);
 			return profile;
@@ -176,6 +183,48 @@ class ProfileWorkflowService {
 		await profileRepository.writeMetadata(profile);
 	}
 
+	async updateProfileIcon(profileId: string, selection: ProfileIconSelection): Promise<void> {
+		const profile = await this.getProfileById(profileId);
+		if (!profile) throw new Error(`Profile '${profileId}' not found`);
+
+		if (selection.mode === 'default') {
+			profile.icon_mode = 'default';
+			profile.custom_icon_data_url = undefined;
+			profile.icon_mod_id = undefined;
+			await profileRepository.writeMetadata(profile);
+			return;
+		}
+
+		if (selection.mode === 'custom') {
+			const dataUrl = selection.dataUrl.trim();
+			if (!dataUrl) throw new Error('Custom icon image is required');
+			if (dataUrl.length > this.maxCustomIconDataUrlLength) {
+				throw new Error('Custom icon image is too large');
+			}
+			if (!this.isImageDataUrl(dataUrl)) {
+				throw new Error('Custom icon must be a valid image');
+			}
+
+			profile.icon_mode = 'custom';
+			profile.custom_icon_data_url = dataUrl;
+			profile.icon_mod_id = undefined;
+			await profileRepository.writeMetadata(profile);
+			return;
+		}
+
+		const modId = selection.modId.trim();
+		if (!modId) throw new Error('Mod icon selection is required');
+		const hasMod = profile.mods.some((mod) => mod.mod_id === modId);
+		if (!hasMod) {
+			throw new Error('Selected mod is not installed in this profile');
+		}
+
+		profile.icon_mode = 'mod';
+		profile.icon_mod_id = modId;
+		profile.custom_icon_data_url = undefined;
+		await profileRepository.writeMetadata(profile);
+	}
+
 	async getActiveProfile(): Promise<Profile | null> {
 		const profiles = await this.getProfiles();
 		const profilesWithLaunched = profiles.filter(
@@ -226,6 +275,7 @@ class ProfileWorkflowService {
 		const profile = await this.getProfileById(profileId);
 		if (!profile) throw new Error(`Profile '${profileId}' not found`);
 		profile.mods = profile.mods.filter((mod) => mod.mod_id !== modId);
+		this.normalizeProfileIconSelection(profile);
 		await profileRepository.writeMetadata(profile);
 	}
 
@@ -280,6 +330,7 @@ class ProfileWorkflowService {
 		const missingMods = profile.mods.filter((mod) => mod.file && !diskFiles.has(mod.file));
 		if (missingMods.length === 0) return;
 		profile.mods = profile.mods.filter((mod) => mod.file && diskFiles.has(mod.file));
+		this.normalizeProfileIconSelection(profile);
 		await profileRepository.writeMetadata(profile);
 	}
 
@@ -290,6 +341,7 @@ class ProfileWorkflowService {
 		const missingMods = profile.mods.filter((mod) => mod.file && !diskFilesSet.has(mod.file));
 		if (missingMods.length === 0) return;
 		profile.mods = profile.mods.filter((mod) => mod.file && diskFilesSet.has(mod.file));
+		this.normalizeProfileIconSelection(profile);
 		await profileRepository.writeMetadata(profile);
 	}
 
@@ -339,6 +391,9 @@ class ProfileWorkflowService {
 	private async readImportedMetadata(profilePath: string): Promise<{
 		name?: string;
 		lastLaunchedAt?: number;
+		iconMode?: Profile['icon_mode'];
+		customIconDataUrl?: string;
+		iconModId?: string;
 		mods: Profile['mods'];
 	}> {
 		try {
@@ -350,12 +405,52 @@ class ProfileWorkflowService {
 				typeof raw.last_launched_at === 'number' && Number.isFinite(raw.last_launched_at)
 					? raw.last_launched_at
 					: undefined;
+			const iconMode =
+				raw.icon_mode === 'default' || raw.icon_mode === 'custom' || raw.icon_mode === 'mod'
+					? raw.icon_mode
+					: undefined;
+			const customIconDataUrl =
+				typeof raw.custom_icon_data_url === 'string' &&
+				raw.custom_icon_data_url.length <= this.maxCustomIconDataUrlLength &&
+				this.isImageDataUrl(raw.custom_icon_data_url)
+					? raw.custom_icon_data_url
+					: undefined;
+			const iconModId =
+				typeof raw.icon_mod_id === 'string' && raw.icon_mod_id.trim()
+					? raw.icon_mod_id.trim()
+					: undefined;
 			const mods = this.parseImportedMods(raw.mods);
 
-			return { name, lastLaunchedAt, mods };
+			return { name, lastLaunchedAt, iconMode, customIconDataUrl, iconModId, mods };
 		} catch {
 			return { mods: [] };
 		}
+	}
+
+	private normalizeProfileIconSelection(profile: Profile): void {
+		const mode = profile.icon_mode ?? 'default';
+		if (mode === 'mod') {
+			const modId = profile.icon_mod_id;
+			const hasMod = typeof modId === 'string' && profile.mods.some((mod) => mod.mod_id === modId);
+			if (!hasMod) {
+				profile.icon_mode = 'default';
+				profile.icon_mod_id = undefined;
+			}
+		}
+
+		if (profile.icon_mode !== 'mod') {
+			profile.icon_mod_id = undefined;
+		}
+		if (profile.icon_mode !== 'custom') {
+			profile.custom_icon_data_url = undefined;
+		}
+		if (!profile.icon_mode) {
+			profile.icon_mode = 'default';
+		}
+	}
+
+	private isImageDataUrl(value: string): boolean {
+		return /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i.test(value);
 	}
 
 	private parseImportedMods(rawMods: unknown): Profile['mods'] {

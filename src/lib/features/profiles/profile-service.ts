@@ -1,4 +1,4 @@
-import type { BepInExProgress, Profile, UnifiedMod } from './schema';
+import type { BepInExProgress, Profile, ProfileIconSelection, UnifiedMod } from './schema';
 import { profileWorkflowService } from './profile-workflow-service';
 import { gameState } from './game-state.svelte';
 import { notifyProfilesInvalidated } from './state/profile-invalidation-bridge';
@@ -53,6 +53,8 @@ class ProfileServiceFacade {
 
 	readonly renameProfile = (profileId: string, newName: string) =>
 		profileWorkflowService.renameProfile(profileId, newName);
+	readonly updateProfileIcon = (profileId: string, selection: ProfileIconSelection) =>
+		profileWorkflowService.updateProfileIcon(profileId, selection);
 	readonly getActiveProfile = () => profileWorkflowService.getActiveProfile();
 	readonly updateLastLaunched = (profileId: string) =>
 		profileWorkflowService.updateLastLaunched(profileId);

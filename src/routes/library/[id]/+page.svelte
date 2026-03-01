@@ -33,6 +33,7 @@
 	} from '$lib/features/profiles/ui/profile-mods-view-model';
 
 	import { Button } from '$lib/components/ui/button';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { ArrowLeft, Package } from '@lucide/svelte';
 	import ProfileHeroSection from './_components/ProfileHeroSection.svelte';
@@ -56,6 +57,7 @@
 	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
 	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
 	const renameProfile = createMutation(() => profileMutations.rename(queryClient));
+	const updateProfileIcon = createMutation(() => profileMutations.updateIcon(queryClient));
 	const deleteUnifiedMod = createMutation(() => profileMutations.deleteUnifiedMod(queryClient));
 	const installMods = createMutation(() => profileMutations.installMods(queryClient));
 	const exportProfileZip = createMutation(() => profileMutations.exportZip());
@@ -91,13 +93,20 @@
 
 	let deleteDialogOpen = $state(false);
 	let renameDialogOpen = $state(false);
+	let iconDialogOpen = $state(false);
 	let modToDelete = $state<UnifiedMod | null>(null);
 	let deleteModDialogOpen = $state(false);
 	let newProfileName = $state('');
+	let iconModeDraft = $state<'default' | 'custom' | 'mod'>('default');
+	let customIconDataUrlDraft = $state('');
+	let iconModIdDraft = $state('');
+	let iconError = $state('');
 	let isLaunching = $state(false);
+	let isReadingIconFile = $state(false);
 	let renameError = $state('');
 	let isUpdatingAll = $state(false);
 	const updatingModIds = new SvelteSet<string>();
+	let customIconInput = $state<HTMLInputElement | null>(null);
 
 	watch(
 		() => debouncedSearch.current,
@@ -153,6 +162,35 @@
 			? `Search ${unifiedModsQuery.data.length.toLocaleString()} mods...`
 			: 'Search mods...'
 	);
+	const installedModsWithIcons = $derived.by(() => {
+		if (!profile) return [] as Array<{ id: string; name: string; thumbnail: string }>;
+
+		const mods = profile.mods
+			.map((profileMod) => modsMap.get(profileMod.mod_id))
+			.filter((mod): mod is Mod => !!mod && !!mod._links.thumbnail)
+			.filter((mod, index, entries) => entries.findIndex((entry) => entry.id === mod.id) === index)
+			.map((mod) => ({ id: mod.id, name: mod.name, thumbnail: mod._links.thumbnail }))
+			.sort((a, b) => a.name.localeCompare(b.name));
+
+		return mods;
+	});
+	const selectedIconMod = $derived(
+		installedModsWithIcons.find((mod) => mod.id === iconModIdDraft) ?? null
+	);
+	const profileIconSrc = $derived.by(() => {
+		if (!profile) return null;
+
+		if (profile.icon_mode === 'custom' && profile.custom_icon_data_url) {
+			return profile.custom_icon_data_url;
+		}
+		if (profile.icon_mode === 'mod' && profile.icon_mod_id) {
+			const iconMod = modsMap.get(profile.icon_mod_id);
+			if (iconMod?._links.thumbnail) {
+				return iconMod._links.thumbnail;
+			}
+		}
+		return null;
+	});
 
 	const runningInstanceCount = $derived(
 		profile ? gameState.getProfileRunningInstanceCount(profile.id) : 0
@@ -220,6 +258,112 @@
 		newProfileName = profile.name;
 		renameError = '';
 		renameDialogOpen = true;
+	}
+
+	function openIconDialog() {
+		if (!profile) return;
+
+		iconModeDraft = profile.icon_mode ?? 'default';
+		customIconDataUrlDraft = profile.custom_icon_data_url ?? '';
+		iconModIdDraft = profile.icon_mod_id ?? installedModsWithIcons[0]?.id ?? '';
+		if (iconModeDraft === 'mod' && !iconModIdDraft) {
+			iconModeDraft = 'default';
+		}
+		iconError = '';
+		iconDialogOpen = true;
+	}
+
+	function setIconMode(mode: 'default' | 'custom' | 'mod') {
+		iconModeDraft = mode;
+		iconError = '';
+		if (mode === 'mod' && !iconModIdDraft && installedModsWithIcons.length > 0) {
+			iconModIdDraft = installedModsWithIcons[0].id;
+		}
+	}
+
+	function readFileAsDataUrl(file: File): Promise<string> {
+		return new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = () => {
+				if (typeof reader.result === 'string') {
+					resolve(reader.result);
+					return;
+				}
+				reject(new Error('Failed to read selected image'));
+			};
+			reader.onerror = () => {
+				reject(reader.error ?? new Error('Failed to read selected image'));
+			};
+			reader.readAsDataURL(file);
+		});
+	}
+
+	async function handleCustomIconInput(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		iconError = '';
+		if (!file.type.startsWith('image/')) {
+			iconError = 'Please select an image file';
+			input.value = '';
+			return;
+		}
+		if (file.size > 500 * 1024) {
+			iconError = 'Image must be 500 KB or smaller';
+			input.value = '';
+			return;
+		}
+
+		isReadingIconFile = true;
+		try {
+			customIconDataUrlDraft = await readFileAsDataUrl(file);
+			iconModeDraft = 'custom';
+		} catch (error) {
+			iconError = error instanceof Error ? error.message : 'Failed to read selected image';
+		} finally {
+			isReadingIconFile = false;
+			input.value = '';
+		}
+	}
+
+	async function handleSaveProfileIcon() {
+		if (!profile) return;
+		iconError = '';
+
+		try {
+			if (iconModeDraft === 'custom') {
+				if (!customIconDataUrlDraft) {
+					iconError = 'Choose an image for the custom icon';
+					return;
+				}
+
+				await updateProfileIcon.mutateAsync({
+					profileId: profile.id,
+					selection: { mode: 'custom', dataUrl: customIconDataUrlDraft }
+				});
+			} else if (iconModeDraft === 'mod') {
+				if (!iconModIdDraft) {
+					iconError = 'Select an installed mod icon';
+					return;
+				}
+
+				await updateProfileIcon.mutateAsync({
+					profileId: profile.id,
+					selection: { mode: 'mod', modId: iconModIdDraft }
+				});
+			} else {
+				await updateProfileIcon.mutateAsync({
+					profileId: profile.id,
+					selection: { mode: 'default' }
+				});
+			}
+
+			iconDialogOpen = false;
+			showSuccess('Profile icon updated');
+		} catch (error) {
+			iconError = error instanceof Error ? error.message : 'Failed to update profile icon';
+		}
 	}
 
 	async function handleRenameProfile() {
@@ -398,6 +542,7 @@
 
 		<ProfileHeroSection
 			{profile}
+			iconSrc={profileIconSrc}
 			{isRunning}
 			{runningInstanceCount}
 			{allowMultiInstanceLaunch}
@@ -409,6 +554,7 @@
 			onLaunch={handleLaunch}
 			onOpenFolder={() => controller.openProfileFolder(profile)}
 			onExport={handleExportProfile}
+			onOpenIconEditor={openIconDialog}
 			onOpenRename={openRenameDialog}
 			onOpenDelete={() => (deleteDialogOpen = true)}
 		/>
@@ -450,6 +596,138 @@
 		</div>
 		<ProfileLogViewer {profile} {isRunning} />
 	</div>
+
+	<Dialog.Root bind:open={iconDialogOpen}>
+		<Dialog.Content>
+			<Dialog.Header>
+				<Dialog.Title>Edit Profile Icon</Dialog.Title>
+				<Dialog.Description>
+					Use the default cube, set a custom image, or use an installed mod icon.
+				</Dialog.Description>
+			</Dialog.Header>
+
+			<div class="space-y-4 py-3">
+				<div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+					<Button
+						type="button"
+						variant={iconModeDraft === 'default' ? 'default' : 'outline'}
+						onclick={() => setIconMode('default')}
+					>
+						Default
+					</Button>
+					<Button
+						type="button"
+						variant={iconModeDraft === 'custom' ? 'default' : 'outline'}
+						onclick={() => setIconMode('custom')}
+					>
+						Custom Image
+					</Button>
+					<Button
+						type="button"
+						variant={iconModeDraft === 'mod' ? 'default' : 'outline'}
+						onclick={() => setIconMode('mod')}
+					>
+						Installed Mod
+					</Button>
+				</div>
+
+				{#if iconModeDraft === 'custom'}
+					<input
+						bind:this={customIconInput}
+						type="file"
+						accept="image/*"
+						class="hidden"
+						onchange={handleCustomIconInput}
+					/>
+
+					<div class="space-y-3">
+						<div class="flex flex-wrap items-center gap-3">
+							<div
+								class="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg bg-muted/30"
+							>
+								{#if customIconDataUrlDraft}
+									<img
+										src={customIconDataUrlDraft}
+										alt="Custom icon preview"
+										class="h-full w-full object-cover"
+									/>
+								{:else}
+									<Package class="h-7 w-7 text-muted-foreground/40" />
+								{/if}
+							</div>
+							<Button
+								type="button"
+								variant="outline"
+								disabled={isReadingIconFile}
+								onclick={() => customIconInput?.click()}
+							>
+								{isReadingIconFile
+									? 'Reading...'
+									: customIconDataUrlDraft
+										? 'Change Image'
+										: 'Choose Image'}
+							</Button>
+							{#if customIconDataUrlDraft}
+								<Button type="button" variant="ghost" onclick={() => (customIconDataUrlDraft = '')}>
+									Clear
+								</Button>
+							{/if}
+						</div>
+						<p class="text-xs text-muted-foreground">PNG/JPG/GIF/WebP up to 500 KB.</p>
+					</div>
+				{:else if iconModeDraft === 'mod'}
+					{#if installedModsWithIcons.length === 0}
+						<p class="text-sm text-muted-foreground">
+							No installed managed mods with icons are available for this profile.
+						</p>
+					{:else}
+						<div class="space-y-3">
+							<label class="text-sm font-medium" for="profile-icon-mod">Installed mod icon</label>
+							<select
+								id="profile-icon-mod"
+								class="h-10 w-full rounded-md border bg-background px-3 text-sm"
+								bind:value={iconModIdDraft}
+							>
+								{#each installedModsWithIcons as mod (mod.id)}
+									<option value={mod.id}>{mod.name}</option>
+								{/each}
+							</select>
+							{#if selectedIconMod}
+								<div class="flex items-center gap-3 rounded-md border bg-muted/20 p-2">
+									<img
+										src={selectedIconMod.thumbnail}
+										alt={`${selectedIconMod.name} icon`}
+										class="h-12 w-12 rounded object-cover"
+									/>
+									<p class="text-sm text-muted-foreground">{selectedIconMod.name}</p>
+								</div>
+							{/if}
+						</div>
+					{/if}
+				{/if}
+
+				{#if iconError}
+					<p class="text-sm text-destructive">{iconError}</p>
+				{/if}
+			</div>
+
+			<Dialog.Footer>
+				<Button variant="outline" onclick={() => (iconDialogOpen = false)}>Cancel</Button>
+				<Button
+					onclick={handleSaveProfileIcon}
+					disabled={updateProfileIcon.isPending ||
+						isReadingIconFile ||
+						(iconModeDraft === 'mod' && installedModsWithIcons.length === 0)}
+				>
+					{#if updateProfileIcon.isPending}
+						Saving...
+					{:else}
+						Save Icon
+					{/if}
+				</Button>
+			</Dialog.Footer>
+		</Dialog.Content>
+	</Dialog.Root>
 
 	<ProfileDialogs
 		{profile}

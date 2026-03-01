@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/svelte-query';
 import { profileWorkflowService } from './profile-workflow-service';
 import { modInstallService } from './mod-install-service';
-import type { UnifiedMod } from './schema';
+import type { ProfileIconSelection, UnifiedMod } from './schema';
 import { profileDiskFilesKey, profilesActiveQueryKey, profilesQueryKey } from './profile-keys';
 import { error as logError, warn } from '@tauri-apps/plugin-log';
 
@@ -80,6 +80,14 @@ export const profileMutations = {
 	rename: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; newName: string }) =>
 			profileWorkflowService.renameProfile(args.profileId, args.newName),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+		}
+	}),
+
+	updateIcon: (queryClient: QueryClient) => ({
+		mutationFn: (args: { profileId: string; selection: ProfileIconSelection }) =>
+			profileWorkflowService.updateProfileIcon(args.profileId, args.selection),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}

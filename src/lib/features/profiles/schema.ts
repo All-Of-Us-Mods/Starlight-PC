@@ -14,11 +14,19 @@ export const ProfileEntry = type({
 	'last_launched_at?': 'number',
 	'bepinex_installed?': 'boolean',
 	'total_play_time?': 'number',
+	'icon_mode?': "'default' | 'custom' | 'mod'",
+	'custom_icon_data_url?': 'string <= 750000',
+	'icon_mod_id?': 'string',
 	mods: type(ProfileModEntry.array())
 });
 
 export type Profile = typeof ProfileEntry.infer;
 export type ProfileMod = typeof ProfileModEntry.infer;
+export type ProfileIconMode = NonNullable<Profile['icon_mode']>;
+export type ProfileIconSelection =
+	| { mode: 'default' }
+	| { mode: 'custom'; dataUrl: string }
+	| { mode: 'mod'; modId: string };
 
 export type UnifiedMod =
 	| { source: 'managed'; mod_id: string; version: string; file: string }
