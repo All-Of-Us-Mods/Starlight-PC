@@ -4,6 +4,7 @@ import { join } from '@tauri-apps/api/path';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { launchService } from '$lib/features/profiles/launch-service';
 import type { Profile, UnifiedMod } from '$lib/features/profiles/schema';
+import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
 import { showError, showSuccess } from '$lib/utils/toast';
 
 interface ProfileDetailControllerDeps {
@@ -47,7 +48,10 @@ export function createProfileDetailController(deps: ProfileDetailControllerDeps)
 			showSuccess('Mod removed');
 		},
 
-		goToInstallMods: () => goto(resolve('/explore'))
+		goToInstallMods: (profileId: string) => {
+			rememberInstallTarget(profileId, 'install-click');
+			goto(resolve('/explore'));
+		}
 	};
 }
 

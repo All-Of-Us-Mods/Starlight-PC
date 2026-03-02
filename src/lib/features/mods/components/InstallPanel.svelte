@@ -16,6 +16,11 @@
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { watch } from 'runed';
 	import {
+		clearIfMissing,
+		getInstallTarget,
+		rememberInstallTarget
+	} from '$lib/features/mods/state/install-target.svelte';
+	import {
 		buildInitialDependencySelection,
 		toggleDependencySelection
 	} from '$lib/features/mods/ui/dependency-selection-model';
@@ -52,6 +57,7 @@
 	let selectedDependencies = $state<Set<string>>(new Set());
 	let modsBeingInstalled = $state<string[]>([]);
 	let hasInitializedDeps = $state(false);
+	let suppressManualSelectionTracking = $state(false);
 
 	// ============ MUTATIONS ============
 
@@ -83,15 +89,51 @@
 
 	// ============ WATCHES ============
 
+	function setAutoSelectedProfileId(profileId: string) {
+		suppressManualSelectionTracking = true;
+		selectedProfileId = profileId;
+		queueMicrotask(() => {
+			suppressManualSelectionTracking = false;
+		});
+	}
+
 	// Set default profile when profiles load
 	watch(
 		() => profiles,
 		(currentProfiles) => {
-			if (currentProfiles.length > 0 && !selectedProfileId) {
-				const mostRecent = [...currentProfiles].sort((a, b) => b.created_at - a.created_at)[0];
-				selectedProfileId = mostRecent.id;
+			clearIfMissing(currentProfiles);
+
+			if (currentProfiles.length === 0) {
+				if (selectedProfileId) setAutoSelectedProfileId('');
+				return;
+			}
+
+			if (currentProfiles.some((profile) => profile.id === selectedProfileId)) return;
+
+			const inferredProfileId = getInstallTarget(currentProfiles);
+			const mostRecentlyLaunched = [...currentProfiles]
+				.filter((profile) => profile.last_launched_at !== undefined)
+				.sort((a, b) => (b.last_launched_at ?? 0) - (a.last_launched_at ?? 0))[0];
+			const mostRecentlyCreated = [...currentProfiles].sort(
+				(a, b) => b.created_at - a.created_at
+			)[0];
+
+			const nextProfileId =
+				inferredProfileId ?? mostRecentlyLaunched?.id ?? mostRecentlyCreated?.id ?? '';
+			if (nextProfileId) {
+				setAutoSelectedProfileId(nextProfileId);
 			}
 		}
+	);
+
+	// Persist manual selection for future installs.
+	watch(
+		() => selectedProfileId,
+		(nextProfileId) => {
+			if (suppressManualSelectionTracking || !nextProfileId) return;
+			rememberInstallTarget(nextProfileId, 'manual');
+		},
+		{ lazy: true }
 	);
 
 	// Initialize selected dependencies when resolved deps change

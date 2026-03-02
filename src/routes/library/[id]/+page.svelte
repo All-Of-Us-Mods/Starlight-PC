@@ -16,6 +16,7 @@
 	import type { Mod } from '$lib/features/mods/schema';
 	import { profileUnifiedModsKey, profilesQueryKey } from '$lib/features/profiles/profile-keys';
 	import { mapModsById } from '$lib/features/mods/ui/mod-query-controller';
+	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
 	import { findProfileById } from '$lib/features/profiles/ui/profile-query-controller';
 	import {
 		fetchProfileModUpdates,
@@ -180,6 +181,7 @@
 		isLaunching = true;
 		try {
 			await controller.launchProfile(profile);
+			rememberInstallTarget(profile.id, 'launch');
 		} catch (error) {
 			showError(error);
 		} finally {
@@ -422,7 +424,7 @@
 				{updatesAvailableCount}
 				{isCheckingUpdates}
 				{isUpdatingAll}
-				onInstallMods={controller.goToInstallMods}
+				onInstallMods={() => controller.goToInstallMods(profile.id)}
 				onRefreshUpdates={handleRefreshUpdates}
 				onUpdateAll={handleUpdateAll}
 			/>
@@ -441,7 +443,7 @@
 				totalPages={pagination.totalPages}
 				hasNextPage={pagination.hasNextPage}
 				onClearSearch={() => (searchInput = '')}
-				onInstallMods={controller.goToInstallMods}
+				onInstallMods={() => controller.goToInstallMods(profile.id)}
 				onDeleteMod={confirmDeleteMod}
 				onUpdateMod={handleUpdateOne}
 				onPrevPage={() => currentPage--}
