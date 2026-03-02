@@ -7,6 +7,7 @@
 	import Button from '$lib/components/ui/button/button.svelte';
 	import ModDetailsSidebar from './ModDetailsSidebar.svelte';
 	import { getSidebar } from '$lib/state/sidebar.svelte';
+	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
 	import { Download, LoaderCircle } from '@lucide/svelte';
 
 	interface Props {
@@ -38,6 +39,7 @@
 	const isSelected = $derived(sidebar.contentId === contentId);
 
 	function openModDetails() {
+		rememberInstallTarget(profileId, 'profile-context');
 		sidebar.open(sidebarContent, undefined, contentId);
 	}
 
