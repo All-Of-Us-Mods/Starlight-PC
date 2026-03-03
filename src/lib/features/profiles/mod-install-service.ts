@@ -2,6 +2,7 @@ import { mkdir, remove } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { PUBLIC_API_URL } from '$env/static/public';
 import { apiFetch } from '$lib/api/client';
 import { warn } from '@tauri-apps/plugin-log';
 import {
@@ -14,6 +15,7 @@ import {
 import { type ModDownloadProgress } from './schema';
 import { type } from 'arktype';
 import * as semver from 'semver';
+import { settingsService } from '../settings/settings-service';
 
 const ModVersionsArray = type(ModVersion.array());
 const ModVersionInfoValidator = type(ModVersionInfoSchema);
@@ -24,6 +26,49 @@ export interface DependencyWithMeta extends ModDependency {
 }
 
 class ModInstallService {
+	private resolveAbsoluteUrl(pathOrUrl: string): string {
+		if (/^https?:\/\//.test(pathOrUrl)) return pathOrUrl;
+		return `${PUBLIC_API_URL}${pathOrUrl.startsWith('/') ? '' : '/'}${pathOrUrl}`;
+	}
+
+	private async resolveDownloadTarget(
+		modId: string,
+		version: string,
+		info: ModVersionInfo
+	): Promise<{ url: string; fileName: string; checksum: string }> {
+		const legacyPath = `/api/v2/mods/${modId}/versions/${version}/file`;
+		const defaultUrl = info.download_url ?? legacyPath;
+		const defaultTarget = {
+			url: this.resolveAbsoluteUrl(defaultUrl),
+			fileName: info.file_name,
+			checksum: info.checksum
+		};
+
+		const platforms = info.platforms ?? [];
+		if (platforms.length === 0) {
+			return defaultTarget;
+		}
+
+		const settings = await settingsService.getSettings();
+		const architectureFallbacks = settings.game_platform === 'epic' ? ['x64', 'x86'] : ['x86'];
+
+		for (const architecture of architectureFallbacks) {
+			const entry = platforms.find(
+				(candidate) => candidate.platform === 'windows' && candidate.architecture === architecture
+			);
+			if (!entry) continue;
+			return {
+				url: this.resolveAbsoluteUrl(
+					entry.download_url ?? `${legacyPath}?platform=windows&arch=${architecture}`
+				),
+				fileName: entry.file_name ?? info.file_name,
+				checksum: entry.checksum ?? info.checksum
+			};
+		}
+
+		return defaultTarget;
+	}
+
 	async getModVersions(modId: string): Promise<ModVersion[]> {
 		return await apiFetch(`/api/v2/mods/${modId}/versions`, ModVersionsArray);
 	}
@@ -96,22 +141,23 @@ class ModInstallService {
 
 	async installModToProfile(modId: string, version: string, profilePath: string): Promise<string> {
 		const info = await this.getModVersionInfo(modId, version);
+		const target = await this.resolveDownloadTarget(modId, version, info);
 
 		const pluginsDir = await join(profilePath, 'BepInEx', 'plugins');
 		await mkdir(pluginsDir, { recursive: true });
 
-		const destination = await join(pluginsDir, info.file_name);
+		const destination = await join(pluginsDir, target.fileName);
 
 		await invoke('modding_mod_download', {
 			args: {
 				modId,
-				url: info.download_url,
+				url: target.url,
 				destination,
-				expectedChecksum: info.checksum
+				expectedChecksum: target.checksum
 			}
 		});
 
-		return info.file_name;
+		return target.fileName;
 	}
 
 	async removeModFromProfile(fileName: string, profilePath: string): Promise<void> {

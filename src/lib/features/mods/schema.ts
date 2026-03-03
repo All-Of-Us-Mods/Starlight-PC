@@ -41,7 +41,17 @@ export const ModVersionInfo = type({
 	file_name: 'string',
 	changelog: 'string',
 	checksum: 'string',
-	download_url: 'string',
+	'download_url?': 'string',
+	'platforms?': type(
+		type({
+			platform: 'string',
+			architecture: 'string',
+			'file_name?': 'string',
+			'file_size?': 'number',
+			'checksum?': 'string',
+			'download_url?': 'string'
+		}).array()
+	),
 	dependencies: type(ModDependency.array())
 });
 

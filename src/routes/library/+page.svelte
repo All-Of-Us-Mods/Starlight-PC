@@ -20,6 +20,7 @@
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { launchService } from '$lib/features/profiles/launch-service';
 	import { profileMutations } from '$lib/features/profiles/mutations';
+	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { showError, showSuccess } from '$lib/utils/toast';
 	import { profileUnifiedModsKey, profilesQueryKey } from '$lib/features/profiles/profile-keys';
@@ -66,6 +67,7 @@
 		try {
 			await launchService.launchProfile(profile);
 			await updateLastLaunched.mutateAsync(profile.id);
+			rememberInstallTarget(profile.id, 'launch');
 		} catch (e) {
 			queryClient.setQueryData(profilesQueryKey, previousProfiles);
 			showError(e);

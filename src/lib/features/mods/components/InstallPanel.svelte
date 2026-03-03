@@ -16,6 +16,11 @@
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { watch } from 'runed';
 	import {
+		clearIfMissing,
+		getInstallTarget,
+		rememberInstallTarget
+	} from '$lib/features/mods/state/install-target.svelte';
+	import {
 		buildInitialDependencySelection,
 		toggleDependencySelection
 	} from '$lib/features/mods/ui/dependency-selection-model';
@@ -87,12 +92,35 @@
 	watch(
 		() => profiles,
 		(currentProfiles) => {
-			if (currentProfiles.length > 0 && !selectedProfileId) {
-				const mostRecent = [...currentProfiles].sort((a, b) => b.created_at - a.created_at)[0];
-				selectedProfileId = mostRecent.id;
+			clearIfMissing(currentProfiles);
+
+			if (currentProfiles.length === 0) {
+				if (selectedProfileId) selectedProfileId = '';
+				return;
+			}
+
+			if (currentProfiles.some((profile) => profile.id === selectedProfileId)) return;
+
+			const inferredProfileId = getInstallTarget(currentProfiles);
+			const mostRecentlyLaunched = [...currentProfiles]
+				.filter((profile) => profile.last_launched_at !== undefined)
+				.sort((a, b) => (b.last_launched_at ?? 0) - (a.last_launched_at ?? 0))[0];
+			const mostRecentlyCreated = [...currentProfiles].sort(
+				(a, b) => b.created_at - a.created_at
+			)[0];
+
+			const nextProfileId =
+				inferredProfileId ?? mostRecentlyLaunched?.id ?? mostRecentlyCreated?.id ?? '';
+			if (nextProfileId) {
+				selectedProfileId = nextProfileId;
 			}
 		}
 	);
+
+	function handleProfileSelectionChange(value: string | string[]) {
+		if (typeof value !== 'string' || !value) return;
+		rememberInstallTarget(value, 'manual');
+	}
 
 	// Initialize selected dependencies when resolved deps change
 	watch(
@@ -155,7 +183,12 @@
 			<!-- Profile Selector -->
 			<div class="space-y-2">
 				<span class="text-xs font-medium text-muted-foreground">Install to Profile</span>
-				<Select.Root bind:value={selectedProfileId} type="single" disabled={isInstalling}>
+				<Select.Root
+					bind:value={selectedProfileId}
+					type="single"
+					disabled={isInstalling}
+					onValueChange={handleProfileSelectionChange}
+				>
 					<Select.Trigger class="w-full">
 						<span class="flex items-center gap-2">
 							<Package class="h-4 w-4 text-muted-foreground" />
