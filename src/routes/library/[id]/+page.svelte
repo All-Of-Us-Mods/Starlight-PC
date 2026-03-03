@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { onDestroy } from 'svelte';
 	import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { Debounced, watch } from 'runed';
@@ -8,6 +9,7 @@
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { profileMutations } from '$lib/features/profiles/mutations';
+	import { profilePlatformAdapter } from '$lib/features/profiles/profile-platform-adapter';
 	import { modQueries } from '$lib/features/mods/queries';
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
 	import { formatPlayTime } from '$lib/utils';
@@ -34,6 +36,7 @@
 	} from '$lib/features/profiles/ui/profile-mods-view-model';
 
 	import { Button } from '$lib/components/ui/button';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { ArrowLeft, Package } from '@lucide/svelte';
 	import ProfileHeroSection from './_components/ProfileHeroSection.svelte';
@@ -57,6 +60,7 @@
 	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
 	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
 	const renameProfile = createMutation(() => profileMutations.rename(queryClient));
+	const updateProfileIcon = createMutation(() => profileMutations.updateIcon(queryClient));
 	const deleteUnifiedMod = createMutation(() => profileMutations.deleteUnifiedMod(queryClient));
 	const installMods = createMutation(() => profileMutations.installMods(queryClient));
 	const exportProfileZip = createMutation(() => profileMutations.exportZip());
@@ -92,13 +96,83 @@
 
 	let deleteDialogOpen = $state(false);
 	let renameDialogOpen = $state(false);
+	let iconDialogOpen = $state(false);
 	let modToDelete = $state<UnifiedMod | null>(null);
 	let deleteModDialogOpen = $state(false);
 	let newProfileName = $state('');
+	let iconModeDraft = $state<'default' | 'custom' | 'mod'>('default');
+	let customIconBytesDraft = $state<Uint8Array | null>(null);
+	let customIconExtensionDraft = $state('');
+	let customIconDisplayPathDraft = $state('');
+	let customIconPreviewSrcDraft = $state<string | null>(null);
+	let iconModIdDraft = $state('');
+	let iconError = $state('');
 	let isLaunching = $state(false);
 	let renameError = $state('');
 	let isUpdatingAll = $state(false);
 	const updatingModIds = new SvelteSet<string>();
+	let customIconFileInput = $state<HTMLInputElement | null>(null);
+	let profileIconSrc = $state<string | null>(null);
+	let profileIconObjectUrl: string | null = null;
+	let customIconPreviewObjectUrl: string | null = null;
+
+	function buildProfileFilePath(profilePath: string, fileName: string): string {
+		const normalized =
+			profilePath.endsWith('/') || profilePath.endsWith('\\') ? profilePath : `${profilePath}/`;
+		return `${normalized}${fileName}`;
+	}
+
+	function buildCustomIconFilePath(profilePath: string, extension: string): string {
+		return buildProfileFilePath(profilePath, `icon${extension}`);
+	}
+
+	function clearObjectUrl(url: string | null) {
+		if (url) {
+			URL.revokeObjectURL(url);
+		}
+	}
+
+	function setProfileIconObjectUrl(nextUrl: string | null) {
+		clearObjectUrl(profileIconObjectUrl);
+		profileIconObjectUrl = nextUrl;
+		profileIconSrc = nextUrl;
+	}
+
+	function setCustomPreviewObjectUrl(nextUrl: string | null) {
+		clearObjectUrl(customIconPreviewObjectUrl);
+		customIconPreviewObjectUrl = nextUrl;
+		customIconPreviewSrcDraft = nextUrl;
+	}
+
+	function extractCustomIconExtension(file: File): string | null {
+		const nameMatch = file.name.match(/\.([a-zA-Z0-9]+)$/);
+		if (nameMatch) {
+			const ext = `.${nameMatch[1].toLowerCase()}`;
+			if (['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif'].includes(ext)) {
+				return ext;
+			}
+		}
+
+		const mimeMap: Record<string, string> = {
+			'image/png': '.png',
+			'image/jpeg': '.jpg',
+			'image/webp': '.webp',
+			'image/gif': '.gif',
+			'image/bmp': '.bmp',
+			'image/avif': '.avif'
+		};
+		return mimeMap[file.type] ?? null;
+	}
+
+	async function loadLocalImageBlobUrl(filePath: string): Promise<string | null> {
+		try {
+			const bytes = await profilePlatformAdapter.readBinaryFile(filePath);
+			if (!bytes || bytes.length === 0) return null;
+			return URL.createObjectURL(new Blob([bytes]));
+		} catch {
+			return null;
+		}
+	}
 
 	watch(
 		() => debouncedSearch.current,
@@ -153,6 +227,66 @@
 		unifiedModsQuery.data
 			? `Search ${unifiedModsQuery.data.length.toLocaleString()} mods...`
 			: 'Search mods...'
+	);
+	const installedModsWithIcons = $derived.by(() => {
+		if (!profile) return [] as Array<{ id: string; name: string; thumbnail: string }>;
+
+		const mods = profile.mods
+			.map((profileMod) => modsMap.get(profileMod.mod_id))
+			.filter((mod): mod is Mod => !!mod && !!mod._links.thumbnail)
+			.filter((mod, index, entries) => entries.findIndex((entry) => entry.id === mod.id) === index)
+			.map((mod) => ({ id: mod.id, name: mod.name, thumbnail: mod._links.thumbnail }))
+			.sort((a, b) => a.name.localeCompare(b.name));
+
+		return mods;
+	});
+	const selectedIconMod = $derived(
+		installedModsWithIcons.find((mod) => mod.id === iconModIdDraft) ?? null
+	);
+
+	let profileIconLoadVersion = 0;
+
+	async function refreshProfileIconSource() {
+		const loadVersion = ++profileIconLoadVersion;
+		setProfileIconObjectUrl(null);
+
+		if (!profile) return;
+
+		if (profile.icon_mode === 'custom' && profile.custom_icon_extension) {
+			const iconPath = buildCustomIconFilePath(profile.path, profile.custom_icon_extension);
+			const blobUrl = await loadLocalImageBlobUrl(iconPath);
+			if (loadVersion !== profileIconLoadVersion) {
+				clearObjectUrl(blobUrl);
+				return;
+			}
+			if (blobUrl) {
+				setProfileIconObjectUrl(blobUrl);
+				return;
+			}
+		}
+
+		if (profile.icon_mode === 'mod' && profile.icon_mod_id) {
+			const iconMod = modsMap.get(profile.icon_mod_id);
+			if (iconMod?._links.thumbnail) {
+				profileIconSrc = iconMod._links.thumbnail;
+				return;
+			}
+		}
+
+		profileIconSrc = null;
+	}
+
+	watch(
+		() => ({
+			profileId: profile?.id ?? '',
+			mode: profile?.icon_mode ?? 'default',
+			customIconExtension: profile?.custom_icon_extension ?? '',
+			iconModId: profile?.icon_mod_id ?? '',
+			availableModIcons: installedModsWithIcons.length
+		}),
+		() => {
+			void refreshProfileIconSource();
+		}
 	);
 
 	const runningInstanceCount = $derived(
@@ -222,6 +356,140 @@
 		newProfileName = profile.name;
 		renameError = '';
 		renameDialogOpen = true;
+	}
+
+	async function openIconDialog() {
+		if (!profile) return;
+
+		iconModeDraft = profile.icon_mode ?? 'default';
+		customIconBytesDraft = null;
+		customIconExtensionDraft = profile.custom_icon_extension ?? '';
+		customIconDisplayPathDraft = profile.custom_icon_extension
+			? buildCustomIconFilePath(profile.path, profile.custom_icon_extension)
+			: '';
+		setCustomPreviewObjectUrl(null);
+		iconError = '';
+		iconDialogOpen = true;
+		if (customIconDisplayPathDraft) {
+			const preview = await loadLocalImageBlobUrl(customIconDisplayPathDraft);
+			if (preview) {
+				if (!iconDialogOpen) {
+					clearObjectUrl(preview);
+					return;
+				}
+				setCustomPreviewObjectUrl(preview);
+			}
+		}
+		iconModIdDraft = profile.icon_mod_id ?? installedModsWithIcons[0]?.id ?? '';
+		if (iconModeDraft === 'mod' && !iconModIdDraft) {
+			iconModeDraft = 'default';
+		}
+	}
+
+	function setIconMode(mode: 'default' | 'custom' | 'mod') {
+		iconModeDraft = mode;
+		iconError = '';
+		if (mode === 'mod' && !iconModIdDraft && installedModsWithIcons.length > 0) {
+			iconModIdDraft = installedModsWithIcons[0].id;
+		}
+	}
+
+	function clearCustomIconDraft() {
+		customIconBytesDraft = null;
+		customIconExtensionDraft = '';
+		customIconDisplayPathDraft = '';
+		setCustomPreviewObjectUrl(null);
+		iconError = '';
+		iconModeDraft = 'default';
+	}
+
+	function handleChooseCustomIcon() {
+		customIconFileInput?.click();
+	}
+
+	async function handleCustomIconInput(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file || !profile) return;
+
+		iconError = '';
+		try {
+			const extension = extractCustomIconExtension(file);
+			if (!extension) {
+				iconError = 'Custom icon must be a PNG, JPG, WEBP, GIF, BMP, or AVIF image';
+				return;
+			}
+			if (file.size === 0) {
+				iconError = 'Selected image is empty';
+				return;
+			}
+			if (file.size > 10 * 1024 * 1024) {
+				iconError = 'Image must be 10 MB or smaller';
+				return;
+			}
+
+			const bytes = new Uint8Array(await file.arrayBuffer());
+			const preview = URL.createObjectURL(new Blob([bytes]));
+
+			customIconBytesDraft = bytes;
+			customIconExtensionDraft = extension;
+			customIconDisplayPathDraft = buildCustomIconFilePath(profile.path, extension);
+			setCustomPreviewObjectUrl(preview);
+			iconModeDraft = 'custom';
+		} catch (error) {
+			iconError = error instanceof Error ? error.message : 'Failed to read selected image';
+		}
+	}
+
+	async function handleSaveProfileIcon() {
+		if (!profile) return;
+		iconError = '';
+
+		try {
+			if (iconModeDraft === 'custom') {
+				if (!customIconBytesDraft || !customIconExtensionDraft) {
+					const hasExistingCustomIcon =
+						profile.icon_mode === 'custom' &&
+						typeof profile.custom_icon_extension === 'string' &&
+						profile.custom_icon_extension.length > 0;
+					if (!hasExistingCustomIcon) {
+						iconError = 'Choose an image for the custom icon';
+						return;
+					}
+				} else {
+					await updateProfileIcon.mutateAsync({
+						profileId: profile.id,
+						selection: {
+							mode: 'custom',
+							bytes: customIconBytesDraft,
+							extension: customIconExtensionDraft
+						}
+					});
+				}
+			} else if (iconModeDraft === 'mod') {
+				if (!iconModIdDraft) {
+					iconError = 'Select an installed mod icon';
+					return;
+				}
+
+				await updateProfileIcon.mutateAsync({
+					profileId: profile.id,
+					selection: { mode: 'mod', modId: iconModIdDraft }
+				});
+			} else {
+				await updateProfileIcon.mutateAsync({
+					profileId: profile.id,
+					selection: { mode: 'default' }
+				});
+			}
+
+			await refreshProfileIconSource();
+			iconDialogOpen = false;
+			showSuccess('Profile icon updated');
+		} catch (error) {
+			iconError = error instanceof Error ? error.message : 'Failed to update profile icon';
+		}
 	}
 
 	async function handleRenameProfile() {
@@ -363,6 +631,12 @@
 			updatingModIds.clear();
 		}
 	}
+
+	onDestroy(() => {
+		profileIconLoadVersion += 1;
+		clearObjectUrl(profileIconObjectUrl);
+		clearObjectUrl(customIconPreviewObjectUrl);
+	});
 </script>
 
 {#if profilesQuery.isPending}
@@ -400,6 +674,7 @@
 
 		<ProfileHeroSection
 			{profile}
+			iconSrc={profileIconSrc}
 			{isRunning}
 			{runningInstanceCount}
 			{allowMultiInstanceLaunch}
@@ -411,6 +686,7 @@
 			onLaunch={handleLaunch}
 			onOpenFolder={() => controller.openProfileFolder(profile)}
 			onExport={handleExportProfile}
+			onOpenIconEditor={openIconDialog}
 			onOpenRename={openRenameDialog}
 			onOpenDelete={() => (deleteDialogOpen = true)}
 		/>
@@ -452,6 +728,134 @@
 		</div>
 		<ProfileLogViewer {profile} {isRunning} />
 	</div>
+
+	<Dialog.Root bind:open={iconDialogOpen}>
+		<Dialog.Content>
+			<Dialog.Header>
+				<Dialog.Title>Edit Profile Icon</Dialog.Title>
+				<Dialog.Description>
+					Use the default cube, set a custom image, or use an installed mod icon.
+				</Dialog.Description>
+			</Dialog.Header>
+
+			<div class="space-y-4 py-3">
+				<div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+					<Button
+						type="button"
+						variant={iconModeDraft === 'default' ? 'default' : 'outline'}
+						onclick={() => setIconMode('default')}
+					>
+						Default
+					</Button>
+					<Button
+						type="button"
+						variant={iconModeDraft === 'custom' ? 'default' : 'outline'}
+						onclick={() => setIconMode('custom')}
+					>
+						Custom Image
+					</Button>
+					<Button
+						type="button"
+						variant={iconModeDraft === 'mod' ? 'default' : 'outline'}
+						onclick={() => setIconMode('mod')}
+					>
+						Installed Mod
+					</Button>
+				</div>
+
+				{#if iconModeDraft === 'custom'}
+					<input
+						bind:this={customIconFileInput}
+						type="file"
+						accept=".png,.jpg,.jpeg,.webp,.gif,.bmp,.avif,image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif"
+						class="hidden"
+						onchange={handleCustomIconInput}
+					/>
+					<div class="space-y-3">
+						<div class="flex flex-wrap items-center gap-3">
+							<div
+								class="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg bg-muted/30"
+							>
+								{#if customIconPreviewSrcDraft}
+									<img
+										src={customIconPreviewSrcDraft}
+										alt="Custom icon preview"
+										class="h-full w-full object-cover"
+									/>
+								{:else}
+									<Package class="h-7 w-7 text-muted-foreground/40" />
+								{/if}
+							</div>
+							<Button type="button" variant="outline" onclick={handleChooseCustomIcon}>
+								{customIconDisplayPathDraft ? 'Change Image' : 'Choose Image'}
+							</Button>
+							{#if customIconDisplayPathDraft}
+								<Button type="button" variant="ghost" onclick={clearCustomIconDraft}>Clear</Button>
+							{/if}
+						</div>
+						{#if customIconDisplayPathDraft}
+							<div
+								class="max-h-20 overflow-y-auto rounded-md border border-border/40 bg-muted/20 px-2 py-1.5 text-xs break-all whitespace-pre-wrap text-muted-foreground"
+								title={customIconDisplayPathDraft}
+							>
+								{customIconDisplayPathDraft}
+							</div>
+						{:else}
+							<p class="text-xs text-muted-foreground">PNG/JPG/GIF/WebP/BMP/AVIF image files.</p>
+						{/if}
+					</div>
+				{:else if iconModeDraft === 'mod'}
+					{#if installedModsWithIcons.length === 0}
+						<p class="text-sm text-muted-foreground">
+							No installed managed mods with icons are available for this profile.
+						</p>
+					{:else}
+						<div class="space-y-3">
+							<label class="text-sm font-medium" for="profile-icon-mod">Installed mod icon</label>
+							<select
+								id="profile-icon-mod"
+								class="h-10 w-full rounded-md border bg-background px-3 text-sm"
+								bind:value={iconModIdDraft}
+							>
+								{#each installedModsWithIcons as mod (mod.id)}
+									<option value={mod.id}>{mod.name}</option>
+								{/each}
+							</select>
+							{#if selectedIconMod}
+								<div class="flex items-center gap-3 rounded-md border bg-muted/20 p-2">
+									<img
+										src={selectedIconMod.thumbnail}
+										alt={`${selectedIconMod.name} icon`}
+										class="h-12 w-12 rounded object-cover"
+									/>
+									<p class="text-sm text-muted-foreground">{selectedIconMod.name}</p>
+								</div>
+							{/if}
+						</div>
+					{/if}
+				{/if}
+
+				{#if iconError}
+					<p class="text-sm text-destructive">{iconError}</p>
+				{/if}
+			</div>
+
+			<Dialog.Footer>
+				<Button variant="outline" onclick={() => (iconDialogOpen = false)}>Cancel</Button>
+				<Button
+					onclick={handleSaveProfileIcon}
+					disabled={updateProfileIcon.isPending ||
+						(iconModeDraft === 'mod' && installedModsWithIcons.length === 0)}
+				>
+					{#if updateProfileIcon.isPending}
+						Saving...
+					{:else}
+						Save Icon
+					{/if}
+				</Button>
+			</Dialog.Footer>
+		</Dialog.Content>
+	</Dialog.Root>
 
 	<ProfileDialogs
 		{profile}

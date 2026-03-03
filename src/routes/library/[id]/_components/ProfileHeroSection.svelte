@@ -3,6 +3,7 @@
 
 	export interface ProfileHeroSectionProps {
 		profile: Profile;
+		iconSrc: string | null;
 		isRunning: boolean;
 		runningInstanceCount: number;
 		allowMultiInstanceLaunch: boolean;
@@ -14,6 +15,7 @@
 		onLaunch: () => void | Promise<void>;
 		onOpenFolder: () => void | Promise<void>;
 		onExport: () => void | Promise<void>;
+		onOpenIconEditor: () => void;
 		onOpenRename: () => void;
 		onOpenDelete: () => void;
 	}
@@ -26,6 +28,7 @@
 
 	let {
 		profile,
+		iconSrc,
 		isRunning,
 		runningInstanceCount,
 		allowMultiInstanceLaunch,
@@ -37,6 +40,7 @@
 		onLaunch,
 		onOpenFolder,
 		onExport,
+		onOpenIconEditor,
 		onOpenRename,
 		onOpenDelete
 	}: ProfileHeroSectionProps = $props();
@@ -48,11 +52,24 @@
 
 <div class="mb-8 flex flex-col items-start gap-6 md:flex-row md:items-center">
 	<div
-		class="relative flex h-36 w-36 shrink-0 items-center justify-center overflow-visible rounded-lg bg-muted/20 md:h-45 md:w-45 {isRunning
+		class="group relative flex h-36 w-36 shrink-0 items-center justify-center overflow-visible rounded-lg bg-muted/20 md:h-45 md:w-45 {isRunning
 			? 'ring-2 ring-green-500/50'
 			: ''}"
 	>
-		<BoxIcon class="h-[60%] w-[60%] text-muted-foreground/50" />
+		{#if iconSrc}
+			<img src={iconSrc} alt={`${profile.name} icon`} class="h-full w-full object-cover" />
+		{:else}
+			<BoxIcon class="h-[60%] w-[60%] text-muted-foreground/50" />
+		{/if}
+		<Button
+			variant="secondary"
+			size="icon-sm"
+			class="pointer-events-none absolute right-2 bottom-2 rounded-full opacity-0 shadow-sm transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+			onclick={onOpenIconEditor}
+			title="Edit profile icon"
+		>
+			<PencilLineIcon class="size-3.5" />
+		</Button>
 		{#if runningInstanceCount > 0}
 			<span
 				class="absolute -top-2 -right-2 inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-green-500 px-1.5 text-xs font-semibold text-white shadow-sm"

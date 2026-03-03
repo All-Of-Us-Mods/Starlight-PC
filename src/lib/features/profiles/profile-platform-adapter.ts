@@ -1,7 +1,16 @@
 import { appDataDir, join } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { mkdir, readDir, readTextFile, remove, writeTextFile } from '@tauri-apps/plugin-fs';
+import {
+	exists,
+	mkdir,
+	readDir,
+	readFile,
+	readTextFile,
+	remove,
+	writeFile,
+	writeTextFile
+} from '@tauri-apps/plugin-fs';
 import type { BepInExProgress } from './schema';
 
 class ProfilePlatformAdapter {
@@ -21,6 +30,18 @@ class ProfilePlatformAdapter {
 
 	removePath(path: string) {
 		return remove(path, { recursive: true });
+	}
+
+	pathExists(path: string) {
+		return exists(path);
+	}
+
+	readBinaryFile(path: string) {
+		return readFile(path);
+	}
+
+	writeBinaryFile(path: string, bytes: Uint8Array) {
+		return writeFile(path, bytes);
 	}
 
 	readDirectory(path: string) {
