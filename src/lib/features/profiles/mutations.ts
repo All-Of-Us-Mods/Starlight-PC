@@ -18,14 +18,14 @@ function getProfilePathFromCache(queryClient: QueryClient, profileId: string): s
 	return profiles?.find((profile) => profile.id === profileId)?.path;
 }
 
-function invalidateProfileAndDiskQueries(
+async function invalidateProfileAndDiskQueries(
 	queryClient: QueryClient,
 	args: { profileId: string; profilePath?: string }
 ) {
-	queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+	await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 	const profilePath = args.profilePath ?? getProfilePathFromCache(queryClient, args.profileId);
 	if (profilePath) {
-		queryClient.invalidateQueries({ queryKey: profileDiskFilesKey(profilePath) });
+		await queryClient.invalidateQueries({ queryKey: profileDiskFilesKey(profilePath) });
 	}
 }
 
@@ -88,8 +88,9 @@ export const profileMutations = {
 	updateIcon: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; selection: ProfileIconSelection }) =>
 			profileWorkflowService.updateProfileIcon(args.profileId, args.selection),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+		onSuccess: async (_data: void, args: { profileId: string }) => {
+			await invalidateProfileAndDiskQueries(queryClient, args);
+			await queryClient.invalidateQueries({ queryKey: profilesActiveQueryKey });
 		}
 	}),
 
@@ -97,7 +98,7 @@ export const profileMutations = {
 		mutationFn: (args: { profileId: string; modId: string; version: string; file: string }) =>
 			profileWorkflowService.addModToProfile(args.profileId, args.modId, args.version, args.file),
 		onSuccess: async (_data: void, args: { profileId: string }) => {
-			invalidateProfileAndDiskQueries(queryClient, args);
+			await invalidateProfileAndDiskQueries(queryClient, args);
 		}
 	}),
 
@@ -105,7 +106,7 @@ export const profileMutations = {
 		mutationFn: (args: { profileId: string; modId: string }) =>
 			profileWorkflowService.removeModFromProfile(args.profileId, args.modId),
 		onSuccess: async (_data: void, args: { profileId: string }) => {
-			invalidateProfileAndDiskQueries(queryClient, args);
+			await invalidateProfileAndDiskQueries(queryClient, args);
 		}
 	}),
 
@@ -113,7 +114,7 @@ export const profileMutations = {
 		mutationFn: (args: { profileId: string; mod: UnifiedMod }) =>
 			profileWorkflowService.deleteUnifiedMod(args.profileId, args.mod),
 		onSuccess: async (_data: void, args: { profileId: string }) => {
-			invalidateProfileAndDiskQueries(queryClient, args);
+			await invalidateProfileAndDiskQueries(queryClient, args);
 		}
 	}),
 
@@ -223,7 +224,7 @@ export const profileMutations = {
 			_data: Array<{ modId: string; version: string; fileName: string }>,
 			args: InstallArgs
 		) => {
-			invalidateProfileAndDiskQueries(queryClient, args);
+			void invalidateProfileAndDiskQueries(queryClient, args);
 		}
 	})
 };

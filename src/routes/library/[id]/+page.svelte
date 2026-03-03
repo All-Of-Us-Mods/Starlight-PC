@@ -397,6 +397,8 @@
 		customIconExtensionDraft = '';
 		customIconDisplayPathDraft = '';
 		setCustomPreviewObjectUrl(null);
+		iconError = '';
+		iconModeDraft = 'default';
 	}
 
 	function handleChooseCustomIcon() {
@@ -480,6 +482,7 @@
 				});
 			}
 
+			await refreshProfileIconSource();
 			iconDialogOpen = false;
 			showSuccess('Profile icon updated');
 		} catch (error) {
