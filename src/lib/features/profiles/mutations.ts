@@ -1,9 +1,7 @@
 import type { QueryClient } from '@tanstack/svelte-query';
 import { profileWorkflowService } from './profile-workflow-service';
-import { modInstallService } from './mod-install-service';
 import type { ProfileIconSelection, UnifiedMod } from './schema';
 import { profileDiskFilesKey, profilesActiveQueryKey, profilesQueryKey } from './profile-keys';
-import { error as logError, warn } from '@tauri-apps/plugin-log';
 
 type ProfileSummary = { id: string; path: string };
 type InstallArgs = {
@@ -11,7 +9,6 @@ type InstallArgs = {
 	profilePath: string;
 	mods: Array<{ modId: string; version: string }>;
 };
-type InstalledMod = { modId: string; version: string; fileName: string };
 
 function getProfilePathFromCache(queryClient: QueryClient, profileId: string): string | undefined {
 	const profiles = queryClient.getQueryData<ProfileSummary[]>(profilesQueryKey);
@@ -27,45 +24,6 @@ async function invalidateProfileAndDiskQueries(
 	if (profilePath) {
 		await queryClient.invalidateQueries({ queryKey: profileDiskFilesKey(profilePath) });
 	}
-}
-
-async function rollbackInstalledMods(
-	args: InstallArgs,
-	installed: InstalledMod[],
-	persisted: InstalledMod[],
-	previousByModId: Map<string, { version: string; file: string | undefined } | undefined>
-) {
-	// Rollback metadata for persisted mods
-	await Promise.allSettled(
-		persisted.toReversed().map(async (mod) => {
-			const previous = previousByModId.get(mod.modId);
-			try {
-				if (previous?.file) {
-					await profileWorkflowService.addModToProfile(
-						args.profileId,
-						mod.modId,
-						previous.version,
-						previous.file
-					);
-				} else {
-					await profileWorkflowService.removeModFromProfile(args.profileId, mod.modId);
-				}
-			} catch (error) {
-				warn(`Failed to rollback metadata for mod "${mod.modId}": ${error}`);
-			}
-		})
-	);
-
-	// Rollback downloaded files
-	await Promise.allSettled(
-		installed.toReversed().map(async (mod) => {
-			try {
-				await profileWorkflowService.deleteModFile(args.profilePath, mod.fileName);
-			} catch (error) {
-				warn(`Failed to rollback mod file "${mod.fileName}": ${error}`);
-			}
-		})
-	);
 }
 
 export const profileMutations = {
@@ -169,78 +127,10 @@ export const profileMutations = {
 	}),
 
 	installMods: (queryClient: QueryClient) => ({
-		mutationFn: async (args: InstallArgs) => {
-			const profile = await profileWorkflowService.getProfileById(args.profileId);
-			if (!profile) throw new Error(`Profile '${args.profileId}' not found`);
-
-			const previousByModId = new Map<
-				string,
-				{ version: string; file: string | undefined } | undefined
-			>();
-			for (const mod of args.mods) {
-				const previous = profile.mods.find((profileMod) => profileMod.mod_id === mod.modId);
-				previousByModId.set(
-					mod.modId,
-					previous ? { version: previous.version, file: previous.file } : undefined
-				);
-			}
-
-			const installed: InstalledMod[] = [];
-			const persisted: InstalledMod[] = [];
-			try {
-				// Download mods sequentially for progress tracking
-				const installResults = await args.mods.reduce(
-					async (chain, mod) => {
-						const acc = await chain;
-						const fileName = await modInstallService.installModToProfile(
-							mod.modId,
-							mod.version,
-							args.profilePath
-						);
-						acc.push({ modId: mod.modId, version: mod.version, fileName });
-						return acc;
-					},
-					Promise.resolve([] as InstalledMod[])
-				);
-				installed.push(...installResults);
-
-				// Persist metadata for all installed mods in parallel
-				await Promise.all(
-					installed.map(async (mod) => {
-						await profileWorkflowService.addModToProfile(
-							args.profileId,
-							mod.modId,
-							mod.version,
-							mod.fileName
-						);
-						persisted.push(mod);
-					})
-				);
-
-				// Clean up replaced mod files in parallel
-				await Promise.all(
-					persisted.map(async (mod) => {
-						const previous = previousByModId.get(mod.modId);
-						if (!previous?.file || previous.file === mod.fileName) return;
-						try {
-							await profileWorkflowService.deleteModFile(args.profilePath, previous.file);
-						} catch (error) {
-							warn(
-								`Failed to remove replaced mod file "${previous.file}" for mod "${mod.modId}": ${error}`
-							);
-						}
-					})
-				);
-
-				return installed;
-			} catch (error) {
-				logError(`Failed to install mods for profile "${args.profileId}": ${error}`);
-				await rollbackInstalledMods(args, installed, persisted, previousByModId);
-				throw error;
-			}
-		},
+		mutationFn: (args: InstallArgs) =>
+			profileWorkflowService.installMods(args.profileId, args.profilePath, args.mods),
 		onSuccess: (
-			_data: Array<{ modId: string; version: string; fileName: string }>,
+			_data: Array<{ mod_id: string; version: string; file_name: string }>,
 			args: InstallArgs
 		) => {
 			void invalidateProfileAndDiskQueries(queryClient, args);

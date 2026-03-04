@@ -79,6 +79,8 @@ pub fn run() {
             commands::mods::modding_bepinex_cache_clear,
             commands::mods::modding_bepinex_cache_exists,
             commands::mods::modding_mod_download,
+            commands::mods::modding_resolve_dependencies,
+            commands::mods::modding_install_profile_mods,
             commands::profiles::profiles_get_dir,
             commands::profiles::profiles_list,
             commands::profiles::profiles_get_by_id,

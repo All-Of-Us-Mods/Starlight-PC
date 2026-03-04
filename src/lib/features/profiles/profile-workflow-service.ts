@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { error as logError } from '@tauri-apps/plugin-log';
+import { PUBLIC_API_URL } from '$env/static/public';
 import type { BepInExProgress, Profile, ProfileIconSelection, UnifiedMod } from './schema';
 
 interface ProfileLifecycleHooks {
@@ -93,6 +94,17 @@ class ProfileWorkflowService {
 		invoke<void>('profiles_cleanup_missing_mods', { args: { profileId } });
 	readonly deleteUnifiedMod = (profileId: string, mod: UnifiedMod) =>
 		invoke<void>('profiles_delete_unified_mod', { args: { profileId, modEntry: mod } });
+	readonly installMods = (
+		profileId: string,
+		profilePath: string,
+		mods: Array<{ modId: string; version: string }>
+	) =>
+		invoke<Array<{ mod_id: string; version: string; file_name: string }>>(
+			'modding_install_profile_mods',
+			{
+				args: { profileId, profilePath, apiBaseUrl: PUBLIC_API_URL, mods }
+			}
+		);
 }
 
 export const profileWorkflowService = new ProfileWorkflowService();

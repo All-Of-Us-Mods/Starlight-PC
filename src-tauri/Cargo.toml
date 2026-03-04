@@ -39,6 +39,7 @@ futures-util = "0.3"
 url = "2.5.7"
 sha2 = "0.10"
 uuid = { version = "1.20.0", features = ["v4"] }
+semver = "1.0"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
