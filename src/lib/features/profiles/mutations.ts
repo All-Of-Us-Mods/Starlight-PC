@@ -125,7 +125,7 @@ async function installBepInEx(profileId: string) {
 		unlisten = await listen<BepInExProgress>('bepinex-progress', (event) => {
 			gameState.setBepInExProgress(profileId, event.payload);
 		});
-			await rustInvoke('profiles_install_bepinex', { profileId });
+		await rustInvoke('profiles_install_bepinex', { profileId });
 		succeeded = true;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Unknown error';
