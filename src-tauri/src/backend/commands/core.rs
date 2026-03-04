@@ -41,5 +41,24 @@ pub async fn core_auto_detect_bepinex_architecture<R: Runtime>(
     app: AppHandle<R>,
     args: CoreAutoDetectBepInExArchitectureArgs,
 ) -> Result<Option<String>, String> {
-    core_service::auto_detect_bepinex_architecture(&app, &args.game_path).map_err(|e| e.to_string())
+    let detected =
+        core_service::auto_detect_bepinex_architecture(&app, &args.game_path).map_err(|e| e.to_string())?;
+
+    if let Some(url) = detected.clone() {
+        core_service::update_settings(
+            &app,
+            AppSettingsPatch {
+                bepinex_url: Some(url),
+                among_us_path: None,
+                close_on_launch: None,
+                allow_multi_instance_launch: None,
+                game_platform: None,
+                cache_bepinex: None,
+                xbox_app_id: None,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(detected)
 }

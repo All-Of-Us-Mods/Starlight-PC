@@ -195,7 +195,7 @@ pub fn auto_detect_bepinex_architecture<R: Runtime>(
     app: &AppHandle<R>,
     game_path: &str,
 ) -> AppResult<Option<String>> {
-    let mut settings = get_settings(app)?;
+    let settings = get_settings(app)?;
     let crash_handler_path = PathBuf::from(game_path).join("UnityCrashHandler64.exe");
     let is_64_bit = crash_handler_path.exists();
 
@@ -208,10 +208,6 @@ pub fn auto_detect_bepinex_architecture<R: Runtime>(
     if updated_url == settings.bepinex_url {
         return Ok(None);
     }
-
-    settings.bepinex_url = updated_url.clone();
-    let path = settings_path(app)?;
-    write_settings_to_file(&path, &settings)?;
 
     Ok(Some(updated_url))
 }
