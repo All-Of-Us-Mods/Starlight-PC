@@ -31,6 +31,12 @@ export async function rustInvoke<T extends RustCommandName>(
 		// - `args`: supports commands defined as `fn command(..., args: SomeArgs)`
 		// - flattened fields: supports commands defined with named parameters
 		if (typeof args === 'object' && args !== null && !Array.isArray(args)) {
+			if ('args' in args) {
+				throw new AppInvokeError(
+					command,
+					"Invalid rustInvoke args: top-level key 'args' is reserved by the invoke wrapper"
+				);
+			}
 			return await invoke<RustCommandResult<T>>(command, {
 				...(args as Record<string, unknown>),
 				args: args as RustCommandArgs<T>
