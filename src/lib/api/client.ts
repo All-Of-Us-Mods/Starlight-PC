@@ -1,22 +1,60 @@
-import { invoke } from '@tauri-apps/api/core';
-import { debug, error as logError } from '@tauri-apps/plugin-log';
+const DEFAULT_API_BASE_URL = 'https://starlight.allofus.dev';
+
+function apiBaseUrl(): string {
+	const raw = import.meta.env.VITE_STARLIGHT_API_URL;
+	if (typeof raw === 'string' && raw.trim().length > 0) {
+		return raw.trim();
+	}
+	return DEFAULT_API_BASE_URL;
+}
+
+export class FetchApiError extends Error {
+	path: string;
+	status?: number;
+	cause?: unknown;
+
+	constructor(message: string, path: string, status?: number, cause?: unknown) {
+		super(message);
+		this.name = 'FetchApiError';
+		this.path = path;
+		this.status = status;
+		this.cause = cause;
+	}
+}
+
+function buildApiUrl(path: string): string {
+	const base = apiBaseUrl().replace(/\/+$/, '');
+	const route = path.startsWith('/') ? path : `/${path}`;
+	return `${base}${route}`;
+}
 
 export async function apiFetch<T>(
 	path: string,
 	validator: { assert: (data: unknown) => T }
 ): Promise<T> {
-	debug(`Fetching path via Rust API client: ${path}`);
+	const url = buildApiUrl(path);
+	let response: Response;
 
 	try {
-		const jsonData = await invoke<unknown>('core_api_get', {
-			args: { path }
-		});
-		debug(`Response received for: ${path}`);
-		return validator.assert(jsonData);
-	} catch (error) {
-		if (error instanceof Error) {
-			logError(`Request failed for ${path}: ${error.message}`);
-		}
-		throw error;
+		response = await fetch(url);
+	} catch (cause) {
+		throw new FetchApiError('Network request failed', path, undefined, cause);
+	}
+
+	if (!response.ok) {
+		throw new FetchApiError(`HTTP ${response.status} ${response.statusText}`, path, response.status);
+	}
+
+	let payload: unknown;
+	try {
+		payload = await response.json();
+	} catch (cause) {
+		throw new FetchApiError('Response was not valid JSON', path, response.status, cause);
+	}
+
+	try {
+		return validator.assert(payload);
+	} catch (cause) {
+		throw new FetchApiError('Response validation failed', path, response.status, cause);
 	}
 }
