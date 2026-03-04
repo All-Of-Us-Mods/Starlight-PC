@@ -10,7 +10,7 @@
 	import { modQueries } from '../queries';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { profileMutations } from '$lib/features/profiles/mutations';
-	import { modInstallService } from '$lib/features/profiles/mod-install-service';
+	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
 	import type { ModDependency } from '../schema';
 	import type { Profile } from '$lib/features/profiles/schema';
@@ -63,7 +63,17 @@
 	const installModsMutation = createMutation(() => profileMutations.installMods(queryClient));
 
 	const installController = createInstallPanelController({
-		onDownloadProgress: modInstallService.onDownloadProgress,
+		onDownloadProgress: async (handler) => {
+			return (await listen('mod-download-progress', (event) => {
+				handler(event.payload as {
+					mod_id: string;
+					downloaded: number;
+					total: number | null;
+					progress: number;
+					stage: 'connecting' | 'downloading' | 'verifying' | 'writing' | 'complete';
+				});
+			})) as UnlistenFn;
+		},
 		installMods: (input) => installModsMutation.mutateAsync(input),
 		setModProgress: (id, progress) => gameState.setModDownloadProgress(id, progress),
 		clearModProgress: (id) => gameState.clearModDownload(id)

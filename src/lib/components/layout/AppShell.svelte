@@ -3,7 +3,6 @@
 	import { setSidebar } from '$lib/state/sidebar.svelte';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { profileQueries } from '$lib/features/profiles/queries';
-	import { launchService } from '$lib/features/profiles/launch-service';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
 	import { profileMutations } from '$lib/features/profiles/mutations';
@@ -25,9 +24,10 @@
 	const queryClient = useQueryClient();
 	const sidebar = setSidebar();
 	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
+	const launchProfile = createMutation(() => profileMutations.launchProfile());
 	const activeProfileQuery = createQuery(() => profileQueries.active());
 	const shellController = createShellController({
-		launchProfile: launchService.launchProfile,
+		launchProfile: (profile) => launchProfile.mutateAsync(profile),
 		updateLastLaunched: (id) => updateLastLaunched.mutateAsync(id)
 	});
 

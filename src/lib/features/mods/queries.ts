@@ -8,7 +8,8 @@ import {
 	ModVersionInfo,
 	type ModDependency
 } from './schema';
-import { modInstallService } from '$lib/features/profiles/mod-install-service';
+import { invoke } from '@tauri-apps/api/core';
+import { PUBLIC_API_URL } from '$env/static/public';
 import {
 	modsByIdKey,
 	modsExploreKey,
@@ -101,7 +102,15 @@ export const modQueries = {
 
 		return queryOptions({
 			queryKey: resolvedDepsKey(queryKey),
-			queryFn: () => modInstallService.resolveDependencies(dependencies),
+			queryFn: () =>
+				invoke<
+					Array<{
+						mod_id: string;
+						modName: string;
+						resolvedVersion: string;
+						type: 'required' | 'optional' | 'conflict';
+					}>
+				>('modding_resolve_dependencies', { args: { apiBaseUrl: PUBLIC_API_URL, dependencies } }),
 			enabled: dependencies.length > 0
 		});
 	}

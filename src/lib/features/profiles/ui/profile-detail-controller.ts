@@ -2,7 +2,6 @@ import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import { join } from '@tauri-apps/api/path';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { launchService } from '$lib/features/profiles/launch-service';
 import type { Profile, UnifiedMod } from '$lib/features/profiles/schema';
 import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
 import { showError, showSuccess } from '$lib/utils/toast';
@@ -54,7 +53,3 @@ export function createProfileDetailController(deps: ProfileDetailControllerDeps)
 		}
 	};
 }
-
-export const profileDetailRuntime = {
-	launchProfile: launchService.launchProfile
-};

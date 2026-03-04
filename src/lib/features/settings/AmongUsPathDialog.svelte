@@ -2,11 +2,11 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import type { GamePlatform } from './schema';
+	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { exists } from '@tauri-apps/plugin-fs';
 	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import { settingsMutations } from './mutations';
-	import { settingsService } from './settings-service';
 	import { watch } from 'runed';
 
 	let {
@@ -19,6 +19,9 @@
 
 	const queryClient = useQueryClient();
 	const updateSettingsMutation = createMutation(() => settingsMutations.update(queryClient));
+	const detectBepInExMutation = createMutation(() =>
+		settingsMutations.autoDetectBepInExArchitecture(queryClient)
+	);
 
 	let selectedPath = $state('');
 	let error = $state('');
@@ -34,7 +37,7 @@
 
 	async function handleAutoDetect() {
 		try {
-			const path = await settingsService.detectAmongUsPath();
+			const path = await invoke<string | null>('platform_detect_among_us');
 			if (path) {
 				selectedPath = path;
 			}
@@ -45,7 +48,9 @@
 
 	async function detectAndSetPlatform(path: string) {
 		try {
-			const platform = await settingsService.detectGamePlatform(path);
+			const platform = await invoke<GamePlatform>('platform_detect_game_store', {
+				args: { path }
+			});
 			await updateSettingsMutation.mutateAsync({ game_platform: platform as GamePlatform });
 		} catch {
 			// Fallback to steam if detection fails
@@ -53,7 +58,7 @@
 	}
 
 	async function handleAutoSetBepinex() {
-		await settingsService.autoDetectBepInExArchitecture(selectedPath);
+		await detectBepInExMutation.mutateAsync(selectedPath);
 	}
 
 	async function handleBrowse() {

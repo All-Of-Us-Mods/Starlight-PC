@@ -1,5 +1,5 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { profileWorkflowService } from '../profile-workflow-service';
+import { invoke } from '@tauri-apps/api/core';
 import { notifyProfilesInvalidated } from './profile-invalidation-bridge';
 
 interface GameStatePayload {
@@ -43,7 +43,9 @@ class GameRuntimeStateStore {
 		if (this.#running && this.#runningProfileId) {
 			const duration = this.getSessionDuration();
 			if (duration > 0) {
-				await profileWorkflowService.addPlayTime(this.#runningProfileId, duration);
+				await invoke<void>('profiles_add_play_time', {
+					args: { profileId: this.#runningProfileId, durationMs: duration }
+				});
 				notifyProfilesInvalidated();
 			}
 		}

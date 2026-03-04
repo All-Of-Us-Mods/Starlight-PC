@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { onDestroy } from 'svelte';
 	import { save as saveDialog } from '@tauri-apps/plugin-dialog';
+	import { invoke } from '@tauri-apps/api/core';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { Debounced, watch } from 'runed';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -9,7 +10,6 @@
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { profileMutations } from '$lib/features/profiles/mutations';
-	import { profilePlatformAdapter } from '$lib/features/profiles/profile-platform-adapter';
 	import { modQueries } from '$lib/features/mods/queries';
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
 	import { formatPlayTime } from '$lib/utils';
@@ -25,8 +25,7 @@
 		type ProfileModUpdatesMap
 	} from '$lib/features/profiles/ui/profile-mod-updates-model';
 	import {
-		createProfileDetailController,
-		profileDetailRuntime
+		createProfileDetailController
 	} from '$lib/features/profiles/ui/profile-detail-controller';
 	import {
 		filterProfileMods,
@@ -58,6 +57,7 @@
 	const profile = $derived(findProfileById(profilesQuery.data as Profile[] | undefined, profileId));
 
 	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
+	const launchProfileMutation = createMutation(() => profileMutations.launchProfile());
 	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
 	const renameProfile = createMutation(() => profileMutations.rename(queryClient));
 	const updateProfileIcon = createMutation(() => profileMutations.updateIcon(queryClient));
@@ -66,7 +66,7 @@
 	const exportProfileZip = createMutation(() => profileMutations.exportZip());
 
 	const controller = createProfileDetailController({
-		launchProfile: profileDetailRuntime.launchProfile,
+		launchProfile: (profile) => launchProfileMutation.mutateAsync(profile),
 		updateLastLaunched: (id) => updateLastLaunched.mutateAsync(id),
 		deleteProfile: (id) => deleteProfile.mutateAsync(id),
 		removeProfileQueries: (id) =>
@@ -166,7 +166,9 @@
 
 	async function loadLocalImageBlobUrl(filePath: string): Promise<string | null> {
 		try {
-			const bytes = await profilePlatformAdapter.readBinaryFile(filePath);
+			const bytes = await invoke<Uint8Array>('profiles_read_binary_file', {
+				args: { path: filePath }
+			});
 			if (!bytes || bytes.length === 0) return null;
 			return URL.createObjectURL(new Blob([Uint8Array.from(bytes)]));
 		} catch {

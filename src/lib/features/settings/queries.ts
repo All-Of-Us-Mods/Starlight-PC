@@ -1,11 +1,12 @@
 import { queryOptions } from '@tanstack/svelte-query';
-import { settingsRepository } from './settings-repository';
+import { invoke } from '@tauri-apps/api/core';
 import { settingsQueryKey } from './settings-keys';
+import type { AppSettings } from './schema';
 
 export const settingsQueries = {
 	get: () =>
 		queryOptions({
 			queryKey: settingsQueryKey,
-			queryFn: () => settingsRepository.get()
+			queryFn: () => invoke<AppSettings>('core_get_settings')
 		})
 };

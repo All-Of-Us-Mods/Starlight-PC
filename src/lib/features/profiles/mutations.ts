@@ -1,6 +1,8 @@
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type { QueryClient } from '@tanstack/svelte-query';
-import { profileWorkflowService } from './profile-workflow-service';
-import type { ProfileIconSelection, UnifiedMod } from './schema';
+import { gameState } from './game-state.svelte';
+import type { BepInExProgress, Profile, ProfileIconSelection, UnifiedMod } from './schema';
 import { profileDiskFilesKey, profilesActiveQueryKey, profilesQueryKey } from './profile-keys';
 
 type ProfileSummary = { id: string; path: string };
@@ -9,6 +11,23 @@ type InstallArgs = {
 	profilePath: string;
 	mods: Array<{ modId: string; version: string }>;
 };
+
+async function installBepInEx(profileId: string, profilePath: string) {
+	let unlisten: (() => void) | undefined;
+	try {
+		unlisten = await listen<BepInExProgress>('bepinex-progress', (event) => {
+			gameState.setBepInExProgress(profileId, event.payload);
+		});
+		await invoke<void>('profiles_install_bepinex', { args: { profileId, profilePath } });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Unknown error';
+		gameState.setBepInExError(profileId, message);
+		throw error;
+	} finally {
+		unlisten?.();
+		gameState.clearBepInExProgress(profileId);
+	}
+}
 
 function getProfilePathFromCache(queryClient: QueryClient, profileId: string): string | undefined {
 	const profiles = queryClient.getQueryData<ProfileSummary[]>(profilesQueryKey);
@@ -28,14 +47,20 @@ async function invalidateProfileAndDiskQueries(
 
 export const profileMutations = {
 	create: (queryClient: QueryClient) => ({
-		mutationFn: (name: string) => profileWorkflowService.createProfile(name),
+		mutationFn: async (name: string) => {
+			const profile = await invoke<Profile>('profiles_create', { args: { name } });
+			void installBepInEx(profile.id, profile.path).finally(() => {
+				void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+			});
+			return profile;
+		},
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	delete: (queryClient: QueryClient) => ({
-		mutationFn: (profileId: string) => profileWorkflowService.deleteProfile(profileId),
+		mutationFn: (profileId: string) => invoke<void>('profiles_delete', { args: { profileId } }),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
@@ -43,7 +68,7 @@ export const profileMutations = {
 
 	rename: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; newName: string }) =>
-			profileWorkflowService.renameProfile(args.profileId, args.newName),
+			invoke<void>('profiles_rename', { args }),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
@@ -51,7 +76,7 @@ export const profileMutations = {
 
 	updateIcon: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; selection: ProfileIconSelection }) =>
-			profileWorkflowService.updateProfileIcon(args.profileId, args.selection),
+			invoke<void>('profiles_update_icon', { args }),
 		onSuccess: async (_data: void, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
 			await queryClient.invalidateQueries({ queryKey: profilesActiveQueryKey });
@@ -60,7 +85,7 @@ export const profileMutations = {
 
 	addMod: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; modId: string; version: string; file: string }) =>
-			profileWorkflowService.addModToProfile(args.profileId, args.modId, args.version, args.file),
+			invoke<void>('profiles_add_mod', { args }),
 		onSuccess: async (_data: void, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
 		}
@@ -68,7 +93,7 @@ export const profileMutations = {
 
 	removeMod: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; modId: string }) =>
-			profileWorkflowService.removeModFromProfile(args.profileId, args.modId),
+			invoke<void>('profiles_remove_mod', { args }),
 		onSuccess: async (_data: void, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
 		}
@@ -76,14 +101,17 @@ export const profileMutations = {
 
 	deleteUnifiedMod: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; mod: UnifiedMod }) =>
-			profileWorkflowService.deleteUnifiedMod(args.profileId, args.mod),
+			invoke<void>('profiles_delete_unified_mod', {
+				args: { profileId: args.profileId, modEntry: args.mod }
+			}),
 		onSuccess: async (_data: void, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
 		}
 	}),
 
 	cleanupMissingMods: (queryClient: QueryClient) => ({
-		mutationFn: (profileId: string) => profileWorkflowService.cleanupMissingMods(profileId),
+		mutationFn: (profileId: string) =>
+			invoke<void>('profiles_cleanup_missing_mods', { args: { profileId } }),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
@@ -91,7 +119,7 @@ export const profileMutations = {
 
 	updatePlayTime: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; durationMs: number }) =>
-			profileWorkflowService.addPlayTime(args.profileId, args.durationMs),
+			invoke<void>('profiles_add_play_time', { args }),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
@@ -99,7 +127,7 @@ export const profileMutations = {
 
 	retryBepInExInstall: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; profilePath: string }) =>
-			profileWorkflowService.retryBepInExInstall(args.profileId, args.profilePath),
+			installBepInEx(args.profileId, args.profilePath),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
@@ -107,11 +135,11 @@ export const profileMutations = {
 
 	exportZip: () => ({
 		mutationFn: (args: { profileId: string; destination: string }) =>
-			profileWorkflowService.exportProfileZip(args.profileId, args.destination)
+			invoke<void>('profiles_export_zip', { args })
 	}),
 
 	importZip: (queryClient: QueryClient) => ({
-		mutationFn: (zipPath: string) => profileWorkflowService.importProfileZip(zipPath),
+		mutationFn: (zipPath: string) => invoke<Profile>('profiles_import_zip', { args: { zipPath } }),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 			queryClient.invalidateQueries({ queryKey: profilesActiveQueryKey });
@@ -119,7 +147,8 @@ export const profileMutations = {
 	}),
 
 	updateLastLaunched: (queryClient: QueryClient) => ({
-		mutationFn: (profileId: string) => profileWorkflowService.updateLastLaunched(profileId),
+		mutationFn: (profileId: string) =>
+			invoke<void>('profiles_update_last_launched', { args: { profileId } }),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 			queryClient.invalidateQueries({ queryKey: profilesActiveQueryKey });
@@ -128,16 +157,42 @@ export const profileMutations = {
 
 	installMods: (queryClient: QueryClient) => ({
 		mutationFn: (args: InstallArgs) =>
-			profileWorkflowService.installMods(args.profileId, args.profilePath, args.mods),
+			invoke<Array<{ mod_id: string; version: string; file_name: string }>>(
+				'modding_install_profile_mods',
+				{
+					args: { ...args, apiBaseUrl: import.meta.env.PUBLIC_API_URL }
+				}
+			),
 		onSuccess: (
 			_data: Array<{ mod_id: string; version: string; file_name: string }>,
 			args: InstallArgs
 		) => {
 			void invalidateProfileAndDiskQueries(queryClient, args);
 		}
+	}),
+
+	launchProfile: () => ({
+		mutationFn: async (profile: Profile) => {
+			const result = await invoke<{ close_on_launch: boolean }>('game_launch_profile', {
+				args: { profileId: profile.id, profilePath: profile.path }
+			});
+			if (result.close_on_launch) {
+				const { getCurrentWindow } = await import('@tauri-apps/api/window');
+				await getCurrentWindow().close();
+			}
+		}
+	}),
+
+	launchVanilla: () => ({
+		mutationFn: async () => {
+			const result = await invoke<{ close_on_launch: boolean }>('game_launch_vanilla_workflow');
+			if (result.close_on_launch) {
+				const { getCurrentWindow } = await import('@tauri-apps/api/window');
+				await getCurrentWindow().close();
+			}
+		}
 	})
 };
 
-// Type helpers for mutation results
 export type CreateProfileMutation = ReturnType<typeof profileMutations.create>;
 export type DeleteProfileMutation = ReturnType<typeof profileMutations.delete>;
