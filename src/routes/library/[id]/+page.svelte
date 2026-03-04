@@ -60,8 +60,10 @@
 	const renameProfile = createMutation(() => profileMutations.rename(queryClient));
 	const updateProfileIcon = createMutation(() => profileMutations.updateIcon(queryClient));
 	const deleteUnifiedMod = createMutation(() => profileMutations.deleteUnifiedMod(queryClient));
+	const cleanupMissingMods = createMutation(() => profileMutations.cleanupMissingMods(queryClient));
 	const installMods = createMutation(() => profileMutations.installMods(queryClient));
 	const exportProfileZip = createMutation(() => profileMutations.exportZip());
+	const cleanedProfiles = new SvelteSet<string>();
 
 	const modIds = $derived(Array.from(new Set(profile?.mods.map((mod) => mod.mod_id) ?? [])));
 	const profileModsQuery = createQuery(() => ({
@@ -363,6 +365,18 @@
 		() => {
 			void refreshProfileIconSource();
 		}
+	);
+
+	watch(
+		() => profile?.id ?? '',
+		(currentProfileId) => {
+			if (!currentProfileId || cleanedProfiles.has(currentProfileId)) return;
+			cleanedProfiles.add(currentProfileId);
+			void cleanupMissingMods.mutateAsync(currentProfileId).catch(() => {
+				cleanedProfiles.delete(currentProfileId);
+			});
+		},
+		{ lazy: true }
 	);
 
 	const runningInstanceCount = $derived(

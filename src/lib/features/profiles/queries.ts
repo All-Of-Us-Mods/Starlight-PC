@@ -51,7 +51,6 @@ export const profileQueries = {
 				const diskSet = new Set(diskFiles);
 				const managedFiles = new Set<string>();
 				const unified: UnifiedMod[] = [];
-				const missingManaged = new Set<string>();
 
 				for (const mod of profile.mods) {
 					if (!mod.file) continue;
@@ -63,8 +62,6 @@ export const profileQueries = {
 							version: mod.version,
 							file: mod.file
 						});
-					} else {
-						missingManaged.add(mod.mod_id);
 					}
 				}
 
@@ -72,14 +69,6 @@ export const profileQueries = {
 					if (!managedFiles.has(file)) {
 						unified.push({ source: 'custom', file });
 					}
-				}
-
-				if (missingManaged.size > 0) {
-					await Promise.all(
-						Array.from(missingManaged).map((modId) =>
-							rustInvoke('profiles_remove_mod', { profileId, modId }).catch(() => undefined)
-						)
-					);
 				}
 
 				return unified;
