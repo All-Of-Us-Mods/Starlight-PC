@@ -1,6 +1,5 @@
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::{bepinex_service, core_service, profile_zip_service};
-use log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -500,76 +499,6 @@ pub fn get_profile_log(profile_path: &str, file_name: &str) -> String {
 
 pub fn read_binary_file(path: &str) -> AppResult<Vec<u8>> {
     Ok(fs::read(path)?)
-}
-
-fn cleanup_missing_managed_mods<R: Runtime>(
-    app: &AppHandle<R>,
-    profile_id: &str,
-    profile: &mut ProfileEntry,
-    disk_files: &HashSet<String>,
-) -> AppResult<()> {
-    let has_missing = profile
-        .mods
-        .iter()
-        .any(|mod_entry| mod_entry.file.as_ref().is_some_and(|file| !disk_files.contains(file)));
-    if !has_missing {
-        return Ok(());
-    }
-
-    profile
-        .mods
-        .retain(|mod_entry| mod_entry.file.as_ref().is_some_and(|file| disk_files.contains(file)));
-    normalize_icon_selection(profile);
-    write_profile(profile)?;
-    warn!("Cleaned missing managed mods for profile {}", profile_id);
-    let _ = app;
-    Ok(())
-}
-
-pub fn cleanup_missing_mods<R: Runtime>(app: &AppHandle<R>, profile_id: &str) -> AppResult<()> {
-    let Some(mut profile) = get_profile_by_id(app, profile_id)? else {
-        return Err(AppError::validation(format!(
-            "Profile '{profile_id}' not found"
-        )));
-    };
-    let disk_files: HashSet<String> = get_mod_files(&profile.path).into_iter().collect();
-    cleanup_missing_managed_mods(app, profile_id, &mut profile, &disk_files)
-}
-
-pub fn get_unified_mods<R: Runtime>(app: &AppHandle<R>, profile_id: &str) -> AppResult<Vec<UnifiedMod>> {
-    let Some(mut profile) = get_profile_by_id(app, profile_id)? else {
-        return Err(AppError::validation(format!(
-            "Profile '{profile_id}' not found"
-        )));
-    };
-
-    let disk_files = get_mod_files(&profile.path);
-    let disk_files_set: HashSet<String> = disk_files.iter().cloned().collect();
-    let mut managed_files: HashSet<String> = HashSet::new();
-    let mut unified = Vec::new();
-
-    for mod_entry in &profile.mods {
-        let Some(file) = mod_entry.file.as_ref() else {
-            continue;
-        };
-        managed_files.insert(file.clone());
-        if disk_files_set.contains(file) {
-            unified.push(UnifiedMod::Managed {
-                mod_id: mod_entry.mod_id.clone(),
-                version: mod_entry.version.clone(),
-                file: file.clone(),
-            });
-        }
-    }
-
-    for file in disk_files {
-        if !managed_files.contains(&file) {
-            unified.push(UnifiedMod::Custom { file });
-        }
-    }
-
-    cleanup_missing_managed_mods(app, profile_id, &mut profile, &disk_files_set)?;
-    Ok(unified)
 }
 
 pub fn delete_unified_mod<R: Runtime>(app: &AppHandle<R>, profile_id: &str, mod_entry: UnifiedMod) -> AppResult<()> {

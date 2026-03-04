@@ -25,3 +25,7 @@ cargo check                # Check Rust code
 cargo clippy               # Lint Rust code
 cargo fmt                  # Format Rust code
 ```
+
+## Architecture Boundary
+
+Use [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md) as the source of truth for frontend-first decisions and what is allowed to remain in Rust.

@@ -1,29 +1,5 @@
-import type { ModDependency } from '$lib/features/mods/schema';
 import type { Profile, ProfileIconSelection, UnifiedMod } from '$lib/features/profiles/schema';
 import type { AppSettings, GamePlatform } from '$lib/features/settings/schema';
-
-export type ResolvedDependency = {
-	mod_id: string;
-	modName: string;
-	resolvedVersion: string;
-	type: 'required' | 'optional' | 'conflict';
-};
-
-export type LaunchWorkflowResult = {
-	close_on_launch: boolean;
-};
-
-export type InstalledProfileMod = {
-	mod_id: string;
-	version: string;
-	file_name: string;
-};
-
-export type InstallProfileModsArgs = {
-	profileId: string;
-	profilePath: string;
-	mods: Array<{ modId: string; version: string }>;
-};
 
 export type RustCommandMap = {
 	core_get_settings: { args: void; result: AppSettings };
@@ -53,8 +29,6 @@ export type RustCommandMap = {
 	profiles_delete_mod_file: { args: { profilePath: string; fileName: string }; result: void };
 	profiles_get_log: { args: { profilePath: string; fileName: string }; result: string };
 	profiles_read_binary_file: { args: { path: string }; result: Uint8Array };
-	profiles_get_unified_mods: { args: { profileId: string }; result: UnifiedMod[] };
-	profiles_cleanup_missing_mods: { args: { profileId: string }; result: void };
 	profiles_delete_unified_mod: { args: { profileId: string; modEntry: UnifiedMod }; result: void };
 	profiles_export_zip: { args: { profileId: string; destination: string }; result: void };
 	profiles_import_zip: { args: { zipPath: string }; result: Profile };
@@ -70,8 +44,6 @@ export type RustCommandMap = {
 		args: { modId: string; url: string; destination: string; expectedChecksum: string };
 		result: void;
 	};
-	modding_resolve_dependencies: { args: { dependencies: ModDependency[] }; result: ResolvedDependency[] };
-	modding_install_profile_mods: { args: InstallProfileModsArgs; result: InstalledProfileMod[] };
 
 	game_launch_modded: {
 		args: {
@@ -90,11 +62,6 @@ export type RustCommandMap = {
 	game_xbox_prepare_launch: { args: { gameDir: string; profilePath: string }; result: void };
 	game_xbox_launch: { args: { appId: string; profileId: string | null }; result: void };
 	game_xbox_cleanup: { args: { gameDir: string }; result: void };
-	game_launch_profile: {
-		args: { profileId: string; profilePath: string };
-		result: LaunchWorkflowResult;
-	};
-	game_launch_vanilla_workflow: { args: void; result: LaunchWorkflowResult };
 
 	epic_is_logged_in: { args: void; result: boolean };
 	epic_login_code: { args: { code: string }; result: void };

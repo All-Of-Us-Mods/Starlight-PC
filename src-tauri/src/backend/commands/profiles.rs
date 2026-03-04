@@ -97,21 +97,9 @@ pub struct ProfilesReadBinaryFileArgs {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProfilesUnifiedModsArgs {
-    pub profile_id: String,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ProfilesDeleteUnifiedModArgs {
     pub profile_id: String,
     pub mod_entry: UnifiedMod,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfilesCleanupMissingModsArgs {
-    pub profile_id: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -258,22 +246,6 @@ pub async fn profiles_get_log(args: ProfilesGetLogArgs) -> Result<String, String
 #[tauri::command]
 pub async fn profiles_read_binary_file(args: ProfilesReadBinaryFileArgs) -> Result<Vec<u8>, String> {
     profile_service::read_binary_file(&args.path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn profiles_get_unified_mods<R: Runtime>(
-    app: AppHandle<R>,
-    args: ProfilesUnifiedModsArgs,
-) -> Result<Vec<UnifiedMod>, String> {
-    profile_service::get_unified_mods(&app, &args.profile_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn profiles_cleanup_missing_mods<R: Runtime>(
-    app: AppHandle<R>,
-    args: ProfilesCleanupMissingModsArgs,
-) -> Result<(), String> {
-    profile_service::cleanup_missing_mods(&app, &args.profile_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
