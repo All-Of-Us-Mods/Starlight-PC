@@ -50,6 +50,7 @@ export type RustCommandMap = {
 	profiles_remove_mod: { args: { profileId: string; modId: string }; result: void };
 	profiles_add_play_time: { args: { profileId: string; durationMs: number }; result: void };
 	profiles_get_mod_files: { args: { profilePath: string }; result: string[] };
+	profiles_delete_mod_file: { args: { profilePath: string; fileName: string }; result: void };
 	profiles_get_log: { args: { profilePath: string; fileName: string }; result: string };
 	profiles_read_binary_file: { args: { path: string }; result: Uint8Array };
 	profiles_get_unified_mods: { args: { profileId: string }; result: UnifiedMod[] };
@@ -65,9 +66,30 @@ export type RustCommandMap = {
 	};
 	modding_bepinex_cache_clear: { args: { cachePath: string }; result: void };
 	modding_bepinex_cache_exists: { args: { cachePath: string }; result: boolean };
+	modding_mod_download: {
+		args: { modId: string; url: string; destination: string; expectedChecksum: string };
+		result: void;
+	};
 	modding_resolve_dependencies: { args: { dependencies: ModDependency[] }; result: ResolvedDependency[] };
 	modding_install_profile_mods: { args: InstallProfileModsArgs; result: InstalledProfileMod[] };
 
+	game_launch_modded: {
+		args: {
+			gameExe: string;
+			profileId: string;
+			profilePath?: string;
+			bepinexDll: string;
+			dotnetDir: string;
+			coreclrPath: string;
+			platform: string;
+		};
+		result: void;
+	};
+	game_launch_vanilla: { args: { gameExe: string; platform: string }; result: void };
+	game_xbox_get_app_id: { args: void; result: string };
+	game_xbox_prepare_launch: { args: { gameDir: string; profilePath: string }; result: void };
+	game_xbox_launch: { args: { appId: string; profileId: string | null }; result: void };
+	game_xbox_cleanup: { args: { gameDir: string }; result: void };
 	game_launch_profile: {
 		args: { profileId: string; profilePath: string };
 		result: LaunchWorkflowResult;

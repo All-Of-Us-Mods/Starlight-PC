@@ -1,10 +1,13 @@
 import { listen } from '@tauri-apps/api/event';
+import { join } from '@tauri-apps/api/path';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { gameState } from './game-state.svelte';
 import type { BepInExProgress, Profile, ProfileIconSelection, UnifiedMod } from './schema';
 import { profileDiskFilesKey, profilesActiveQueryKey, profilesQueryKey } from './profile-keys';
 import { rustInvoke } from '$lib/infra/rust/invoke';
-import type { InstalledProfileMod } from '$lib/infra/rust/commands';
+import type { AppSettings } from '$lib/features/settings/schema';
+import { modQueries } from '$lib/features/mods/queries';
+import type { ModVersionInfo } from '$lib/features/mods/schema';
 
 type ProfileSummary = { id: string; path: string };
 type InstallArgs = {
@@ -12,6 +15,101 @@ type InstallArgs = {
 	profilePath: string;
 	mods: Array<{ modId: string; version: string }>;
 };
+
+type PreviousModState = Map<string, { version: string; file?: string } | null>;
+
+type InstalledModResult = { mod_id: string; version: string; file_name: string };
+
+type DownloadTarget = {
+	url: string;
+	fileName: string;
+	checksum: string;
+};
+
+const DEFAULT_API_BASE_URL = 'https://starlight.allofus.dev';
+
+function getApiBaseUrl(): string {
+	const raw = import.meta.env.VITE_STARLIGHT_API_URL;
+	return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : DEFAULT_API_BASE_URL;
+}
+
+function resolveAbsoluteUrl(baseUrl: string, pathOrUrl: string): string {
+	if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+		return pathOrUrl;
+	}
+	const base = baseUrl.replace(/\/+$/, '');
+	const route = pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`;
+	return `${base}${route}`;
+}
+
+function resolveDownloadTarget(
+	modId: string,
+	version: string,
+	versionInfo: ModVersionInfo,
+	platform: AppSettings['game_platform']
+): DownloadTarget {
+	const apiBaseUrl = getApiBaseUrl();
+	const legacyPath = `/api/v2/mods/${modId}/versions/${version}/file`;
+	const defaultUrl = versionInfo.download_url ?? legacyPath;
+	const fallback: DownloadTarget = {
+		url: resolveAbsoluteUrl(apiBaseUrl, defaultUrl),
+		fileName: versionInfo.file_name,
+		checksum: versionInfo.checksum
+	};
+
+	const platforms = versionInfo.platforms ?? [];
+	if (platforms.length === 0) return fallback;
+
+	const architectureFallbacks = platform === 'epic' ? ['x64', 'x86'] : ['x86'];
+	for (const arch of architectureFallbacks) {
+		const entry = platforms.find((candidate) => candidate.platform === 'windows' && candidate.architecture === arch);
+		if (!entry) continue;
+		const downloadUrl = entry.download_url ?? `${legacyPath}?platform=windows&arch=${arch}`;
+		return {
+			url: resolveAbsoluteUrl(apiBaseUrl, downloadUrl),
+			fileName: entry.file_name ?? versionInfo.file_name,
+			checksum: entry.checksum ?? versionInfo.checksum
+		};
+	}
+
+	return fallback;
+}
+
+async function getProfileById(profileId: string): Promise<Profile | null> {
+	const profiles = await rustInvoke('profiles_list');
+	return profiles.find((profile) => profile.id === profileId) ?? null;
+}
+
+async function rollbackInstalledMods(
+	profileId: string,
+	profilePath: string,
+	installed: InstalledModResult[],
+	persisted: InstalledModResult[],
+	previousByModId: PreviousModState
+) {
+	for (const item of [...persisted].reverse()) {
+		const previous = previousByModId.get(item.mod_id);
+		if (previous?.file) {
+			await rustInvoke('profiles_add_mod', {
+				profileId,
+				modId: item.mod_id,
+				version: previous.version,
+				file: previous.file
+			}).catch(() => undefined);
+		} else {
+			await rustInvoke('profiles_remove_mod', {
+				profileId,
+				modId: item.mod_id
+			}).catch(() => undefined);
+		}
+	}
+
+	for (const item of [...installed].reverse()) {
+		await rustInvoke('profiles_delete_mod_file', { profilePath, fileName: item.file_name }).catch(
+			() => undefined
+		);
+	}
+}
 
 async function installBepInEx(profileId: string, profilePath: string) {
 	let unlisten: (() => void) | undefined;
@@ -109,9 +207,17 @@ export const profileMutations = {
 	}),
 
 	cleanupMissingMods: (queryClient: QueryClient) => ({
-		mutationFn: (profileId: string) =>
-			rustInvoke('profiles_cleanup_missing_mods', { profileId }),
-		onSuccess: () => {
+		mutationFn: async (profileId: string) => {
+			const profile = await getProfileById(profileId);
+			if (!profile) return;
+			const diskFiles = await rustInvoke('profiles_get_mod_files', { profilePath: profile.path });
+			const diskSet = new Set(diskFiles);
+			const missingMods = profile.mods.filter((mod) => mod.file && !diskSet.has(mod.file));
+			await Promise.all(
+				missingMods.map((mod) => rustInvoke('profiles_remove_mod', { profileId, modId: mod.mod_id }))
+			);
+		},
+		onSuccess: async () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
@@ -155,19 +261,127 @@ export const profileMutations = {
 	}),
 
 	installMods: (queryClient: QueryClient) => ({
-		mutationFn: (args: InstallArgs) => rustInvoke('modding_install_profile_mods', args),
-		onSuccess: (_data: InstalledProfileMod[], args: InstallArgs) => {
+		mutationFn: async (args: InstallArgs) => {
+			const settings = await rustInvoke('core_get_settings');
+			const profile = await getProfileById(args.profileId);
+			if (!profile) {
+				throw new Error(`Profile '${args.profileId}' not found`);
+			}
+
+			const previousByModId: PreviousModState = new Map();
+			for (const item of args.mods) {
+				const previous = profile.mods.find((entry) => entry.mod_id === item.modId);
+				previousByModId.set(
+					item.modId,
+					previous ? { version: previous.version, file: previous.file ?? undefined } : null
+				);
+			}
+
+			const installed: InstalledModResult[] = [];
+			const persisted: InstalledModResult[] = [];
+
+			for (const item of args.mods) {
+				try {
+					const versionInfo = await queryClient.fetchQuery(
+						modQueries.versionInfo(item.modId, item.version)
+					);
+					const target = resolveDownloadTarget(
+						item.modId,
+						item.version,
+						versionInfo,
+						settings.game_platform
+					);
+					const destination = await join(args.profilePath, 'BepInEx', 'plugins', target.fileName);
+					await rustInvoke('modding_mod_download', {
+						modId: item.modId,
+						url: target.url,
+						destination,
+						expectedChecksum: target.checksum
+					});
+
+					installed.push({
+						mod_id: item.modId,
+						version: item.version,
+						file_name: target.fileName
+					});
+
+					await rustInvoke('profiles_add_mod', {
+						profileId: args.profileId,
+						modId: item.modId,
+						version: item.version,
+						file: target.fileName
+					});
+
+					persisted.push({
+						mod_id: item.modId,
+						version: item.version,
+						file_name: target.fileName
+					});
+
+					const previous = previousByModId.get(item.modId);
+					if (previous?.file && previous.file !== target.fileName) {
+						await rustInvoke('profiles_delete_mod_file', {
+							profilePath: args.profilePath,
+							fileName: previous.file
+						}).catch(() => undefined);
+					}
+				} catch (error) {
+					await rollbackInstalledMods(
+						args.profileId,
+						args.profilePath,
+						installed,
+						persisted,
+						previousByModId
+					);
+					throw error;
+				}
+			}
+
+			return installed;
+		},
+		onSuccess: (_data: InstalledModResult[], args: InstallArgs) => {
 			void invalidateProfileAndDiskQueries(queryClient, args);
 		}
 	}),
 
 	launchProfile: () => ({
 		mutationFn: async (profile: Profile) => {
-			const result = await rustInvoke('game_launch_profile', {
-				profileId: profile.id,
-				profilePath: profile.path
-			});
-			if (result.close_on_launch) {
+			const settings = await rustInvoke('core_get_settings');
+			if (!settings.among_us_path?.trim()) {
+				throw new Error('Among Us path not configured');
+			}
+
+			if (settings.game_platform === 'xbox') {
+				let appId = settings.xbox_app_id?.trim() ?? '';
+				if (!appId) {
+					appId = await rustInvoke('game_xbox_get_app_id');
+					await rustInvoke('core_update_settings', { updates: { xbox_app_id: appId } });
+				}
+				await rustInvoke('game_xbox_prepare_launch', {
+					gameDir: settings.among_us_path,
+					profilePath: profile.path
+				});
+				await rustInvoke('game_xbox_launch', {
+					appId,
+					profileId: profile.id
+				});
+			} else {
+				const gameExe = await join(settings.among_us_path, 'Among Us.exe');
+				const bepinexDll = await join(profile.path, 'BepInEx', 'core', 'BepInEx.Unity.IL2CPP.dll');
+				const dotnetDir = await join(profile.path, 'dotnet');
+				const coreclrPath = await join(dotnetDir, 'coreclr.dll');
+				await rustInvoke('game_launch_modded', {
+					gameExe,
+					profileId: profile.id,
+					profilePath: profile.path,
+					bepinexDll,
+					dotnetDir,
+					coreclrPath,
+					platform: settings.game_platform
+				});
+			}
+
+			if (settings.close_on_launch) {
 				const { getCurrentWindow } = await import('@tauri-apps/api/window');
 				await getCurrentWindow().close();
 			}
@@ -176,8 +390,28 @@ export const profileMutations = {
 
 	launchVanilla: () => ({
 		mutationFn: async () => {
-			const result = await rustInvoke('game_launch_vanilla_workflow');
-			if (result.close_on_launch) {
+			const settings = await rustInvoke('core_get_settings');
+			if (!settings.among_us_path?.trim()) {
+				throw new Error('Among Us path not configured');
+			}
+
+			if (settings.game_platform === 'xbox') {
+				let appId = settings.xbox_app_id?.trim() ?? '';
+				if (!appId) {
+					appId = await rustInvoke('game_xbox_get_app_id');
+					await rustInvoke('core_update_settings', { updates: { xbox_app_id: appId } });
+				}
+				await rustInvoke('game_xbox_cleanup', { gameDir: settings.among_us_path });
+				await rustInvoke('game_xbox_launch', { appId, profileId: null });
+			} else {
+				const gameExe = await join(settings.among_us_path, 'Among Us.exe');
+				await rustInvoke('game_launch_vanilla', {
+					gameExe,
+					platform: settings.game_platform
+				});
+			}
+
+			if (settings.close_on_launch) {
 				const { getCurrentWindow } = await import('@tauri-apps/api/window');
 				await getCurrentWindow().close();
 			}

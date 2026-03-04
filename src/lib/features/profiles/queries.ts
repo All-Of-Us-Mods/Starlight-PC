@@ -9,6 +9,7 @@ import {
 	profilesHasAnyQueryKey,
 	profilesQueryKey
 } from './profile-keys';
+import type { UnifiedMod } from './schema';
 
 export const profileQueries = {
 	dir: () =>
@@ -39,10 +40,50 @@ export const profileQueries = {
 			enabled: !!profilePath
 		}),
 	unifiedMods: (profileId: string) =>
-		rustQueryOptions({
+		queryOptions({
 			queryKey: profileUnifiedModsKey(profileId),
-			command: 'profiles_get_unified_mods',
-			args: { profileId },
+			queryFn: async () => {
+				const profiles = await rustInvoke('profiles_list');
+				const profile = profiles.find((entry) => entry.id === profileId);
+				if (!profile) return [];
+
+				const diskFiles = await rustInvoke('profiles_get_mod_files', { profilePath: profile.path });
+				const diskSet = new Set(diskFiles);
+				const managedFiles = new Set<string>();
+				const unified: UnifiedMod[] = [];
+				const missingManaged = new Set<string>();
+
+				for (const mod of profile.mods) {
+					if (!mod.file) continue;
+					managedFiles.add(mod.file);
+					if (diskSet.has(mod.file)) {
+						unified.push({
+							source: 'managed',
+							mod_id: mod.mod_id,
+							version: mod.version,
+							file: mod.file
+						});
+					} else {
+						missingManaged.add(mod.mod_id);
+					}
+				}
+
+				for (const file of diskFiles) {
+					if (!managedFiles.has(file)) {
+						unified.push({ source: 'custom', file });
+					}
+				}
+
+				if (missingManaged.size > 0) {
+					await Promise.all(
+						Array.from(missingManaged).map((modId) =>
+							rustInvoke('profiles_remove_mod', { profileId, modId }).catch(() => undefined)
+						)
+					);
+				}
+
+				return unified;
+			},
 			enabled: !!profileId
 		}),
 	binaryFile: (path: string) =>
