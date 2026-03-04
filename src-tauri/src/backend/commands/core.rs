@@ -41,8 +41,8 @@ pub async fn core_auto_detect_bepinex_architecture<R: Runtime>(
     app: AppHandle<R>,
     args: CoreAutoDetectBepInExArchitectureArgs,
 ) -> Result<Option<String>, String> {
-    let detected =
-        core_service::auto_detect_bepinex_architecture(&app, &args.game_path).map_err(|e| e.to_string())?;
+    let detected = core_service::auto_detect_bepinex_architecture(&app, &args.game_path)
+        .map_err(|e| e.to_string())?;
 
     if let Some(url) = detected.clone() {
         core_service::update_settings(
