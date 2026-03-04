@@ -128,10 +128,10 @@ fn resolve_version(
     let req = semver::VersionReq::parse(version_constraint).ok();
     if let Some(req) = req {
         for item in versions_sorted {
-            if let Ok(version) = Version::parse(&item.version) {
-                if req.matches(&version) {
-                    return Some(item.version.clone());
-                }
+            if let Ok(version) = Version::parse(&item.version)
+                && req.matches(&version)
+            {
+                return Some(item.version.clone());
             }
         }
     }
@@ -311,13 +311,11 @@ pub async fn install_mods_for_profile<R: Runtime>(
             file_name: target.file_name.clone(),
         });
 
-        if let Some(Some((_version, old_file))) = previous_by_mod_id.get(&item.mod_id) {
-            if let Some(old_file) = old_file {
-                if old_file != &target.file_name {
-                    let _ = profile_service::delete_mod_file(profile_path, old_file);
-                }
+        if let Some(Some((_version, Some(old_file)))) = previous_by_mod_id.get(&item.mod_id)
+            && old_file != &target.file_name
+        {
+            let _ = profile_service::delete_mod_file(profile_path, old_file);
             }
-        }
     }
 
     Ok(installed)

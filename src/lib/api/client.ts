@@ -1,6 +1,6 @@
 import { PUBLIC_API_URL } from '$env/static/public';
+import { invoke } from '@tauri-apps/api/core';
 import { debug, error as logError } from '@tauri-apps/plugin-log';
-import { fetch } from '@tauri-apps/plugin-http';
 
 export async function apiFetch<T>(
 	path: string,
@@ -10,15 +10,9 @@ export async function apiFetch<T>(
 	debug(`Fetching: ${url}`);
 
 	try {
-		const response = await fetch(url);
-
-		if (!response.ok) {
-			const errorMsg = `HTTP error: ${response.status} ${response.statusText}`;
-			logError(`${errorMsg} for ${url}`);
-			throw new Error(errorMsg);
-		}
-
-		const jsonData = await response.json();
+		const jsonData = await invoke<unknown>('core_api_get', {
+			args: { apiBaseUrl: PUBLIC_API_URL, path }
+		});
 		debug(`Response received for: ${path}`);
 		return validator.assert(jsonData);
 	} catch (error) {

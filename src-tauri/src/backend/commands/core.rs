@@ -13,6 +13,13 @@ pub struct CoreAutoDetectBepInExArchitectureArgs {
     pub game_path: String,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreApiGetArgs {
+    pub api_base_url: String,
+    pub path: String,
+}
+
 #[tauri::command]
 pub async fn core_get_settings<R: Runtime>(app: AppHandle<R>) -> Result<AppSettings, String> {
     core_service::get_settings(&app).map_err(|e| e.to_string())
@@ -42,4 +49,11 @@ pub async fn core_auto_detect_bepinex_architecture<R: Runtime>(
     args: CoreAutoDetectBepInExArchitectureArgs,
 ) -> Result<Option<String>, String> {
     core_service::auto_detect_bepinex_architecture(&app, &args.game_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn core_api_get(args: CoreApiGetArgs) -> Result<serde_json::Value, String> {
+    core_service::api_get_json(&args.api_base_url, &args.path)
+        .await
+        .map_err(|e| e.to_string())
 }

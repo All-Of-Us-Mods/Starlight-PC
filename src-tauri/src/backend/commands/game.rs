@@ -1,4 +1,5 @@
 use crate::backend::services::launch_service::{self, LaunchModdedArgs, LaunchVanillaArgs};
+use crate::backend::services::game_workflow_service::{self, LaunchProfileWorkflowArgs, LaunchWorkflowResult};
 use crate::backend::services::xbox_service::{
     self, XboxCleanupArgs, XboxLaunchArgs, XboxPrepareLaunchArgs,
 };
@@ -45,4 +46,23 @@ pub async fn game_xbox_launch<R: Runtime>(
 #[tauri::command]
 pub async fn game_xbox_cleanup(args: XboxCleanupArgs) -> Result<(), String> {
     xbox_service::cleanup_xbox_files(args).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn game_launch_profile<R: Runtime>(
+    app: AppHandle<R>,
+    args: LaunchProfileWorkflowArgs,
+) -> Result<LaunchWorkflowResult, String> {
+    game_workflow_service::launch_profile(app, args)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn game_launch_vanilla_workflow<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<LaunchWorkflowResult, String> {
+    game_workflow_service::launch_vanilla(app)
+        .await
+        .map_err(|e| e.to_string())
 }

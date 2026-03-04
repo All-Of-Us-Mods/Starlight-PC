@@ -149,3 +149,22 @@ pub fn auto_detect_bepinex_architecture<R: Runtime>(
 
     Ok(Some(updated_url))
 }
+
+pub async fn api_get_json(api_base_url: &str, path: &str) -> AppResult<serde_json::Value> {
+    let base = api_base_url.trim_end_matches('/');
+    let route = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
+    let url = format!("{base}{route}");
+    let response = reqwest::get(url).await?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(crate::backend::error::AppError::other(format!(
+            "HTTP error: {}",
+            status
+        )));
+    }
+    Ok(response.json::<serde_json::Value>().await?)
+}
