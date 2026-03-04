@@ -232,18 +232,22 @@
 		});
 	}
 
-	function paginateProfileMods(mods: UnifiedMod[], page: number, pageSize = PROFILE_MODS_PAGE_SIZE) {
-		const start = page * pageSize;
+	function paginateProfileMods(mods: UnifiedMod[], pageIndex: number, pageSize = PROFILE_MODS_PAGE_SIZE) {
+		const start = pageIndex * pageSize;
 		return mods.slice(start, start + pageSize);
 	}
 
-	function getProfileModsPagination(total: number, page: number, pageSize = PROFILE_MODS_PAGE_SIZE) {
+	function getProfileModsPagination(
+		total: number,
+		pageIndex: number,
+		pageSize = PROFILE_MODS_PAGE_SIZE
+	) {
 		const totalPages = Math.ceil(total / pageSize);
-		const hasNextPage = page < totalPages - 1;
+		const hasNextPage = pageIndex < totalPages - 1;
 		return {
 			totalPages,
 			hasNextPage,
-			showPagination: page > 0 || hasNextPage
+			showPagination: pageIndex > 0 || hasNextPage
 		};
 	}
 
@@ -599,16 +603,16 @@
 		}
 	}
 
-	async function openProfileFolder(profile: Profile) {
+	async function openProfileFolder(profileEntry: Profile) {
 		try {
-			await revealItemInDir(await join(profile.path, 'BepInEx'));
+			await revealItemInDir(await join(profileEntry.path, 'BepInEx'));
 		} catch (error) {
 			showError(error, 'Open folder');
 		}
 	}
 
-	function goToInstallMods(profileId: string) {
-		rememberInstallTarget(profileId, 'install-click');
+	function goToInstallMods(targetProfileId: string) {
+		rememberInstallTarget(targetProfileId, 'install-click');
 		goto(resolve('/explore'));
 	}
 

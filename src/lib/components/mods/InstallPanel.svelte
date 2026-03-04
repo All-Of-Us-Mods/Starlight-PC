@@ -171,8 +171,8 @@
 			installError = e instanceof Error ? e.message : 'Failed to install';
 		} finally {
 			unlisten?.();
-			for (const modId of modsBeingInstalled) {
-				gameState.clearModDownload(modId);
+			for (const installingModId of modsBeingInstalled) {
+				gameState.clearModDownload(installingModId);
 			}
 			isInstalling = false;
 			modsBeingInstalled = [];

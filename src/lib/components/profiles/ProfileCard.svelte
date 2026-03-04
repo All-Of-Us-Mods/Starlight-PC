@@ -147,9 +147,9 @@
 
 	const modCount = $derived(unifiedMods().length);
 
-	function buildUnifiedMods(profile: Profile, diskFiles: string[]): UnifiedMod[] {
-		const managedFiles = new Set(profile.mods.map((mod) => mod.file).filter(Boolean));
-		const unified: UnifiedMod[] = profile.mods
+	function buildUnifiedMods(profileEntry: Profile, diskFiles: string[]): UnifiedMod[] {
+		const managedFiles = new Set(profileEntry.mods.map((mod) => mod.file).filter(Boolean));
+		const unified: UnifiedMod[] = profileEntry.mods
 			.filter((mod) => mod.file && diskFiles.includes(mod.file))
 			.map((mod) => ({
 				source: 'managed' as const,
@@ -166,10 +166,13 @@
 		return unified;
 	}
 
-	function buildProfileModChips(unifiedMods: UnifiedMod[], modsMap: Map<string, Mod>): ProfileModChip[] {
-		return unifiedMods.map((mod) => {
+	function buildProfileModChips(
+		unifiedModEntries: UnifiedMod[],
+		modsById: Map<string, Mod>
+	): ProfileModChip[] {
+		return unifiedModEntries.map((mod) => {
 			if (mod.source === 'managed') {
-				const modInfo = modsMap.get(mod.mod_id);
+				const modInfo = modsById.get(mod.mod_id);
 				return { id: mod.mod_id, name: modInfo?.name ?? mod.mod_id, source: 'managed' as const };
 			}
 			return { id: mod.file, name: mod.file, source: 'custom' as const };
@@ -179,9 +182,9 @@
 	function findUnifiedModByChip(
 		chipId: string,
 		source: 'managed' | 'custom',
-		unifiedMods: UnifiedMod[]
+		unifiedModEntries: UnifiedMod[]
 	) {
-		return unifiedMods.find((mod) =>
+		return unifiedModEntries.find((mod) =>
 			source === 'managed' ? mod.source === 'managed' && mod.mod_id === chipId : mod.file === chipId
 		);
 	}

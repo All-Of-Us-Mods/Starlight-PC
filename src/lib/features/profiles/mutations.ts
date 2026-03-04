@@ -87,28 +87,32 @@ async function rollbackInstalledMods(
 	persisted: InstalledModResult[],
 	previousByModId: PreviousModState
 ) {
-	for (const item of [...persisted].reverse()) {
-		const previous = previousByModId.get(item.mod_id);
-		if (previous?.file) {
-			await rustInvoke('profiles_add_mod', {
-				profileId,
-				modId: item.mod_id,
-				version: previous.version,
-				file: previous.file
-			}).catch(() => undefined);
-		} else {
+	await Promise.all(
+		persisted.toReversed().map(async (item) => {
+			const previous = previousByModId.get(item.mod_id);
+			if (previous?.file) {
+				await rustInvoke('profiles_add_mod', {
+					profileId,
+					modId: item.mod_id,
+					version: previous.version,
+					file: previous.file
+				}).catch(() => undefined);
+				return;
+			}
 			await rustInvoke('profiles_remove_mod', {
 				profileId,
 				modId: item.mod_id
 			}).catch(() => undefined);
-		}
-	}
+		})
+	);
 
-	for (const item of [...installed].reverse()) {
-		await rustInvoke('profiles_delete_mod_file', { profilePath, fileName: item.file_name }).catch(
-			() => undefined
-		);
-	}
+	await Promise.all(
+		installed.toReversed().map((item) =>
+			rustInvoke('profiles_delete_mod_file', { profilePath, fileName: item.file_name }).catch(
+				() => undefined
+			)
+		)
+	);
 }
 
 async function installBepInEx(profileId: string, profilePath: string) {
@@ -280,7 +284,10 @@ export const profileMutations = {
 			const installed: InstalledModResult[] = [];
 			const persisted: InstalledModResult[] = [];
 
-			for (const item of args.mods) {
+			const installSequentially = async (index: number): Promise<void> => {
+				if (index >= args.mods.length) return;
+				const item = args.mods[index];
+
 				try {
 					const versionInfo = await queryClient.fetchQuery(
 						modQueries.versionInfo(item.modId, item.version)
@@ -335,7 +342,11 @@ export const profileMutations = {
 					);
 					throw error;
 				}
-			}
+
+				await installSequentially(index + 1);
+			};
+
+			await installSequentially(0);
 
 			return installed;
 		},
