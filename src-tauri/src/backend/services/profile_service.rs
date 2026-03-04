@@ -498,6 +498,10 @@ pub fn get_profile_log(profile_path: &str, file_name: &str) -> String {
     fs::read_to_string(log_path).unwrap_or_default()
 }
 
+pub fn read_binary_file(path: &str) -> AppResult<Vec<u8>> {
+    Ok(fs::read(path)?)
+}
+
 fn cleanup_missing_managed_mods<R: Runtime>(
     app: &AppHandle<R>,
     profile_id: &str,

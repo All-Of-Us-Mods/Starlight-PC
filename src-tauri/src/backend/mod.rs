@@ -100,6 +100,7 @@ pub fn run() {
             commands::profiles::profiles_get_mod_files,
             commands::profiles::profiles_delete_mod_file,
             commands::profiles::profiles_get_log,
+            commands::profiles::profiles_read_binary_file,
             commands::profiles::profiles_get_unified_mods,
             commands::profiles::profiles_cleanup_missing_mods,
             commands::profiles::profiles_delete_unified_mod,

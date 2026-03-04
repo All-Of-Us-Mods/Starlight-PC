@@ -168,7 +168,7 @@
 		try {
 			const bytes = await profilePlatformAdapter.readBinaryFile(filePath);
 			if (!bytes || bytes.length === 0) return null;
-			return URL.createObjectURL(new Blob([bytes]));
+			return URL.createObjectURL(new Blob([Uint8Array.from(bytes)]));
 		} catch {
 			return null;
 		}

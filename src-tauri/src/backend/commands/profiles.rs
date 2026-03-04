@@ -91,6 +91,12 @@ pub struct ProfilesGetLogArgs {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProfilesReadBinaryFileArgs {
+    pub path: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProfilesUnifiedModsArgs {
     pub profile_id: String,
 }
@@ -247,6 +253,11 @@ pub async fn profiles_get_log(args: ProfilesGetLogArgs) -> Result<String, String
         &args.profile_path,
         args.file_name.as_deref().unwrap_or("LogOutput.log"),
     ))
+}
+
+#[tauri::command]
+pub async fn profiles_read_binary_file(args: ProfilesReadBinaryFileArgs) -> Result<Vec<u8>, String> {
+    profile_service::read_binary_file(&args.path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
