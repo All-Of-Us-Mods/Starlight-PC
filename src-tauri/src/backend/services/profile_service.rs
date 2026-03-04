@@ -609,7 +609,10 @@ pub fn delete_mod_file(profile_path: &str, file_name: &str) -> AppResult<()> {
 }
 
 pub fn get_profile_log(profile_path: &str, file_name: &str) -> String {
-    let Some(base_name) = Path::new(file_name).file_name().and_then(|name| name.to_str()) else {
+    let Some(base_name) = Path::new(file_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+    else {
         return String::new();
     };
     if base_name != file_name || file_name.contains('/') || file_name.contains('\\') {
@@ -626,7 +629,9 @@ pub fn read_binary_file<R: Runtime>(app: &AppHandle<R>, path: &str) -> AppResult
         .canonicalize()
         .map_err(|_| AppError::validation("Path does not exist"))?;
     if !canonical.starts_with(&allowed_root) {
-        return Err(AppError::validation("Path is outside the allowed directory"));
+        return Err(AppError::validation(
+            "Path is outside the allowed directory",
+        ));
     }
     Ok(fs::read(canonical)?)
 }
