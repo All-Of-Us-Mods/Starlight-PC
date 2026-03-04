@@ -37,7 +37,9 @@ export const profileQueries = {
 				const profile = profiles.find((entry) => entry.id === profileId);
 				if (!profile) return [];
 
-				const diskFiles = await rustInvoke('profiles_get_mod_files', { profilePath: profile.path });
+				const diskFiles = queryClient
+					? await queryClient.fetchQuery(profileQueries.diskFiles(profile.path))
+					: await rustInvoke('profiles_get_mod_files', { profilePath: profile.path });
 				const diskSet = new Set(diskFiles);
 				const managedFiles = new Set<string>();
 				const unified: UnifiedMod[] = [];
