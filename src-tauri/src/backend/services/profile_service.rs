@@ -254,7 +254,10 @@ pub fn get_profiles<R: Runtime>(app: &AppHandle<R>) -> AppResult<Vec<ProfileEntr
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
-            Err(_) => continue,
+            Err(error) => {
+                log::warn!("Failed to read profiles directory entry: {error}");
+                continue;
+            }
         };
         let path = entry.path();
         if !path.is_dir() {
@@ -804,7 +807,10 @@ pub fn import_profile_zip<R: Runtime>(
             .collect(),
     };
     normalize_icon_selection(&mut profile);
-    write_profile(&profile)?;
+    if let Err(error) = write_profile(&profile) {
+        let _ = fs::remove_dir_all(&profile_path);
+        return Err(error);
+    }
     Ok(profile)
 }
 

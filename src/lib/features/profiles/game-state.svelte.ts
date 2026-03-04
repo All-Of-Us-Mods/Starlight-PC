@@ -155,6 +155,9 @@ export const gameState = {
 			modDownloads.set(modId, { status: 'downloading', progress });
 		}
 	},
+	setModDownloadError(modId: string, message: string) {
+		modDownloads.set(modId, { status: 'error', message });
+	},
 	clearModDownload(modId: string) {
 		modDownloads.delete(modId);
 	},

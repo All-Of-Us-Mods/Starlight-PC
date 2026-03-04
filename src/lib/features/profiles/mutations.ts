@@ -16,7 +16,6 @@ import type { AppSettings } from '$lib/features/settings/schema';
 import { modQueries } from '$lib/features/mods/queries';
 import type { ModVersionInfo } from '$lib/features/mods/schema';
 import { resolveApiUrl } from '$lib/api/client';
-import { showError } from '$lib/utils/toast';
 import { epicService } from '$lib/features/settings/epic-service';
 
 type ProfileSummary = { id: string; path: string };
@@ -166,15 +165,12 @@ async function invalidateProfileAndDiskQueries(
 export const profileMutations = {
 	create: (queryClient: QueryClient) => ({
 		mutationFn: async (name: string) => {
-			const profile = await rustInvoke('profiles_create', { name });
-			void installBepInEx(profile.id, profile.path)
-				.catch((error) => {
-					showError(error, 'BepInEx install');
-				})
-				.finally(() => {
-					void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
-				});
-			return profile;
+				const profile = await rustInvoke('profiles_create', { name });
+				void installBepInEx(profile.id, profile.path)
+					.finally(() => {
+						void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+					});
+				return profile;
 		},
 		onSuccess: (created: Profile) => {
 			queryClient.setQueryData<Profile[] | undefined>(profilesQueryKey, (current) => {
@@ -294,6 +290,7 @@ export const profileMutations = {
 			}
 			modsInstallInFlight.add(args.profileId);
 			let unlistenModDownload: UnlistenFn | undefined;
+			let failed = false;
 			const installed: InstalledModResult[] = [];
 
 			try {
@@ -386,11 +383,22 @@ export const profileMutations = {
 				);
 
 				return installed;
+			} catch (error) {
+				failed = true;
+				const message = error instanceof Error ? error.message : 'Unknown error';
+				for (const item of args.mods) {
+					if (!installed.some((entry) => entry.mod_id === item.modId)) {
+						gameState.setModDownloadError(item.modId, message);
+					}
+				}
+				throw error;
 			} finally {
 				modsInstallInFlight.delete(args.profileId);
 				unlistenModDownload?.();
-				for (const item of args.mods) {
-					gameState.clearModDownload(item.modId);
+				if (!failed) {
+					for (const item of args.mods) {
+						gameState.clearModDownload(item.modId);
+					}
 				}
 			}
 		},
