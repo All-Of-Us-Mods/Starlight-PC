@@ -294,10 +294,8 @@ export const profileMutations = {
 			const persisted: InstalledModResult[] = [];
 			const replacedFilesToDelete = new Set<string>();
 
-			const installSequentially = async (index: number): Promise<void> => {
-				if (index >= args.mods.length) return;
-				const item = args.mods[index];
-
+			/* eslint-disable no-await-in-loop */
+			for (const item of args.mods) {
 				try {
 					const versionInfo = await queryClient.fetchQuery(
 						modQueries.versionInfo(item.modId, item.version)
@@ -349,11 +347,8 @@ export const profileMutations = {
 					);
 					throw error;
 				}
-
-				await installSequentially(index + 1);
-			};
-
-			await installSequentially(0);
+			}
+			/* eslint-enable no-await-in-loop */
 			await Promise.all(
 				Array.from(replacedFilesToDelete).map((fileName) =>
 					rustInvoke('profiles_delete_mod_file', {
