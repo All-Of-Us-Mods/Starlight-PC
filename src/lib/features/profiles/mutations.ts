@@ -1,5 +1,6 @@
 import { listen } from '@tauri-apps/api/event';
 import { join } from '@tauri-apps/api/path';
+import { exists } from '@tauri-apps/plugin-fs';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { gameState } from './game-state.svelte';
 import type { BepInExProgress, Profile, ProfileIconSelection, UnifiedMod } from './schema';
@@ -122,6 +123,12 @@ async function installBepInEx(profileId: string, profilePath: string) {
 		if (succeeded) {
 			gameState.clearBepInExProgress(profileId);
 		}
+	}
+}
+
+async function assertPathExists(path: string, message: string) {
+	if (!(await exists(path))) {
+		throw new Error(message);
 	}
 }
 
@@ -394,9 +401,18 @@ export const profileMutations = {
 				});
 			} else {
 				const gameExe = await join(settings.among_us_path, 'Among Us.exe');
+				await assertPathExists(gameExe, 'Among Us.exe not found at configured path');
 				const bepinexDll = await join(profile.path, 'BepInEx', 'core', 'BepInEx.Unity.IL2CPP.dll');
+				await assertPathExists(
+					bepinexDll,
+					'BepInEx DLL not found. Please wait for installation to complete.'
+				);
 				const dotnetDir = await join(profile.path, 'dotnet');
 				const coreclrPath = await join(dotnetDir, 'coreclr.dll');
+				await assertPathExists(
+					coreclrPath,
+					'dotnet runtime not found. Please wait for installation to complete.'
+				);
 				await rustInvoke('game_launch_modded', {
 					gameExe,
 					profileId: profile.id,
@@ -433,11 +449,12 @@ export const profileMutations = {
 				}
 				await rustInvoke('game_xbox_cleanup', { gameDir: settings.among_us_path });
 				await rustInvoke('game_xbox_launch', { appId, profileId: null });
-			} else {
-				const gameExe = await join(settings.among_us_path, 'Among Us.exe');
-				await rustInvoke('game_launch_vanilla', {
-					gameExe,
-					platform: settings.game_platform
+				} else {
+					const gameExe = await join(settings.among_us_path, 'Among Us.exe');
+					await assertPathExists(gameExe, 'Among Us.exe not found at configured path');
+					await rustInvoke('game_launch_vanilla', {
+						gameExe,
+						platform: settings.game_platform
 				});
 			}
 

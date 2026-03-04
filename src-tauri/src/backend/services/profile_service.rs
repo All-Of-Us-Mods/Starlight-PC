@@ -659,7 +659,11 @@ fn derive_name_from_zip_path(zip_path: &str) -> String {
         .trim()
         .to_string();
 
-    let without_zip = file_name.strip_suffix(".zip").unwrap_or(&file_name).trim();
+    let without_zip = if file_name.to_ascii_lowercase().ends_with(".zip") {
+        file_name[..file_name.len() - 4].trim()
+    } else {
+        file_name.as_str()
+    };
     if without_zip.is_empty() {
         "Imported Profile".to_string()
     } else {
