@@ -23,12 +23,10 @@
 
 	const queryClient = useQueryClient();
 	const sidebar = setSidebar();
-	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
 	const launchProfile = createMutation(() => profileMutations.launchProfile());
 	const profilesQuery = createQuery(() => profileQueries.all());
 	const shellController = createShellController({
-		launchProfile: (profile) => launchProfile.mutateAsync(profile),
-		updateLastLaunched: (id) => updateLastLaunched.mutateAsync(id)
+		launchProfile: (profile) => launchProfile.mutateAsync(profile)
 	});
 
 	let platformName = $state<Platform>('other');

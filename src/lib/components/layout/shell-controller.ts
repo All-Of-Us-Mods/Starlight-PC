@@ -3,7 +3,6 @@ import type { Profile } from '$lib/features/profiles/schema';
 
 interface ShellControllerDeps {
 	launchProfile: (profile: Profile) => Promise<void>;
-	updateLastLaunched: (profileId: string) => Promise<void>;
 }
 
 export function getSidebarWidth(isMaximized: boolean): string {
@@ -28,7 +27,6 @@ export function createShellController(deps: ShellControllerDeps) {
 
 			try {
 				await deps.launchProfile(activeProfile);
-				await deps.updateLastLaunched(activeProfile.id);
 			} catch (error) {
 				showError(error);
 			}

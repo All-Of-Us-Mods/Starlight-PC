@@ -68,10 +68,10 @@ pub struct ProfileInstallArgs {
 }
 
 fn now_millis() -> i64 {
-    let now = std::time::SystemTime::now()
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    now.as_millis() as i64
+        .map(|duration| i64::try_from(duration.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
 }
 
 fn slugify(input: &str) -> String {

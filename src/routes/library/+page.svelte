@@ -29,7 +29,6 @@
 	const queryClient = useQueryClient();
 	const profilesQuery = createQuery(() => profileQueries.all());
 	const settingsQuery = createQuery(() => settingsQueries.get());
-	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
 	const launchProfileMutation = createMutation(() => profileMutations.launchProfile());
 	const launchVanillaMutation = createMutation(() => profileMutations.launchVanilla());
 	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
@@ -67,7 +66,6 @@
 
 		try {
 			await launchProfileMutation.mutateAsync(profile);
-			await updateLastLaunched.mutateAsync(profile.id);
 			rememberInstallTarget(profile.id, 'launch');
 		} catch (e) {
 			queryClient.setQueryData(profilesQueryKey, previousProfiles);

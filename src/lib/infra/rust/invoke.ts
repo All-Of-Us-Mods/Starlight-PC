@@ -27,6 +27,15 @@ export async function rustInvoke<T extends RustCommandName>(
 		if (args === undefined) {
 			return await invoke<RustCommandResult<T>>(command);
 		}
+		// Compatibility payload:
+		// - `args`: supports commands defined as `fn command(..., args: SomeArgs)`
+		// - flattened fields: supports commands defined with named parameters
+		if (typeof args === 'object' && args !== null && !Array.isArray(args)) {
+			return await invoke<RustCommandResult<T>>(command, {
+				...(args as Record<string, unknown>),
+				args: args as RustCommandArgs<T>
+			});
+		}
 		return await invoke<RustCommandResult<T>>(command, { args: args as RustCommandArgs<T> });
 	} catch (cause) {
 		const message = cause instanceof Error ? cause.message : String(cause);

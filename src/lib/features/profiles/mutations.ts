@@ -447,6 +447,7 @@ export const profileMutations = {
 						platform: settings.game_platform
 					});
 				}
+				await rustInvoke('profiles_update_last_launched', { profileId: profile.id });
 
 				if (settings.close_on_launch) {
 					const { getCurrentWindow } = await import('@tauri-apps/api/window');

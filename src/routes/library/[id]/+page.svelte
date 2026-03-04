@@ -54,7 +54,6 @@
 			null) as Profile | null
 	);
 
-	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
 	const launchProfileMutation = createMutation(() => profileMutations.launchProfile());
 	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
 	const renameProfile = createMutation(() => profileMutations.rename(queryClient));
@@ -375,8 +374,7 @@
 			void cleanupMissingMods.mutateAsync(currentProfileId).catch(() => {
 				cleanedProfiles.delete(currentProfileId);
 			});
-		},
-		{ lazy: true }
+		}
 	);
 
 	const runningInstanceCount = $derived(
@@ -405,7 +403,6 @@
 		isLaunching = true;
 		try {
 			await launchProfileMutation.mutateAsync(profile);
-			await updateLastLaunched.mutateAsync(profile.id);
 			rememberInstallTarget(profile.id, 'launch');
 		} catch (error) {
 			showError(error);
