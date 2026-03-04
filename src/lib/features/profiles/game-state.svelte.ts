@@ -51,7 +51,10 @@ async function finalizeSession() {
 	if (running && runningProfileId) {
 		const duration = getSessionDuration();
 		if (duration > 0) {
-			await rustInvoke('profiles_add_play_time', { profileId: runningProfileId, durationMs: duration });
+			await rustInvoke('profiles_add_play_time', {
+				profileId: runningProfileId,
+				durationMs: duration
+			});
 			notifyProfilesInvalidated();
 		}
 	}

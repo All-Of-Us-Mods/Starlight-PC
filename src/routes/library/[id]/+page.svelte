@@ -6,7 +6,12 @@
 	import { join } from '@tauri-apps/api/path';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { save as saveDialog } from '@tauri-apps/plugin-dialog';
-	import { createMutation, createQuery, useQueryClient, type QueryClient } from '@tanstack/svelte-query';
+	import {
+		createMutation,
+		createQuery,
+		useQueryClient,
+		type QueryClient
+	} from '@tanstack/svelte-query';
 	import { Debounced, watch } from 'runed';
 	import { SvelteSet } from 'svelte/reactivity';
 
@@ -45,9 +50,8 @@
 	}));
 
 	const profile = $derived(
-		((profilesQuery.data as Profile[] | undefined)?.find((entry) => entry.id === profileId) ?? null) as
-			| Profile
-			| null
+		((profilesQuery.data as Profile[] | undefined)?.find((entry) => entry.id === profileId) ??
+			null) as Profile | null
 	);
 
 	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
@@ -232,7 +236,11 @@
 		});
 	}
 
-	function paginateProfileMods(mods: UnifiedMod[], pageIndex: number, pageSize = PROFILE_MODS_PAGE_SIZE) {
+	function paginateProfileMods(
+		mods: UnifiedMod[],
+		pageIndex: number,
+		pageSize = PROFILE_MODS_PAGE_SIZE
+	) {
 		const start = pageIndex * pageSize;
 		return mods.slice(start, start + pageSize);
 	}

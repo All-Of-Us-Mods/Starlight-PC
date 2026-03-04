@@ -135,7 +135,7 @@
 			await downloadCacheMutation.mutateAsync({
 				url: localUrl,
 				onProgress: (progress) => {
-				cacheDownloadProgress = progress.progress;
+					cacheDownloadProgress = progress.progress;
 				}
 			});
 			isCacheExists = true;

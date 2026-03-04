@@ -141,8 +141,14 @@ export const modQueries = {
 					})
 				);
 				return resolved.filter(
-					(item): item is { mod_id: string; modName: string; resolvedVersion: string; type: 'required' | 'optional' | 'conflict' } =>
-						item !== null
+					(
+						item
+					): item is {
+						mod_id: string;
+						modName: string;
+						resolvedVersion: string;
+						type: 'required' | 'optional' | 'conflict';
+					} => item !== null
 				);
 			},
 			enabled: dependencies.length > 0

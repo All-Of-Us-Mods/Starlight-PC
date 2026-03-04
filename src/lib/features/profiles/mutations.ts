@@ -62,7 +62,9 @@ function resolveDownloadTarget(
 
 	const architectureFallbacks = platform === 'epic' ? ['x64', 'x86'] : ['x86'];
 	for (const arch of architectureFallbacks) {
-		const entry = platforms.find((candidate) => candidate.platform === 'windows' && candidate.architecture === arch);
+		const entry = platforms.find(
+			(candidate) => candidate.platform === 'windows' && candidate.architecture === arch
+		);
 		if (!entry) continue;
 		const downloadUrl = entry.download_url ?? `${legacyPath}?platform=windows&arch=${arch}`;
 		return {
@@ -107,11 +109,13 @@ async function rollbackInstalledMods(
 	);
 
 	await Promise.all(
-		installed.toReversed().map((item) =>
-			rustInvoke('profiles_delete_mod_file', { profilePath, fileName: item.file_name }).catch(
-				() => undefined
+		installed
+			.toReversed()
+			.map((item) =>
+				rustInvoke('profiles_delete_mod_file', { profilePath, fileName: item.file_name }).catch(
+					() => undefined
+				)
 			)
-		)
 	);
 }
 
@@ -218,7 +222,9 @@ export const profileMutations = {
 			const diskSet = new Set(diskFiles);
 			const missingMods = profile.mods.filter((mod) => mod.file && !diskSet.has(mod.file));
 			await Promise.all(
-				missingMods.map((mod) => rustInvoke('profiles_remove_mod', { profileId, modId: mod.mod_id }))
+				missingMods.map((mod) =>
+					rustInvoke('profiles_remove_mod', { profileId, modId: mod.mod_id })
+				)
 			);
 		},
 		onSuccess: async () => {
@@ -256,8 +262,7 @@ export const profileMutations = {
 	}),
 
 	updateLastLaunched: (queryClient: QueryClient) => ({
-		mutationFn: (profileId: string) =>
-			rustInvoke('profiles_update_last_launched', { profileId }),
+		mutationFn: (profileId: string) => rustInvoke('profiles_update_last_launched', { profileId }),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 			queryClient.invalidateQueries({ queryKey: profilesActiveQueryKey });

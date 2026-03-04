@@ -22,7 +22,10 @@ export type RustCommandMap = {
 		args: { profileId: string; selection: ProfileIconSelection };
 		result: void;
 	};
-	profiles_add_mod: { args: { profileId: string; modId: string; version: string; file: string }; result: void };
+	profiles_add_mod: {
+		args: { profileId: string; modId: string; version: string; file: string };
+		result: void;
+	};
 	profiles_remove_mod: { args: { profileId: string; modId: string }; result: void };
 	profiles_add_play_time: { args: { profileId: string; durationMs: number }; result: void };
 	profiles_get_mod_files: { args: { profilePath: string }; result: string[] };
@@ -75,6 +78,5 @@ export type RustCommandName = keyof RustCommandMap;
 export type RustCommandArgs<T extends RustCommandName> = RustCommandMap[T]['args'];
 export type RustCommandResult<T extends RustCommandName> = RustCommandMap[T]['result'];
 
-export type RustCommandArgsInput<T extends RustCommandName> = RustCommandArgs<T> extends void
-	? void | undefined
-	: RustCommandArgs<T>;
+export type RustCommandArgsInput<T extends RustCommandName> =
+	RustCommandArgs<T> extends void ? void | undefined : RustCommandArgs<T>;

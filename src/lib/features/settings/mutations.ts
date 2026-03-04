@@ -19,10 +19,7 @@ export const settingsMutations = {
 		}
 	}),
 	downloadBepInExToCache: () => ({
-		mutationFn: async (args: {
-			url: string;
-			onProgress?: (progress: BepInExProgress) => void;
-		}) => {
+		mutationFn: async (args: { url: string; onProgress?: (progress: BepInExProgress) => void }) => {
 			let unlisten: (() => void) | undefined;
 			try {
 				if (args.onProgress) {

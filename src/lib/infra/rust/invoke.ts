@@ -1,6 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { error as logError } from '@tauri-apps/plugin-log';
-import type { RustCommandArgs, RustCommandArgsInput, RustCommandName, RustCommandResult } from './commands';
+import type {
+	RustCommandArgs,
+	RustCommandArgsInput,
+	RustCommandName,
+	RustCommandResult
+} from './commands';
 
 export class AppInvokeError extends Error {
 	command: RustCommandName;

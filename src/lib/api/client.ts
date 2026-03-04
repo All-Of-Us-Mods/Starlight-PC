@@ -42,7 +42,11 @@ export async function apiFetch<T>(
 	}
 
 	if (!response.ok) {
-		throw new FetchApiError(`HTTP ${response.status} ${response.statusText}`, path, response.status);
+		throw new FetchApiError(
+			`HTTP ${response.status} ${response.statusText}`,
+			path,
+			response.status
+		);
 	}
 
 	let payload: unknown;

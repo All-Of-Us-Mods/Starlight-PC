@@ -3,14 +3,16 @@ import type { RustCommandArgsInput, RustCommandName, RustCommandResult } from '.
 import { rustInvoke } from './invoke';
 
 type BaseQueryConfig<TCommand extends RustCommandName, TQueryKey extends QueryKey> = Omit<
-	Parameters<typeof queryOptions<RustCommandResult<TCommand>, Error, RustCommandResult<TCommand>, TQueryKey>>[0],
+	Parameters<
+		typeof queryOptions<RustCommandResult<TCommand>, Error, RustCommandResult<TCommand>, TQueryKey>
+	>[0],
 	'queryFn'
 >;
 
-type RustQueryConfig<TCommand extends RustCommandName, TQueryKey extends QueryKey> = BaseQueryConfig<
-	TCommand,
-	TQueryKey
-> & {
+type RustQueryConfig<
+	TCommand extends RustCommandName,
+	TQueryKey extends QueryKey
+> = BaseQueryConfig<TCommand, TQueryKey> & {
 	command: TCommand;
 	args?: RustCommandArgsInput<TCommand>;
 };
