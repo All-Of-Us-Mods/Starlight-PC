@@ -222,6 +222,10 @@ export const profileMutations = {
 			rustInvoke('profiles_update_icon', args),
 		onSuccess: async (_data: void, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
+			await queryClient.invalidateQueries({
+				predicate: (query) =>
+					query.queryKey[0] === 'profiles' && query.queryKey[1] === 'binary-file'
+			});
 		}
 	}),
 
