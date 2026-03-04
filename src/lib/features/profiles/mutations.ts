@@ -297,6 +297,7 @@ export const profileMutations = {
 			unlistenModDownload = await listen<ModDownloadProgress>('mod-download-progress', (event) => {
 				gameState.setModDownloadProgress(event.payload.mod_id, event.payload);
 			});
+			const installed: InstalledModResult[] = [];
 
 			try {
 				const previousByModId: PreviousModState = new Map();
@@ -308,7 +309,6 @@ export const profileMutations = {
 					);
 				}
 
-				const installed: InstalledModResult[] = [];
 				const persisted: InstalledModResult[] = [];
 				const replacedFilesToDelete = new Set<string>();
 
@@ -379,6 +379,9 @@ export const profileMutations = {
 				return installed;
 			} finally {
 				unlistenModDownload?.();
+				for (const item of installed) {
+					gameState.clearModDownload(item.mod_id);
+				}
 			}
 		},
 		onSuccess: (_data: InstalledModResult[], args: InstallArgs) => {

@@ -514,6 +514,12 @@ pub fn add_mod_to_profile<R: Runtime>(
     version: &str,
     file: &str,
 ) -> AppResult<()> {
+    let base_name = Path::new(file)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| *name == file && !file.contains('/') && !file.contains('\\'))
+        .ok_or_else(|| AppError::validation("Invalid mod file name"))?;
+
     let Some(mut profile) = get_profile_by_id(app, profile_id)? else {
         return Err(AppError::validation(format!(
             "Profile '{profile_id}' not found"
@@ -526,12 +532,12 @@ pub fn add_mod_to_profile<R: Runtime>(
         .find(|mod_entry| mod_entry.mod_id == mod_id)
     {
         existing.version = version.to_string();
-        existing.file = Some(file.to_string());
+        existing.file = Some(base_name.to_string());
     } else {
         profile.mods.push(ProfileModEntry {
             mod_id: mod_id.to_string(),
             version: version.to_string(),
-            file: Some(file.to_string()),
+            file: Some(base_name.to_string()),
         });
     }
     write_profile(&profile)
@@ -766,7 +772,25 @@ pub fn import_profile_zip<R: Runtime>(
             .and_then(|item| item.custom_icon_extension.clone())
             .and_then(|ext| normalize_custom_icon_extension(&ext)),
         icon_mod_id: imported.as_ref().and_then(|item| item.icon_mod_id.clone()),
-        mods: imported.and_then(|item| item.mods).unwrap_or_default(),
+        mods: imported
+            .and_then(|item| item.mods)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|mut mod_entry| {
+                mod_entry.file = mod_entry.file.and_then(|file_name| {
+                    Path::new(&file_name)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .filter(|name| {
+                            *name == file_name
+                                && !file_name.contains('/')
+                                && !file_name.contains('\\')
+                        })
+                        .map(|name| name.to_string())
+                });
+                mod_entry
+            })
+            .collect(),
     };
     normalize_icon_selection(&mut profile);
     write_profile(&profile)?;

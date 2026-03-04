@@ -1,4 +1,4 @@
-import { queryOptions } from '@tanstack/svelte-query';
+import { queryOptions, type QueryClient } from '@tanstack/svelte-query';
 import { rustQueryOptions } from '$lib/infra/rust/query';
 import { rustInvoke } from '$lib/infra/rust/invoke';
 import {
@@ -8,7 +8,7 @@ import {
 	profilesHasAnyQueryKey,
 	profilesQueryKey
 } from './profile-keys';
-import type { UnifiedMod } from './schema';
+import type { Profile, UnifiedMod } from './schema';
 
 export const profileQueries = {
 	dir: () =>
@@ -33,11 +33,13 @@ export const profileQueries = {
 			args: { profilePath },
 			enabled: !!profilePath
 		}),
-	unifiedMods: (profileId: string) =>
+	unifiedMods: (profileId: string, queryClient?: QueryClient) =>
 		queryOptions({
 			queryKey: profileUnifiedModsKey(profileId),
 			queryFn: async () => {
-				const profiles = await rustInvoke('profiles_list');
+				const profiles: Profile[] = queryClient
+					? await queryClient.fetchQuery(profileQueries.all())
+					: await rustInvoke('profiles_list');
 				const profile = profiles.find((entry) => entry.id === profileId);
 				if (!profile) return [];
 

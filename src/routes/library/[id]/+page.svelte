@@ -45,7 +45,7 @@
 	const profilesQuery = createQuery(() => profileQueries.all());
 	const settingsQuery = createQuery(() => settingsQueries.get());
 	const unifiedModsQuery = createQuery(() => ({
-		...profileQueries.unifiedMods(profileId),
+		...profileQueries.unifiedMods(profileId, queryClient),
 		enabled: !!profileId
 	}));
 
