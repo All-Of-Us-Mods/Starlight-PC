@@ -36,9 +36,11 @@
 
 	const activeProfile = $derived.by(() => {
 		const profiles = (profilesQuery.data as Profile[] | undefined) ?? [];
-		return profiles
-			.filter((profile) => profile.last_launched_at != null)
-			.toSorted((a, b) => (b.last_launched_at ?? 0) - (a.last_launched_at ?? 0))[0] ?? null;
+		return (
+			profiles
+				.filter((profile) => profile.last_launched_at != null)
+				.toSorted((a, b) => (b.last_launched_at ?? 0) - (a.last_launched_at ?? 0))[0] ?? null
+		);
 	});
 	const sidebarWidth = $derived(getSidebarWidth(sidebar.isMaximized));
 	const canLaunch = $derived<boolean>(canLaunchProfile(activeProfile));
