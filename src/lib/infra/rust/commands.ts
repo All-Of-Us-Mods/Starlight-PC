@@ -1,9 +1,13 @@
 import type { Profile, ProfileIconSelection, UnifiedMod } from '$lib/features/profiles/schema';
 import type { AppSettings, GamePlatform } from '$lib/features/settings/schema';
 
+type AppSettingsUpdate = Omit<Partial<AppSettings>, 'xbox_app_id'> & {
+	xbox_app_id?: string | null;
+};
+
 export type RustCommandMap = {
 	core_get_settings: { args: void; result: AppSettings };
-	core_update_settings: { args: { updates: Partial<AppSettings> }; result: AppSettings };
+	core_update_settings: { args: { updates: AppSettingsUpdate }; result: AppSettings };
 	core_get_bepinex_cache_path: { args: void; result: string };
 	core_get_app_data_dir: { args: void; result: string };
 	core_auto_detect_bepinex_architecture: { args: { gamePath: string }; result: string | null };

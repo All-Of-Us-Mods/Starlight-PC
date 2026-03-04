@@ -191,7 +191,7 @@
 
 			// Path controls the Xbox identity context; clear stale app id on edits.
 			if (newPath !== oldPath && settings?.xbox_app_id) {
-				void updateMutation.mutateAsync({ xbox_app_id: undefined });
+				void updateMutation.mutateAsync({ xbox_app_id: null });
 			}
 		},
 		{ lazy: true }
@@ -205,7 +205,7 @@
 			void updateMutation.mutateAsync({ game_platform: newPlatform });
 
 			if (newPlatform !== oldPlatform && settings?.xbox_app_id) {
-				void updateMutation.mutateAsync({ xbox_app_id: undefined });
+				void updateMutation.mutateAsync({ xbox_app_id: null });
 			}
 		},
 		{ lazy: true }

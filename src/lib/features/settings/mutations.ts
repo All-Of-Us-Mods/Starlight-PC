@@ -7,14 +7,25 @@ import type { BepInExProgress } from '../profiles/schema';
 import { rustInvoke } from '$lib/infra/rust/invoke';
 import { rustMutationOptions } from '$lib/infra/rust/mutation';
 
+type SettingsUpdate = Omit<Partial<AppSettings>, 'xbox_app_id'> & {
+	xbox_app_id?: string | null;
+};
+
+function normalizeSettingsUpdateForCache(settings: SettingsUpdate): Partial<AppSettings> {
+	const { xbox_app_id, ...rest } = settings;
+	if (xbox_app_id === null || xbox_app_id === undefined) return rest;
+	return { ...rest, xbox_app_id };
+}
+
 export const settingsMutations = {
 	update: (queryClient: QueryClient) => ({
-		mutationFn: (settings: Partial<AppSettings>) =>
+		mutationFn: (settings: SettingsUpdate) =>
 			rustInvoke('core_update_settings', { updates: settings }),
-		onSuccess: (updated: AppSettings, variables: Partial<AppSettings>) => {
+		onSuccess: (updated: AppSettings, variables: SettingsUpdate) => {
+			const normalizedVariables = normalizeSettingsUpdateForCache(variables);
 			queryClient.setQueryData<AppSettings | undefined>(settingsQueryKey, (current) => {
 				if (!current) return updated;
-				return { ...current, ...variables, ...updated };
+				return { ...current, ...normalizedVariables, ...updated };
 			});
 		}
 	}),

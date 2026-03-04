@@ -302,9 +302,12 @@ export const profileMutations = {
 				if (!profile) {
 					throw new Error(`Profile '${args.profileId}' not found`);
 				}
-				unlistenModDownload = await listen<ModDownloadProgress>('mod-download-progress', (event) => {
-					gameState.setModDownloadProgress(event.payload.mod_id, event.payload);
-				});
+				unlistenModDownload = await listen<ModDownloadProgress>(
+					'mod-download-progress',
+					(event) => {
+						gameState.setModDownloadProgress(event.payload.mod_id, event.payload);
+					}
+				);
 
 				const previousByModId: PreviousModState = new Map();
 				for (const item of args.mods) {
