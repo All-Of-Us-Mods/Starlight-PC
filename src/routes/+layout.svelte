@@ -1,6 +1,6 @@
 <script lang="ts">
 	import '../app.css';
-	import { QueryClientProvider, createMutation } from '@tanstack/svelte-query';
+	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { queryClient } from '$lib/state/query-client';
 	import { Toaster } from '$lib/components/ui/sonner';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
@@ -9,7 +9,7 @@
 	import { registerProfilesInvalidateCallback } from '$lib/features/profiles/game-state.svelte';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { settingsQueries } from '$lib/features/settings/queries';
-	import { settingsMutations } from '$lib/features/settings/mutations';
+	import { rustInvoke } from '$lib/infra/rust/invoke';
 	import { watchDirectory } from '$lib/utils/file-watcher';
 	import { updateState } from '$lib/features/updates/update-state.svelte';
 	import { onMount } from 'svelte';
@@ -24,7 +24,6 @@
 	let { children } = $props();
 	let dialogOpen = $state(false);
 	let detectedPath = $state('');
-	const detectAmongUsPathMutation = createMutation(() => settingsMutations.detectAmongUsPath());
 
 	// Register the invalidation callback so game-state can trigger query invalidation
 	// without importing queryClient directly
@@ -45,7 +44,7 @@
 			const settings = await queryClient.fetchQuery(settingsQueries.get());
 			if (!settings.among_us_path) {
 				try {
-					const path = await detectAmongUsPathMutation.mutateAsync();
+					const path = await rustInvoke('platform_detect_among_us');
 					detectedPath = path ?? '';
 					dialogOpen = true;
 				} catch {

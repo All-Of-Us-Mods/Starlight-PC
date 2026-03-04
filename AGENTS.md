@@ -28,4 +28,7 @@ cargo fmt                  # Format Rust code
 
 ## Architecture Boundary
 
-Use [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md) as the source of truth for frontend-first decisions and what is allowed to remain in Rust.
+1. Start features in frontend.
+2. Move logic to Rust only when it requires filesystem/native APIs, secrets, or heavy computation.
+3. Do not add new Rust workflow commands when existing primitives are sufficient.
+4. Keep `@tauri-apps/api/core` imports confined to `src/lib/infra/rust`.
