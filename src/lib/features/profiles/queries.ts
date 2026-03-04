@@ -5,7 +5,6 @@ import {
 	profileDiskFilesKey,
 	profileLogKey,
 	profileUnifiedModsKey,
-	profilesHasAnyQueryKey,
 	profilesQueryKey
 } from './profile-keys';
 import type { Profile, UnifiedMod } from './schema';
@@ -20,11 +19,6 @@ export const profileQueries = {
 		rustQueryOptions({
 			queryKey: profilesQueryKey,
 			command: 'profiles_list'
-		}),
-	hasAny: () =>
-		queryOptions({
-			queryKey: profilesHasAnyQueryKey,
-			queryFn: () => rustInvoke('profiles_list').then((profiles) => profiles.length > 0)
 		}),
 	diskFiles: (profilePath: string) =>
 		rustQueryOptions({

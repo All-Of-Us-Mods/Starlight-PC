@@ -379,8 +379,8 @@ export const profileMutations = {
 				return installed;
 			} finally {
 				unlistenModDownload?.();
-				for (const item of installed) {
-					gameState.clearModDownload(item.mod_id);
+				for (const item of args.mods) {
+					gameState.clearModDownload(item.modId);
 				}
 			}
 		},

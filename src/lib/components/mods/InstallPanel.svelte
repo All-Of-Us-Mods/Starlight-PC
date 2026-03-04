@@ -10,7 +10,6 @@
 	import { modQueries } from '$lib/features/mods/queries';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { profileMutations } from '$lib/features/profiles/mutations';
-	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
 	import { showSuccess } from '$lib/utils/toast';
 	import type { ModDependency } from '$lib/features/mods/schema';
@@ -147,19 +146,8 @@
 		modsBeingInstalled = modsToInstall.map((m) => m.modId);
 		isInstalling = true;
 		installError = '';
-		let unlisten: UnlistenFn | null = null;
 
 		try {
-			unlisten = (await listen('mod-download-progress', (event) => {
-				const progress = event.payload as {
-					mod_id: string;
-					downloaded: number;
-					total: number | null;
-					progress: number;
-					stage: 'connecting' | 'downloading' | 'verifying' | 'writing' | 'complete';
-				};
-				gameState.setModDownloadProgress(progress.mod_id, progress);
-			})) as UnlistenFn;
 			await installModsMutation.mutateAsync({
 				profileId: selectedProfile.id,
 				profilePath: selectedProfile.path,
@@ -170,7 +158,6 @@
 		} catch (e) {
 			installError = e instanceof Error ? e.message : 'Failed to install';
 		} finally {
-			unlisten?.();
 			for (const installingModId of modsBeingInstalled) {
 				gameState.clearModDownload(installingModId);
 			}

@@ -1,5 +1,4 @@
 export const profilesQueryKey = ['profiles'] as const;
-export const profilesHasAnyQueryKey = [...profilesQueryKey, 'hasAny'] as const;
 
 export const diskFilesQueryKey = ['disk-files'] as const;
 export const unifiedModsQueryKey = ['unified-mods'] as const;
