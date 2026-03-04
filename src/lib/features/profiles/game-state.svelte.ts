@@ -47,25 +47,16 @@ function getSessionDuration() {
 	return currentTime - sessionStartTime;
 }
 
-async function finalizeSession() {
-	if (running && runningProfileId) {
-		const duration = getSessionDuration();
-		if (duration > 0) {
-			try {
-				await rustInvoke('profiles_add_play_time', {
-					profileId: runningProfileId,
-					durationMs: duration
-				});
-				notifyProfilesInvalidated();
-			} catch (error) {
-				console.error('[gameState] Failed to persist play time', error);
-			}
-		}
-	}
-	sessionStartTime = null;
-	if (ticker) {
-		clearInterval(ticker);
-		ticker = null;
+async function finalizeSession(profileId: string, durationMs: number) {
+	if (durationMs <= 0) return;
+	try {
+		await rustInvoke('profiles_add_play_time', {
+			profileId,
+			durationMs
+		});
+		notifyProfilesInvalidated();
+	} catch (error) {
+		console.error('[gameState] Failed to persist play time', error);
 	}
 }
 
@@ -97,9 +88,16 @@ export const gameState = {
 	init: async () => {
 		if (unlistenGameState) return;
 		unlistenGameState = await listen<GameStatePayload>('game-state-changed', async (event) => {
-			if (running && !event.payload.running) {
-				await finalizeSession();
-				runningProfileId = null;
+			const wasRunning = running;
+			const prevProfileId = runningProfileId;
+			const prevDuration = getSessionDuration();
+
+			if (wasRunning && !event.payload.running) {
+				sessionStartTime = null;
+				if (ticker) {
+					clearInterval(ticker);
+					ticker = null;
+				}
 			}
 
 			running = event.payload.running;
@@ -120,6 +118,10 @@ export const gameState = {
 
 			if (running && sessionStartTime === null) {
 				startSessionTimer();
+			}
+
+			if (wasRunning && !event.payload.running && prevProfileId) {
+				await finalizeSession(prevProfileId, prevDuration);
 			}
 		});
 	},
