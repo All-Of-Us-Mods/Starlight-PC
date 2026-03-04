@@ -272,6 +272,7 @@ export const profileMutations = {
 
 			const installed: InstalledModResult[] = [];
 			const persisted: InstalledModResult[] = [];
+			const replacedFilesToDelete = new Set<string>();
 
 			const installSequentially = async (index: number): Promise<void> => {
 				if (index >= args.mods.length) return;
@@ -316,10 +317,7 @@ export const profileMutations = {
 
 					const previous = previousByModId.get(item.modId);
 					if (previous?.file && previous.file !== target.fileName) {
-						await rustInvoke('profiles_delete_mod_file', {
-							profilePath: args.profilePath,
-							fileName: previous.file
-						}).catch(() => undefined);
+						replacedFilesToDelete.add(previous.file);
 					}
 				} catch (error) {
 					await rollbackInstalledMods(
@@ -336,6 +334,14 @@ export const profileMutations = {
 			};
 
 			await installSequentially(0);
+			await Promise.all(
+				Array.from(replacedFilesToDelete).map((fileName) =>
+					rustInvoke('profiles_delete_mod_file', {
+						profilePath: args.profilePath,
+						fileName
+					}).catch(() => undefined)
+				)
+			);
 
 			return installed;
 		},

@@ -286,10 +286,11 @@ pub async fn profiles_import_zip<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesImportZipArgs,
 ) -> Result<ProfileEntry, String> {
-    let result =
-        tauri::async_runtime::spawn_blocking(move || profile_service::import_profile_zip(&app, &args.zip_path))
-            .await
-            .map_err(|e| format!("Task failed: {e}"))?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        profile_service::import_profile_zip(&app, &args.zip_path)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?;
 
     result.map_err(|e| e.to_string())
 }

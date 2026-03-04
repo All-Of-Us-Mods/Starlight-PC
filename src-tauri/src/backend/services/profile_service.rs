@@ -1,10 +1,11 @@
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::{bepinex_service, core_service, profile_zip_service};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, Runtime};
+use tauri_plugin_store::StoreExt;
 
 const PROFILE_METADATA_FILE: &str = "metadata.json";
 const CUSTOM_ICON_BASE_NAME: &str = "icon";
@@ -110,6 +111,39 @@ fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> Option<ProfileEntr
     Some(profile)
 }
 
+fn load_legacy_profiles_by_id<R: Runtime>(
+    app: &AppHandle<R>,
+) -> AppResult<HashMap<String, ProfileEntry>> {
+    let store = app
+        .store("registry.json")
+        .map_err(|e| AppError::state(format!("Failed to load registry store: {e}")))?;
+
+    let Some(raw) = store.get("profiles") else {
+        return Ok(HashMap::new());
+    };
+
+    let Ok(entries) = serde_json::from_value::<Vec<ProfileEntry>>(raw) else {
+        return Ok(HashMap::new());
+    };
+
+    Ok(entries
+        .into_iter()
+        .map(|profile| (profile.id.clone(), profile))
+        .collect())
+}
+
+fn clear_legacy_profiles_store<R: Runtime>(app: &AppHandle<R>) -> AppResult<()> {
+    let store = app
+        .store("registry.json")
+        .map_err(|e| AppError::state(format!("Failed to load registry store: {e}")))?;
+
+    store.set("profiles", serde_json::json!([]));
+    store
+        .save()
+        .map_err(|e| AppError::state(format!("Failed to save registry store: {e}")))?;
+    Ok(())
+}
+
 fn write_profile(profile: &ProfileEntry) -> AppResult<()> {
     let profile_dir = PathBuf::from(&profile.path);
     fs::create_dir_all(&profile_dir)?;
@@ -202,6 +236,8 @@ pub fn get_profiles_dir<R: Runtime>(app: &AppHandle<R>) -> AppResult<String> {
 pub fn get_profiles<R: Runtime>(app: &AppHandle<R>) -> AppResult<Vec<ProfileEntry>> {
     let profiles_dir = PathBuf::from(get_profiles_dir(app)?);
     let mut profiles = Vec::new();
+    let mut legacy_profiles: Option<HashMap<String, ProfileEntry>> = None;
+    let mut migrated_legacy_count = 0usize;
 
     let entries = match fs::read_dir(&profiles_dir) {
         Ok(entries) => entries,
@@ -217,10 +253,40 @@ pub fn get_profiles<R: Runtime>(app: &AppHandle<R>) -> AppResult<Vec<ProfileEntr
         if !path.is_dir() {
             continue;
         }
-        let Some(profile) = parse_profile(&metadata_path(&path), &path) else {
-            continue;
+        let profile = if let Some(profile) = parse_profile(&metadata_path(&path), &path) {
+            profile
+        } else {
+            let file_name = match path.file_name().and_then(|name| name.to_str()) {
+                Some(name) => name.to_string(),
+                None => continue,
+            };
+
+            if legacy_profiles.is_none() {
+                legacy_profiles = Some(load_legacy_profiles_by_id(app)?);
+            }
+
+            let Some(mut legacy_profile) = legacy_profiles
+                .as_mut()
+                .and_then(|profiles_by_id| profiles_by_id.remove(&file_name))
+            else {
+                continue;
+            };
+
+            legacy_profile.path = path.to_string_lossy().to_string();
+            normalize_icon_selection(&mut legacy_profile);
+            write_profile(&legacy_profile)?;
+            migrated_legacy_count += 1;
+            legacy_profile
         };
         profiles.push(profile);
+    }
+
+    if migrated_legacy_count > 0
+        && legacy_profiles
+            .as_ref()
+            .is_some_and(|profiles_by_id| profiles_by_id.is_empty())
+    {
+        clear_legacy_profiles_store(app)?;
     }
 
     profiles.sort_by(|a, b| {
@@ -238,7 +304,28 @@ pub fn get_profile_by_id<R: Runtime>(
     id: &str,
 ) -> AppResult<Option<ProfileEntry>> {
     let profile_dir = PathBuf::from(get_profiles_dir(app)?).join(id);
-    Ok(parse_profile(&metadata_path(&profile_dir), &profile_dir))
+    if let Some(profile) = parse_profile(&metadata_path(&profile_dir), &profile_dir) {
+        return Ok(Some(profile));
+    }
+
+    if !profile_dir.is_dir() {
+        return Ok(None);
+    }
+
+    let mut legacy_profiles = load_legacy_profiles_by_id(app)?;
+    let Some(mut legacy_profile) = legacy_profiles.remove(id) else {
+        return Ok(None);
+    };
+
+    legacy_profile.path = profile_dir.to_string_lossy().to_string();
+    normalize_icon_selection(&mut legacy_profile);
+    write_profile(&legacy_profile)?;
+
+    if legacy_profiles.is_empty() {
+        clear_legacy_profiles_store(app)?;
+    }
+
+    Ok(Some(legacy_profile))
 }
 
 pub fn create_profile<R: Runtime>(app: &AppHandle<R>, name: &str) -> AppResult<ProfileEntry> {

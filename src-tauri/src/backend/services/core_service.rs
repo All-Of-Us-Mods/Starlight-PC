@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime};
+use tauri_plugin_store::StoreExt;
 
 const DEFAULT_BEPINEX_URL: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x86-6.0.0-be.752%2Bdd0655f.zip";
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -59,6 +60,64 @@ fn settings_path<R: Runtime>(app: &AppHandle<R>) -> AppResult<PathBuf> {
     Ok(app_data_dir(app)?.join(SETTINGS_FILE_NAME))
 }
 
+fn write_settings_to_file(path: &PathBuf, settings: &AppSettings) -> AppResult<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, serde_json::to_vec_pretty(settings)?)?;
+    Ok(())
+}
+
+fn read_legacy_settings<R: Runtime>(app: &AppHandle<R>) -> AppResult<Option<AppSettings>> {
+    let store = app.store("registry.json").map_err(|e| {
+        crate::backend::error::AppError::state(format!("Failed to load registry store: {e}"))
+    })?;
+
+    let Some(raw) = store.get("settings") else {
+        return Ok(None);
+    };
+
+    #[derive(Deserialize)]
+    struct LegacySettingsPatch {
+        bepinex_url: Option<String>,
+        among_us_path: Option<String>,
+        close_on_launch: Option<bool>,
+        allow_multi_instance_launch: Option<bool>,
+        game_platform: Option<GamePlatform>,
+        cache_bepinex: Option<bool>,
+        xbox_app_id: Option<String>,
+    }
+
+    let mut settings = AppSettings::default();
+    let Ok(patch) = serde_json::from_value::<LegacySettingsPatch>(raw) else {
+        return Ok(None);
+    };
+
+    if let Some(value) = patch.bepinex_url {
+        settings.bepinex_url = value;
+    }
+    if let Some(value) = patch.among_us_path {
+        settings.among_us_path = value;
+    }
+    if let Some(value) = patch.close_on_launch {
+        settings.close_on_launch = value;
+    }
+    if let Some(value) = patch.allow_multi_instance_launch {
+        settings.allow_multi_instance_launch = value;
+    }
+    if let Some(value) = patch.game_platform {
+        settings.game_platform = value;
+    }
+    if let Some(value) = patch.cache_bepinex {
+        settings.cache_bepinex = value;
+    }
+    if let Some(value) = patch.xbox_app_id {
+        settings.xbox_app_id = Some(value);
+    }
+
+    Ok(Some(settings))
+}
+
 fn bepinex_cache_path<R: Runtime>(app: &AppHandle<R>) -> AppResult<String> {
     Ok(app_data_dir(app)?
         .join("cache")
@@ -69,12 +128,17 @@ fn bepinex_cache_path<R: Runtime>(app: &AppHandle<R>) -> AppResult<String> {
 
 pub fn get_settings<R: Runtime>(app: &AppHandle<R>) -> AppResult<AppSettings> {
     let path = settings_path(app)?;
-    if !path.exists() {
-        return Ok(AppSettings::default());
+    if path.exists() {
+        let raw = fs::read_to_string(path)?;
+        return Ok(serde_json::from_str(&raw).unwrap_or_default());
     }
 
-    let raw = fs::read_to_string(path)?;
-    Ok(serde_json::from_str(&raw).unwrap_or_default())
+    if let Some(legacy_settings) = read_legacy_settings(app)? {
+        write_settings_to_file(&path, &legacy_settings)?;
+        return Ok(legacy_settings);
+    }
+
+    Ok(AppSettings::default())
 }
 
 pub fn update_settings<R: Runtime>(
@@ -106,10 +170,7 @@ pub fn update_settings<R: Runtime>(
     }
 
     let path = settings_path(app)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+    write_settings_to_file(&path, &settings)?;
 
     Ok(settings)
 }
@@ -142,10 +203,7 @@ pub fn auto_detect_bepinex_architecture<R: Runtime>(
 
     settings.bepinex_url = updated_url.clone();
     let path = settings_path(app)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+    write_settings_to_file(&path, &settings)?;
 
     Ok(Some(updated_url))
 }
