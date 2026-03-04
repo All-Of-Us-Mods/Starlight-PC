@@ -10,7 +10,7 @@
 	import { openUrl } from '@tauri-apps/plugin-opener';
 	import { ExternalLink, ChevronDown, ChevronUp, Trash2, LoaderCircle } from '@lucide/svelte';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { modQueries } from '../queries';
+	import { modQueries } from '$lib/features/mods/queries';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { profileMutations } from '$lib/features/profiles/mutations';
 	import { profileDiskFilesKey } from '$lib/features/profiles/profile-keys';
@@ -22,7 +22,7 @@
 		getLinkIcon,
 		pickDefaultVersion,
 		safeParseMarkdown
-	} from '$lib/features/mods/ui/mod-utils';
+	} from '$lib/components/mods/mod-utils';
 
 	interface Props {
 		modId: string;

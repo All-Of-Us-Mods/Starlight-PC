@@ -10,19 +10,19 @@
 	import { join } from '@tauri-apps/api/path';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { modQueries } from '$lib/features/mods/queries';
-	import type { Profile } from '../schema';
+	import type { Profile } from '$lib/features/profiles/schema';
 	import type { Mod } from '$lib/features/mods/schema';
-	import { gameState } from '../game-state.svelte';
-	import { profileMutations } from '../mutations';
+	import { gameState } from '$lib/features/profiles/game-state.svelte';
+	import { profileMutations } from '$lib/features/profiles/mutations';
 	import { showError, showSuccess } from '$lib/utils/toast';
 	import { formatPlayTime } from '$lib/utils';
-	import ModDetailsSidebar from '$lib/features/mods/components/ModDetailsSidebar.svelte';
+	import ModDetailsSidebar from '$lib/components/mods/ModDetailsSidebar.svelte';
 	import { getSidebar } from '$lib/state/sidebar.svelte';
 	import { Package, CircleAlert, Play, FolderOpen, EllipsisVertical } from '@lucide/svelte';
 	import { CalendarDays, Clock, RotateCcw, Download, Trash2 } from '@jis3r/icons';
-	import { profileQueries } from '../queries';
-	import type { UnifiedMod } from '../schema';
-	import type { ProfileModChip } from '$lib/features/profiles/ui/types';
+	import { profileQueries } from '$lib/features/profiles/queries';
+	import type { UnifiedMod } from '$lib/features/profiles/schema';
+	import type { ProfileModChip } from '$lib/components/profiles/types';
 
 	let {
 		profile,

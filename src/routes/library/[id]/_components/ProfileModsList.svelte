@@ -34,7 +34,7 @@
 </script>
 
 <script lang="ts">
-	import ProfilesModCard from '$lib/features/mods/components/ProfilesModCard.svelte';
+	import ProfilesModCard from '$lib/components/mods/ProfilesModCard.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';

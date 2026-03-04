@@ -5,7 +5,7 @@
 	import type { Post } from '$lib/features/news/schema';
 	import { getSidebar } from '$lib/state/sidebar.svelte';
 
-	import NewsDetail from '$lib/features/news/components/NewsDetail.svelte';
+	import NewsDetail from '$lib/components/news/NewsDetail.svelte';
 	import HomeNewsSection from './_components/HomeNewsSection.svelte';
 	import HomeTrendingModsSection from './_components/HomeTrendingModsSection.svelte';
 

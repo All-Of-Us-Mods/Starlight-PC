@@ -12,8 +12,8 @@
 
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import ModCard from '$lib/features/mods/components/ModCard.svelte';
-	import ModCardSkeleton from '$lib/features/mods/components/ModCardSkeleton.svelte';
+	import ModCard from '$lib/components/mods/ModCard.svelte';
+	import ModCardSkeleton from '$lib/components/mods/ModCardSkeleton.svelte';
 
 	let { modsQuery, onClearSearch }: ExploreModsGridProps = $props();
 </script>

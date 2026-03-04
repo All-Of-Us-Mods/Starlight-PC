@@ -16,8 +16,8 @@
 <script lang="ts">
 	import * as Carousel from '$lib/components/ui/carousel';
 	import { Newspaper } from '@lucide/svelte';
-	import NewsCard from '$lib/features/news/components/NewsCard.svelte';
-	import NewsCardSkeleton from '$lib/features/news/components/NewsCardSkeleton.svelte';
+	import NewsCard from '$lib/components/news/NewsCard.svelte';
+	import NewsCardSkeleton from '$lib/components/news/NewsCardSkeleton.svelte';
 
 	let { newsQuery, selectedPostId = null, onToggleNews }: HomeNewsSectionProps = $props();
 </script>

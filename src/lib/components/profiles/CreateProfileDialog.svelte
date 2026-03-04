@@ -3,7 +3,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import { profileMutations } from '../mutations';
+	import { profileMutations } from '$lib/features/profiles/mutations';
 	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
 
 	const queryClient = useQueryClient();

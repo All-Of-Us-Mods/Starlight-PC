@@ -7,13 +7,13 @@
 	import { Download, Check, TriangleAlert } from '@jis3r/icons';
 	import { LoaderCircle, Package } from '@lucide/svelte';
 	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
-	import { modQueries } from '../queries';
+	import { modQueries } from '$lib/features/mods/queries';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { profileMutations } from '$lib/features/profiles/mutations';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
 	import { showSuccess } from '$lib/utils/toast';
-	import type { ModDependency } from '../schema';
+	import type { ModDependency } from '$lib/features/mods/schema';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { watch } from 'runed';
 	import {
@@ -21,7 +21,7 @@
 		getInstallTarget,
 		rememberInstallTarget
 	} from '$lib/features/mods/state/install-target.svelte';
-	import type { ResolvedDependency } from '$lib/features/mods/ui/types';
+	import type { ResolvedDependency } from '$lib/components/mods/types';
 
 	interface Props {
 		modId: string;

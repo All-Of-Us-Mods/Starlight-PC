@@ -22,7 +22,7 @@
 	import type { Mod } from '$lib/features/mods/schema';
 	import { profileUnifiedModsKey, profilesQueryKey } from '$lib/features/profiles/profile-keys';
 	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
-	import { pickDefaultVersion } from '$lib/features/mods/ui/mod-utils';
+	import { pickDefaultVersion } from '$lib/components/mods/mod-utils';
 
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';

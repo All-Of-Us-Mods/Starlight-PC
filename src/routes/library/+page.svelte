@@ -2,7 +2,7 @@
 	import { Library, Plus } from '@lucide/svelte';
 	import { Upload } from '@jis3r/icons';
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
-	import CreateProfileDialog from '$lib/features/profiles/components/CreateProfileDialog.svelte';
+	import CreateProfileDialog from '$lib/components/profiles/CreateProfileDialog.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import {

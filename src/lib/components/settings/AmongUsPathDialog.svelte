@@ -1,12 +1,12 @@
 <script lang="ts">
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
-	import type { GamePlatform } from './schema';
+	import type { GamePlatform } from '$lib/features/settings/schema';
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { exists } from '@tauri-apps/plugin-fs';
 	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
-	import { settingsMutations } from './mutations';
+	import { settingsMutations } from '$lib/features/settings/mutations';
 	import { watch } from 'runed';
 
 	let {

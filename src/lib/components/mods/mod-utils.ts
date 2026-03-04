@@ -1,7 +1,7 @@
 import { marked } from 'marked';
 import { Globe, MessageCircle, Github } from '@lucide/svelte';
 import type { Component } from 'svelte';
-import type { Mod } from '../schema';
+import type { Mod } from '$lib/features/mods/schema';
 
 export function safeParseMarkdown(content: string | undefined): string {
 	if (!content) return '';

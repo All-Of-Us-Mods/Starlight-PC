@@ -12,7 +12,7 @@
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { error as logError } from '@tauri-apps/plugin-log';
 	import { epicService } from '$lib/features/settings/epic-service';
-	import EpicLoginDialog from '$lib/features/settings/EpicLoginDialog.svelte';
+	import EpicLoginDialog from '$lib/components/settings/EpicLoginDialog.svelte';
 	import { Debounced, watch } from 'runed';
 	import GameSettingsSection from './_components/GameSettingsSection.svelte';
 	import BepInExSettingsSection from './_components/BepInExSettingsSection.svelte';
