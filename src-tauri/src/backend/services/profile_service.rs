@@ -104,6 +104,12 @@ fn metadata_path(profile_dir: &Path) -> PathBuf {
     profile_dir.join(PROFILE_METADATA_FILE)
 }
 
+fn is_safe_profile_id(id: &str) -> bool {
+    let mut components = Path::new(id).components();
+    matches!(components.next(), Some(std::path::Component::Normal(_)))
+        && components.next().is_none()
+}
+
 fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> Option<ProfileEntry> {
     let raw = fs::read_to_string(metadata_path).ok()?;
     let mut profile = serde_json::from_str::<ProfileEntry>(&raw).ok()?;
@@ -304,6 +310,10 @@ pub fn get_profile_by_id<R: Runtime>(
     app: &AppHandle<R>,
     id: &str,
 ) -> AppResult<Option<ProfileEntry>> {
+    if !is_safe_profile_id(id) {
+        return Ok(None);
+    }
+
     let profile_dir = PathBuf::from(get_profiles_dir(app)?).join(id);
     if let Some(profile) = parse_profile(&metadata_path(&profile_dir), &profile_dir) {
         return Ok(Some(profile));
