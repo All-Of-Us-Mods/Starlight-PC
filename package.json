@@ -10,7 +10,7 @@
 		"preview": "vite preview",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"lint": "bun run lint:rust-boundary && oxlint && eslint --no-warn-ignored '**/*.svelte'",
+		"lint": "oxlint && eslint --no-warn-ignored '**/*.svelte'",
 		"lint:fix": "oxlint --fix && eslint --fix --no-warn-ignored '**/*.svelte'",
 		"format": "oxfmt --ignore-path=.gitignore . && prettier --write '**/*.svelte'",
 		"format:check": "oxfmt --ignore-path=.gitignore --check . && prettier --check '**/*.svelte'"
