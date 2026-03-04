@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime};
 
 const DEFAULT_BEPINEX_URL: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x86-6.0.0-be.752%2Bdd0655f.zip";
+const DEFAULT_API_BASE_URL: &str = "https://starlight.allofus.dev";
 const SETTINGS_FILE_NAME: &str = "settings.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,8 +151,16 @@ pub fn auto_detect_bepinex_architecture<R: Runtime>(
     Ok(Some(updated_url))
 }
 
-pub async fn api_get_json(api_base_url: &str, path: &str) -> AppResult<serde_json::Value> {
-    let base = api_base_url.trim_end_matches('/');
+pub fn api_base_url() -> String {
+    std::env::var("STARLIGHT_API_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_API_BASE_URL.to_string())
+}
+
+pub async fn api_get_json(path: &str) -> AppResult<serde_json::Value> {
+    let base = api_base_url();
+    let base = base.trim_end_matches('/');
     let route = if path.starts_with('/') {
         path.to_string()
     } else {

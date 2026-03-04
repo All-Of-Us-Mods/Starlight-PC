@@ -44,7 +44,6 @@ pub struct ModdingModDownloadArgs {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModdingResolveDependenciesArgs {
-    pub api_base_url: String,
     pub dependencies: Vec<ModDependency>,
 }
 
@@ -53,7 +52,6 @@ pub struct ModdingResolveDependenciesArgs {
 pub struct ModdingInstallProfileModsArgs {
     pub profile_id: String,
     pub profile_path: String,
-    pub api_base_url: String,
     pub mods: Vec<InstallModInput>,
 }
 
@@ -109,7 +107,7 @@ pub async fn modding_mod_download<R: Runtime>(
 pub async fn modding_resolve_dependencies(
     args: ModdingResolveDependenciesArgs,
 ) -> Result<Vec<ResolvedDependency>, String> {
-    mods_workflow_service::resolve_dependencies(&args.api_base_url, args.dependencies)
+    mods_workflow_service::resolve_dependencies(args.dependencies)
         .await
         .map_err(|e| e.to_string())
 }
@@ -123,7 +121,6 @@ pub async fn modding_install_profile_mods<R: Runtime>(
         app,
         &args.profile_id,
         &args.profile_path,
-        &args.api_base_url,
         args.mods,
     )
     .await

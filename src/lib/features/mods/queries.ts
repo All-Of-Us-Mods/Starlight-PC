@@ -9,7 +9,6 @@ import {
 	type ModDependency
 } from './schema';
 import { invoke } from '@tauri-apps/api/core';
-import { PUBLIC_API_URL } from '$env/static/public';
 import {
 	modsByIdKey,
 	modsExploreKey,
@@ -110,7 +109,7 @@ export const modQueries = {
 						resolvedVersion: string;
 						type: 'required' | 'optional' | 'conflict';
 					}>
-				>('modding_resolve_dependencies', { args: { apiBaseUrl: PUBLIC_API_URL, dependencies } }),
+				>('modding_resolve_dependencies', { args: { dependencies } }),
 			enabled: dependencies.length > 0
 		});
 	}

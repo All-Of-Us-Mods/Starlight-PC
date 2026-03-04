@@ -25,6 +25,7 @@ pub struct ResolvedDependency {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstallModInput {
     pub mod_id: String,
     pub version: String,
@@ -139,16 +140,14 @@ fn resolve_version(
     Some(versions_sorted[0].version.clone())
 }
 
-pub async fn resolve_dependencies(
-    api_base_url: &str,
-    dependencies: Vec<ModDependency>,
-) -> AppResult<Vec<ResolvedDependency>> {
+pub async fn resolve_dependencies(dependencies: Vec<ModDependency>) -> AppResult<Vec<ResolvedDependency>> {
+    let api_base_url = core_service::api_base_url();
     let client = Client::new();
     let mut resolved = Vec::new();
 
     for dependency in dependencies {
-        let mod_item = get_mod_by_id(&client, api_base_url, &dependency.mod_id).await?;
-        let mut versions = get_mod_versions(&client, api_base_url, &dependency.mod_id).await?;
+        let mod_item = get_mod_by_id(&client, &api_base_url, &dependency.mod_id).await?;
+        let mut versions = get_mod_versions(&client, &api_base_url, &dependency.mod_id).await?;
 
         versions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         let Some(resolved_version) = resolve_version(&dependency.version_constraint, &versions) else {
@@ -224,9 +223,9 @@ pub async fn install_mods_for_profile<R: Runtime>(
     app: AppHandle<R>,
     profile_id: &str,
     profile_path: &str,
-    api_base_url: &str,
     mods: Vec<InstallModInput>,
 ) -> AppResult<Vec<InstalledModResult>> {
+    let api_base_url = core_service::api_base_url();
     let settings = core_service::get_settings(&app)?;
     let game_platform = settings.game_platform;
     let client = Client::new();
@@ -248,9 +247,9 @@ pub async fn install_mods_for_profile<R: Runtime>(
     let mut persisted = Vec::<InstalledModResult>::new();
 
     for item in &mods {
-        let version_info = get_mod_version_info(&client, api_base_url, &item.mod_id, &item.version).await?;
+        let version_info = get_mod_version_info(&client, &api_base_url, &item.mod_id, &item.version).await?;
         let target = resolve_download_target(
-            api_base_url,
+            &api_base_url,
             &item.mod_id,
             &item.version,
             &version_info,

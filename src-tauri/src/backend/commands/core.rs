@@ -16,7 +16,6 @@ pub struct CoreAutoDetectBepInExArchitectureArgs {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CoreApiGetArgs {
-    pub api_base_url: String,
     pub path: String,
 }
 
@@ -53,7 +52,7 @@ pub async fn core_auto_detect_bepinex_architecture<R: Runtime>(
 
 #[tauri::command]
 pub async fn core_api_get(args: CoreApiGetArgs) -> Result<serde_json::Value, String> {
-    core_service::api_get_json(&args.api_base_url, &args.path)
+    core_service::api_get_json(&args.path)
         .await
         .map_err(|e| e.to_string())
 }

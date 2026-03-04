@@ -159,9 +159,7 @@ export const profileMutations = {
 		mutationFn: (args: InstallArgs) =>
 			invoke<Array<{ mod_id: string; version: string; file_name: string }>>(
 				'modding_install_profile_mods',
-				{
-					args: { ...args, apiBaseUrl: import.meta.env.PUBLIC_API_URL }
-				}
+				{ args }
 			),
 		onSuccess: (
 			_data: Array<{ mod_id: string; version: string; file_name: string }>,
