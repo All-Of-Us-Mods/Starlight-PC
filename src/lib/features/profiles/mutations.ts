@@ -30,6 +30,7 @@ type DownloadTarget = {
 	checksum: string;
 };
 let launchInFlight = false;
+const bepinexInstallInFlight = new Set<string>();
 
 function resolveDownloadTarget(
 	modId: string,
@@ -107,6 +108,11 @@ async function rollbackInstalledMods(
 }
 
 async function installBepInEx(profileId: string, profilePath: string) {
+	if (bepinexInstallInFlight.has(profileId)) {
+		throw new Error('BepInEx install already in progress for this profile');
+	}
+	bepinexInstallInFlight.add(profileId);
+
 	let unlisten: (() => void) | undefined;
 	let succeeded = false;
 	try {
@@ -120,6 +126,7 @@ async function installBepInEx(profileId: string, profilePath: string) {
 		gameState.setBepInExError(profileId, message);
 		throw error;
 	} finally {
+		bepinexInstallInFlight.delete(profileId);
 		unlisten?.();
 		if (succeeded) {
 			gameState.clearBepInExProgress(profileId);
