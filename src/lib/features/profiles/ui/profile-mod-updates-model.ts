@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/svelte-query';
 import { modQueries } from '$lib/features/mods/queries';
-import { pickDefaultVersion } from '$lib/features/mods/ui/mod-details-controller';
+import { pickDefaultVersion } from '$lib/features/mods/ui/mod-utils';
 
 export interface ManagedProfileModVersion {
 	modId: string;

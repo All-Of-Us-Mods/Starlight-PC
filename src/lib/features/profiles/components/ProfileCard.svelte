@@ -7,8 +7,9 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { save as saveDialog } from '@tauri-apps/plugin-dialog';
+	import { join } from '@tauri-apps/api/path';
+	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { modQueries } from '$lib/features/mods/queries';
-	import { mapModsById } from '$lib/features/mods/ui/mod-query-controller';
 	import type { Profile } from '../schema';
 	import type { Mod } from '$lib/features/mods/schema';
 	import { gameState } from '../game-state.svelte';
@@ -20,12 +21,8 @@
 	import { Package, CircleAlert, Play, FolderOpen, EllipsisVertical } from '@lucide/svelte';
 	import { CalendarDays, Clock, RotateCcw, Download, Trash2 } from '@jis3r/icons';
 	import { profileQueries } from '../queries';
-	import {
-		buildProfileModChips,
-		buildUnifiedMods,
-		findUnifiedModByChip,
-		openProfileFolder
-	} from '$lib/features/profiles/ui/profile-card-controller';
+	import type { UnifiedMod } from '../schema';
+	import type { ProfileModChip } from '$lib/features/profiles/ui/types';
 
 	let {
 		profile,
@@ -129,7 +126,11 @@
 	const modIds = $derived(profile.mods.map((m) => m.mod_id));
 	const modsQueries = $derived(modIds.map((id) => createQuery(() => modQueries.byId(id))));
 	const modsMap = $derived(
-		mapModsById(modsQueries.map((query) => query.data) as Array<Mod | undefined>)
+		new Map(
+			(modsQueries.map((query) => query.data) as Array<Mod | undefined>)
+				.filter((mod): mod is Mod => mod !== undefined)
+				.map((mod) => [mod.id, mod])
+		)
 	);
 
 	const diskFilesQuery = createQuery(() => profileQueries.diskFiles(profile.path));
@@ -145,6 +146,53 @@
 	const hiddenModCount = $derived(() => allMods.length - 3);
 
 	const modCount = $derived(unifiedMods().length);
+
+	function buildUnifiedMods(profile: Profile, diskFiles: string[]): UnifiedMod[] {
+		const managedFiles = new Set(profile.mods.map((mod) => mod.file).filter(Boolean));
+		const unified: UnifiedMod[] = profile.mods
+			.filter((mod) => mod.file && diskFiles.includes(mod.file))
+			.map((mod) => ({
+				source: 'managed' as const,
+				mod_id: mod.mod_id,
+				version: mod.version,
+				file: mod.file!
+			}));
+
+		for (const file of diskFiles) {
+			if (!managedFiles.has(file)) {
+				unified.push({ source: 'custom' as const, file });
+			}
+		}
+		return unified;
+	}
+
+	function buildProfileModChips(unifiedMods: UnifiedMod[], modsMap: Map<string, Mod>): ProfileModChip[] {
+		return unifiedMods.map((mod) => {
+			if (mod.source === 'managed') {
+				const modInfo = modsMap.get(mod.mod_id);
+				return { id: mod.mod_id, name: modInfo?.name ?? mod.mod_id, source: 'managed' as const };
+			}
+			return { id: mod.file, name: mod.file, source: 'custom' as const };
+		});
+	}
+
+	function findUnifiedModByChip(
+		chipId: string,
+		source: 'managed' | 'custom',
+		unifiedMods: UnifiedMod[]
+	) {
+		return unifiedMods.find((mod) =>
+			source === 'managed' ? mod.source === 'managed' && mod.mod_id === chipId : mod.file === chipId
+		);
+	}
+
+	async function openProfileFolder(path: string) {
+		try {
+			await revealItemInDir(await join(path, 'BepInEx'));
+		} catch (error) {
+			showError(error, 'Open folder');
+		}
+	}
 </script>
 
 <div class="@container">

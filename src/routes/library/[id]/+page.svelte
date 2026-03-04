@@ -1,6 +1,10 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
+	import { join } from '@tauri-apps/api/path';
+	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 	import { invoke } from '@tauri-apps/api/core';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -17,16 +21,11 @@
 	import type { Profile, UnifiedMod } from '$lib/features/profiles/schema';
 	import type { Mod } from '$lib/features/mods/schema';
 	import { profileUnifiedModsKey, profilesQueryKey } from '$lib/features/profiles/profile-keys';
-	import { mapModsById } from '$lib/features/mods/ui/mod-query-controller';
 	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
-	import { findProfileById } from '$lib/features/profiles/ui/profile-query-controller';
 	import {
 		fetchProfileModUpdates,
 		type ProfileModUpdatesMap
 	} from '$lib/features/profiles/ui/profile-mod-updates-model';
-	import {
-		createProfileDetailController
-	} from '$lib/features/profiles/ui/profile-detail-controller';
 	import {
 		filterProfileMods,
 		getProfileModsPagination,
@@ -54,7 +53,11 @@
 		enabled: !!profileId
 	}));
 
-	const profile = $derived(findProfileById(profilesQuery.data as Profile[] | undefined, profileId));
+	const profile = $derived(
+		((profilesQuery.data as Profile[] | undefined)?.find((entry) => entry.id === profileId) ?? null) as
+			| Profile
+			| null
+	);
 
 	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
 	const launchProfileMutation = createMutation(() => profileMutations.launchProfile());
@@ -64,16 +67,6 @@
 	const deleteUnifiedMod = createMutation(() => profileMutations.deleteUnifiedMod(queryClient));
 	const installMods = createMutation(() => profileMutations.installMods(queryClient));
 	const exportProfileZip = createMutation(() => profileMutations.exportZip());
-
-	const controller = createProfileDetailController({
-		launchProfile: (profile) => launchProfileMutation.mutateAsync(profile),
-		updateLastLaunched: (id) => updateLastLaunched.mutateAsync(id),
-		deleteProfile: (id) => deleteProfile.mutateAsync(id),
-		removeProfileQueries: (id) =>
-			queryClient.removeQueries({ queryKey: profileUnifiedModsKey(id) }),
-		renameProfile: (id, newName) => renameProfile.mutateAsync({ profileId: id, newName }),
-		deleteUnifiedMod: (id, mod) => deleteUnifiedMod.mutateAsync({ profileId: id, mod })
-	});
 
 	const modIds = $derived(Array.from(new Set(profile?.mods.map((mod) => mod.mod_id) ?? [])));
 	const profileModsQuery = createQuery(() => ({
@@ -88,7 +81,7 @@
 				.map((result) => result.value);
 		}
 	}));
-	const modsMap = $derived(mapModsById(profileModsQuery.data ?? []));
+	const modsMap = $derived(new Map((profileModsQuery.data ?? []).map((mod) => [mod.id, mod])));
 
 	let searchInput = $state('');
 	const debouncedSearch = new Debounced(() => searchInput, 150);
@@ -316,7 +309,8 @@
 		if (!profile || isLaunchDisabled) return;
 		isLaunching = true;
 		try {
-			await controller.launchProfile(profile);
+			await launchProfileMutation.mutateAsync(profile);
+			await updateLastLaunched.mutateAsync(profile.id);
 			rememberInstallTarget(profile.id, 'launch');
 		} catch (error) {
 			showError(error);
@@ -347,7 +341,10 @@
 		if (!profile) return;
 		deleteDialogOpen = false;
 		try {
-			await controller.deleteProfile(profile);
+			await deleteProfile.mutateAsync(profile.id);
+			queryClient.removeQueries({ queryKey: profileUnifiedModsKey(profile.id) });
+			showSuccess(`Profile "${profile.name}" deleted`);
+			goto(resolve('/library'));
 		} catch (error) {
 			showError(error);
 		}
@@ -498,7 +495,8 @@
 		if (!profile || !newProfileName.trim()) return;
 		renameError = '';
 		try {
-			await controller.renameProfile(profile, newProfileName);
+			await renameProfile.mutateAsync({ profileId: profile.id, newName: newProfileName });
+			showSuccess('Profile renamed');
 			renameDialogOpen = false;
 		} catch (error) {
 			renameError = error instanceof Error ? error.message : 'Failed to rename';
@@ -514,12 +512,26 @@
 		if (!profile || !modToDelete) return;
 		deleteModDialogOpen = false;
 		try {
-			await controller.removeMod(profile, modToDelete);
+			await deleteUnifiedMod.mutateAsync({ profileId: profile.id, mod: modToDelete });
+			showSuccess('Mod removed');
 		} catch (error) {
 			showError(error, 'Remove mod');
 		} finally {
 			modToDelete = null;
 		}
+	}
+
+	async function openProfileFolder(profile: Profile) {
+		try {
+			await revealItemInDir(await join(profile.path, 'BepInEx'));
+		} catch (error) {
+			showError(error, 'Open folder');
+		}
+	}
+
+	function goToInstallMods(profileId: string) {
+		rememberInstallTarget(profileId, 'install-click');
+		goto(resolve('/explore'));
 	}
 
 	function cancelDeleteMod() {
@@ -686,7 +698,7 @@
 			{isLaunchDisabled}
 			{isLaunching}
 			onLaunch={handleLaunch}
-			onOpenFolder={() => controller.openProfileFolder(profile)}
+			onOpenFolder={() => openProfileFolder(profile)}
 			onExport={handleExportProfile}
 			onOpenIconEditor={openIconDialog}
 			onOpenRename={openRenameDialog}
@@ -702,7 +714,7 @@
 				{updatesAvailableCount}
 				{isCheckingUpdates}
 				{isUpdatingAll}
-				onInstallMods={() => controller.goToInstallMods(profile.id)}
+				onInstallMods={() => goToInstallMods(profile.id)}
 				onRefreshUpdates={handleRefreshUpdates}
 				onUpdateAll={handleUpdateAll}
 			/>
@@ -721,7 +733,7 @@
 				totalPages={pagination.totalPages}
 				hasNextPage={pagination.hasNextPage}
 				onClearSearch={() => (searchInput = '')}
-				onInstallMods={() => controller.goToInstallMods(profile.id)}
+				onInstallMods={() => goToInstallMods(profile.id)}
 				onDeleteMod={confirmDeleteMod}
 				onUpdateMod={handleUpdateOne}
 				onPrevPage={() => currentPage--}

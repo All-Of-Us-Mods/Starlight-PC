@@ -12,6 +12,7 @@
 	import { profileMutations } from '$lib/features/profiles/mutations';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
+	import { showSuccess } from '$lib/utils/toast';
 	import type { ModDependency } from '../schema';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { watch } from 'runed';
@@ -24,7 +25,6 @@
 		buildInitialDependencySelection,
 		toggleDependencySelection
 	} from '$lib/features/mods/ui/dependency-selection-model';
-	import { createInstallPanelController } from '$lib/features/mods/ui/install-panel-controller';
 	import type { ResolvedDependency } from '$lib/features/mods/ui/types';
 
 	interface Props {
@@ -61,23 +61,6 @@
 	// ============ MUTATIONS ============
 
 	const installModsMutation = createMutation(() => profileMutations.installMods(queryClient));
-
-	const installController = createInstallPanelController({
-		onDownloadProgress: async (handler) => {
-			return (await listen('mod-download-progress', (event) => {
-				handler(event.payload as {
-					mod_id: string;
-					downloaded: number;
-					total: number | null;
-					progress: number;
-					stage: 'connecting' | 'downloading' | 'verifying' | 'writing' | 'complete';
-				});
-			})) as UnlistenFn;
-		},
-		installMods: (input) => installModsMutation.mutateAsync(input),
-		setModProgress: (id, progress) => gameState.setModDownloadProgress(id, progress),
-		clearModProgress: (id) => gameState.clearModDownload(id)
-	});
 
 	// ============ DERIVED ============
 
@@ -152,27 +135,43 @@
 	async function handleInstall() {
 		if (!selectedProfile || !selectedVersion) return;
 
-		const modsToInstall = installController.buildInstallList({
-			modId,
-			selectedVersion,
-			installableDependencies,
-			selectedDependencies,
-			installedDepsInProfile
-		});
+		const modsToInstall = [{ modId, version: selectedVersion }];
+		for (const dep of installableDependencies) {
+			if (selectedDependencies.has(dep.mod_id) && !installedDepsInProfile.has(dep.mod_id)) {
+				modsToInstall.push({ modId: dep.mod_id, version: dep.resolvedVersion });
+			}
+		}
 
 		modsBeingInstalled = modsToInstall.map((m) => m.modId);
 		isInstalling = true;
 		installError = '';
+		let unlisten: UnlistenFn | null = null;
 
 		try {
-			await installController.installToProfile({
-				profile: selectedProfile,
-				mods: modsToInstall,
-				onInstalled: onInstallComplete
+			unlisten = (await listen('mod-download-progress', (event) => {
+				const progress = event.payload as {
+					mod_id: string;
+					downloaded: number;
+					total: number | null;
+					progress: number;
+					stage: 'connecting' | 'downloading' | 'verifying' | 'writing' | 'complete';
+				};
+				gameState.setModDownloadProgress(progress.mod_id, progress);
+			})) as UnlistenFn;
+			await installModsMutation.mutateAsync({
+				profileId: selectedProfile.id,
+				profilePath: selectedProfile.path,
+				mods: modsToInstall
 			});
+			showSuccess(`Installed to ${selectedProfile.name}`);
+			onInstallComplete?.();
 		} catch (e) {
 			installError = e instanceof Error ? e.message : 'Failed to install';
 		} finally {
+			unlisten?.();
+			for (const modId of modsBeingInstalled) {
+				gameState.clearModDownload(modId);
+			}
 			isInstalling = false;
 			modsBeingInstalled = [];
 		}

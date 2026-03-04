@@ -22,7 +22,7 @@
 		getLinkIcon,
 		pickDefaultVersion,
 		safeParseMarkdown
-	} from '$lib/features/mods/ui/mod-details-controller';
+	} from '$lib/features/mods/ui/mod-utils';
 
 	interface Props {
 		modId: string;
