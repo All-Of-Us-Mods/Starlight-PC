@@ -1,104 +1,170 @@
-import {
-	bepinexInstallState,
-	type BepInExInstallState
-} from './state/bepinex-install-state.svelte';
-import { gameRuntimeState } from './state/game-runtime-state.svelte';
-import { modDownloadState, type ModDownloadState } from './state/mod-download-state.svelte';
-import {
-	registerProfilesInvalidateCallback,
-	notifyProfilesInvalidated as invalidateProfiles
-} from './state/profile-invalidation-bridge';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { SvelteMap } from 'svelte/reactivity';
 import type { BepInExProgress, ModDownloadProgress } from './schema';
 
-class GameStateFacade {
-	get running(): boolean {
-		return gameRuntimeState.running;
-	}
+type InvalidateCallback = () => void;
 
-	get runningCount(): number {
-		return gameRuntimeState.runningCount;
-	}
+interface GameStatePayload {
+	running: boolean;
+	running_count?: number;
+	profile_instance_counts?: Record<string, number>;
+}
 
-	getProfileRunningInstanceCount(profileId: string): number {
-		return gameRuntimeState.getProfileRunningInstanceCount(profileId);
-	}
+type BepInExInstallState =
+	| { status: 'installing'; progress: BepInExProgress }
+	| { status: 'error'; message: string };
 
-	isProfileRunning(profileId: string): boolean {
-		return gameRuntimeState.isProfileRunning(profileId);
-	}
+type ModDownloadState =
+	| { status: 'downloading'; progress: ModDownloadProgress }
+	| { status: 'complete' }
+	| { status: 'error'; message: string };
 
-	getSessionDuration(): number {
-		return gameRuntimeState.getSessionDuration();
-	}
+let running = $state(false);
+let runningCount = $state(0);
+let profileInstanceCounts = $state<Record<string, number>>({});
+let runningProfileId = $state<string | null>(null);
+let sessionStartTime = $state<number | null>(null);
+let currentTime = $state(Date.now());
 
-	init() {
-		return gameRuntimeState.init();
-	}
+const bepinexInstalls = new SvelteMap<string, BepInExInstallState>();
+const modDownloads = new SvelteMap<string, ModDownloadState>();
 
-	destroy() {
-		gameRuntimeState.destroy();
-	}
+let onProfilesInvalidate: InvalidateCallback | null = null;
+let unlistenGameState: UnlistenFn | null = null;
+let ticker: ReturnType<typeof setInterval> | null = null;
 
-	get bepinexInstalls() {
-		return bepinexInstallState.installs;
-	}
+export function registerProfilesInvalidateCallback(callback: InvalidateCallback) {
+	onProfilesInvalidate = callback;
+}
 
-	setBepInExProgress(profileId: string, progress: BepInExProgress) {
-		bepinexInstallState.setProgress(profileId, progress);
-	}
+function notifyProfilesInvalidated() {
+	onProfilesInvalidate?.();
+}
 
-	setBepInExError(profileId: string, message: string) {
-		bepinexInstallState.setError(profileId, message);
-	}
+function getSessionDuration() {
+	if (!sessionStartTime) return 0;
+	return currentTime - sessionStartTime;
+}
 
-	clearBepInExProgress(profileId: string) {
-		bepinexInstallState.clear(profileId);
+async function finalizeSession() {
+	if (running && runningProfileId) {
+		const duration = getSessionDuration();
+		if (duration > 0) {
+			await invoke<void>('profiles_add_play_time', {
+				args: { profileId: runningProfileId, durationMs: duration }
+			});
+			notifyProfilesInvalidated();
+		}
 	}
-
-	getBepInExState(profileId: string): BepInExInstallState | undefined {
-		return bepinexInstallState.getState(profileId);
-	}
-
-	isBepInExInstalling(profileId: string): boolean {
-		return bepinexInstallState.isInstalling(profileId);
-	}
-
-	hasBepInExError(profileId: string): boolean {
-		return bepinexInstallState.hasError(profileId);
-	}
-
-	get modDownloads() {
-		return modDownloadState.downloads;
-	}
-
-	setModDownloadProgress(modId: string, progress: ModDownloadProgress) {
-		modDownloadState.setProgress(modId, progress);
-	}
-
-	setModDownloadError(modId: string, message: string) {
-		modDownloadState.setError(modId, message);
-	}
-
-	clearModDownload(modId: string) {
-		modDownloadState.clear(modId);
-	}
-
-	clearAllModDownloads() {
-		modDownloadState.clearAll();
-	}
-
-	getModDownloadState(modId: string): ModDownloadState | undefined {
-		return modDownloadState.getState(modId);
-	}
-
-	isModDownloading(modId: string): boolean {
-		return modDownloadState.isDownloading(modId);
-	}
-
-	getModDownloadStageText(stage: ModDownloadProgress['stage']): string {
-		return modDownloadState.getStageText(stage);
+	sessionStartTime = null;
+	if (ticker) {
+		clearInterval(ticker);
+		ticker = null;
 	}
 }
 
-export { registerProfilesInvalidateCallback, invalidateProfiles };
-export const gameState = new GameStateFacade();
+function startSessionTimer() {
+	if (sessionStartTime) return;
+	sessionStartTime = Date.now();
+	currentTime = sessionStartTime;
+	if (!ticker) {
+		ticker = setInterval(() => {
+			currentTime = Date.now();
+		}, 1000);
+	}
+}
+
+export const gameState = {
+	get running() {
+		return running;
+	},
+	get runningCount() {
+		return runningCount;
+	},
+	getSessionDuration,
+	getProfileRunningInstanceCount(profileId: string) {
+		return profileInstanceCounts[profileId] ?? 0;
+	},
+	isProfileRunning(profileId: string) {
+		return (profileInstanceCounts[profileId] ?? 0) > 0;
+	},
+	init: async () => {
+		if (unlistenGameState) return;
+		unlistenGameState = await listen<GameStatePayload>('game-state-changed', async (event) => {
+			if (running && !event.payload.running) {
+				await finalizeSession();
+				runningProfileId = null;
+			}
+
+			running = event.payload.running;
+			runningCount = event.payload.running_count ?? (event.payload.running ? 1 : 0);
+			profileInstanceCounts = event.payload.profile_instance_counts ?? {};
+
+			const runningProfileIds = Object.entries(profileInstanceCounts)
+				.filter(([, count]) => count > 0)
+				.map(([profileId]) => profileId);
+
+			if (runningProfileIds.length === 1) {
+				runningProfileId = runningProfileIds[0] ?? null;
+			} else if (runningProfileIds.length === 0) {
+				runningProfileId = null;
+			} else if (runningProfileId && !runningProfileIds.includes(runningProfileId)) {
+				runningProfileId = null;
+			}
+
+			if (running && sessionStartTime === null) {
+				startSessionTimer();
+			}
+		});
+	},
+	destroy: () => {
+		unlistenGameState?.();
+		unlistenGameState = null;
+		if (ticker) {
+			clearInterval(ticker);
+			ticker = null;
+		}
+	},
+	getBepInExState(profileId: string): BepInExInstallState | undefined {
+		return bepinexInstalls.get(profileId);
+	},
+	setBepInExProgress(profileId: string, progress: BepInExProgress) {
+		bepinexInstalls.set(profileId, { status: 'installing', progress });
+	},
+	setBepInExError(profileId: string, message: string) {
+		bepinexInstalls.set(profileId, { status: 'error', message });
+	},
+	clearBepInExProgress(profileId: string) {
+		bepinexInstalls.delete(profileId);
+	},
+	getModDownloadState(modId: string): ModDownloadState | undefined {
+		return modDownloads.get(modId);
+	},
+	setModDownloadProgress(modId: string, progress: ModDownloadProgress) {
+		if (progress.stage === 'complete') {
+			modDownloads.set(modId, { status: 'complete' });
+		} else {
+			modDownloads.set(modId, { status: 'downloading', progress });
+		}
+	},
+	clearModDownload(modId: string) {
+		modDownloads.delete(modId);
+	},
+	getModDownloadStageText(stage: ModDownloadProgress['stage']) {
+		switch (stage) {
+			case 'connecting':
+				return 'Connecting...';
+			case 'downloading':
+				return 'Downloading...';
+			case 'verifying':
+				return 'Verifying checksum...';
+			case 'writing':
+				return 'Writing file...';
+			case 'complete':
+				return 'Complete';
+			default:
+				return '';
+		}
+	}
+};

@@ -21,10 +21,6 @@
 		getInstallTarget,
 		rememberInstallTarget
 	} from '$lib/features/mods/state/install-target.svelte';
-	import {
-		buildInitialDependencySelection,
-		toggleDependencySelection
-	} from '$lib/features/mods/ui/dependency-selection-model';
 	import type { ResolvedDependency } from '$lib/features/mods/ui/types';
 
 	interface Props {
@@ -120,7 +116,9 @@
 		() => resolvedDeps,
 		(currentDeps) => {
 			if (currentDeps.length > 0 && !hasInitializedDeps) {
-				selectedDependencies = buildInitialDependencySelection(currentDeps);
+				selectedDependencies = new Set(
+					currentDeps.filter((dep) => dep.type !== 'conflict').map((dep) => dep.mod_id)
+				);
 				hasInitializedDeps = true;
 			}
 		}
@@ -129,7 +127,11 @@
 	// ============ HANDLERS ============
 
 	function toggleDependency(depModId: string) {
-		selectedDependencies = toggleDependencySelection(selectedDependencies, depModId);
+		if (selectedDependencies.has(depModId)) {
+			selectedDependencies = new Set([...selectedDependencies].filter((id) => id !== depModId));
+			return;
+		}
+		selectedDependencies = new Set([...selectedDependencies, depModId]);
 	}
 
 	async function handleInstall() {

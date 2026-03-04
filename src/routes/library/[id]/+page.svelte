@@ -7,7 +7,7 @@
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 	import { invoke } from '@tauri-apps/api/core';
-	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { createMutation, createQuery, useQueryClient, type QueryClient } from '@tanstack/svelte-query';
 	import { Debounced, watch } from 'runed';
 	import { SvelteSet } from 'svelte/reactivity';
 
@@ -22,16 +22,7 @@
 	import type { Mod } from '$lib/features/mods/schema';
 	import { profileUnifiedModsKey, profilesQueryKey } from '$lib/features/profiles/profile-keys';
 	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
-	import {
-		fetchProfileModUpdates,
-		type ProfileModUpdatesMap
-	} from '$lib/features/profiles/ui/profile-mod-updates-model';
-	import {
-		filterProfileMods,
-		getProfileModsPagination,
-		paginateProfileMods,
-		PROFILE_MODS_PAGE_SIZE
-	} from '$lib/features/profiles/ui/profile-mods-view-model';
+	import { pickDefaultVersion } from '$lib/features/mods/ui/mod-utils';
 
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -45,6 +36,7 @@
 
 	const queryClient = useQueryClient();
 	const profileId = $derived(page.params.id ?? '');
+	const PROFILE_MODS_PAGE_SIZE = 6;
 
 	const profilesQuery = createQuery(() => profileQueries.all());
 	const settingsQuery = createQuery(() => settingsQueries.get());
@@ -167,6 +159,95 @@
 		} catch {
 			return null;
 		}
+	}
+
+	interface ManagedProfileModVersion {
+		modId: string;
+		installedVersion: string;
+	}
+
+	type ProfileModUpdateStatus = {
+		installedVersion: string;
+		latestVersion: string | null;
+		isOutdated: boolean;
+		status: 'checking' | 'ready' | 'error';
+	};
+
+	type ProfileModUpdatesMap = Record<string, ProfileModUpdateStatus>;
+
+	async function fetchProfileModUpdates(
+		client: QueryClient,
+		managedMods: ManagedProfileModVersion[]
+	): Promise<ProfileModUpdatesMap> {
+		const updatesByModId: ProfileModUpdatesMap = {};
+
+		for (const mod of managedMods) {
+			updatesByModId[mod.modId] = {
+				installedVersion: mod.installedVersion,
+				latestVersion: null,
+				isOutdated: false,
+				status: 'checking'
+			};
+		}
+
+		const results = await Promise.allSettled(
+			managedMods.map(async (mod) => {
+				const versions = await client.fetchQuery(modQueries.versions(mod.modId));
+				const latestVersion = pickDefaultVersion(versions);
+				return { mod, latestVersion };
+			})
+		);
+
+		for (const result of results) {
+			if (result.status === 'rejected') continue;
+			const { mod, latestVersion } = result.value;
+			updatesByModId[mod.modId] = {
+				installedVersion: mod.installedVersion,
+				latestVersion: latestVersion ?? null,
+				isOutdated: Boolean(latestVersion && latestVersion !== mod.installedVersion),
+				status: 'ready'
+			};
+		}
+
+		for (const mod of managedMods) {
+			const entry = updatesByModId[mod.modId];
+			if (entry?.status === 'checking') {
+				updatesByModId[mod.modId] = {
+					installedVersion: mod.installedVersion,
+					latestVersion: null,
+					isOutdated: false,
+					status: 'error'
+				};
+			}
+		}
+
+		return updatesByModId;
+	}
+
+	function filterProfileMods(unified: UnifiedMod[], modsById: Map<string, Mod>, search: string) {
+		const searchLower = search.trim().toLowerCase();
+		return unified.filter((mod) => {
+			if (!searchLower) return true;
+			if (mod.source === 'managed') {
+				return modsById.get(mod.mod_id)?.name.toLowerCase().includes(searchLower) ?? false;
+			}
+			return mod.file.toLowerCase().includes(searchLower);
+		});
+	}
+
+	function paginateProfileMods(mods: UnifiedMod[], page: number, pageSize = PROFILE_MODS_PAGE_SIZE) {
+		const start = page * pageSize;
+		return mods.slice(start, start + pageSize);
+	}
+
+	function getProfileModsPagination(total: number, page: number, pageSize = PROFILE_MODS_PAGE_SIZE) {
+		const totalPages = Math.ceil(total / pageSize);
+		const hasNextPage = page < totalPages - 1;
+		return {
+			totalPages,
+			hasNextPage,
+			showPagination: page > 0 || hasNextPage
+		};
 	}
 
 	watch(
