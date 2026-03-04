@@ -1,9 +1,10 @@
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { PUBLIC_API_URL } from '$env/static/public';
 
 const DEFAULT_API_BASE_URL = 'https://starlight.allofus.dev';
 
 export function apiBaseUrl(): string {
-	const raw = import.meta.env.PUBLIC_API_URL;
+	const raw = PUBLIC_API_URL;
 	if (typeof raw === 'string' && raw.trim().length > 0) {
 		return raw.trim();
 	}
