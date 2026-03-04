@@ -35,7 +35,7 @@ async function rollbackInstalledMods(
 	persisted: InstalledMod[],
 	previousByModId: Map<string, { version: string; file: string | undefined } | undefined>
 ) {
-	for (const mod of persisted.reverse()) {
+	for (const mod of persisted.toReversed()) {
 		const previous = previousByModId.get(mod.modId);
 		try {
 			if (previous?.file) {
@@ -53,7 +53,7 @@ async function rollbackInstalledMods(
 		}
 	}
 
-	for (const mod of installed.reverse()) {
+	for (const mod of installed.toReversed()) {
 		try {
 			await profileWorkflowService.deleteModFile(args.profilePath, mod.fileName);
 		} catch (error) {

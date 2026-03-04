@@ -10,5 +10,5 @@ export function findProfileById(
 
 export function getMostRecentlyCreatedProfile(profiles: Profile[] | undefined): Profile | null {
 	if (!profiles || profiles.length === 0) return null;
-	return [...profiles].sort((a, b) => b.created_at - a.created_at)[0] ?? null;
+	return [...profiles].toSorted((a, b) => b.created_at - a.created_at)[0] ?? null;
 }

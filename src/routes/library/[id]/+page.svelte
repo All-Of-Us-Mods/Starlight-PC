@@ -198,7 +198,7 @@
 	const modUpdatesSignature = $derived(
 		managedModsForUpdates
 			.map((mod) => `${mod.modId}@${mod.installedVersion}`)
-			.sort()
+			.toSorted()
 			.join('|')
 	);
 	const modUpdatesQuery = createQuery(() => ({
@@ -236,7 +236,7 @@
 			.filter((mod): mod is Mod => !!mod && !!mod._links.thumbnail)
 			.filter((mod, index, entries) => entries.findIndex((entry) => entry.id === mod.id) === index)
 			.map((mod) => ({ id: mod.id, name: mod.name, thumbnail: mod._links.thumbnail }))
-			.sort((a, b) => a.name.localeCompare(b.name));
+			.toSorted((a, b) => a.name.localeCompare(b.name));
 
 		return mods;
 	});

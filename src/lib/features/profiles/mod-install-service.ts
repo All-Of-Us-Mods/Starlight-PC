@@ -98,7 +98,7 @@ class ModInstallService {
 				]);
 
 				// Find the latest version that satisfies the constraint
-				const sortedVersions = [...versions].sort((a, b) => b.created_at - a.created_at);
+				const sortedVersions = [...versions].toSorted((a, b) => b.created_at - a.created_at);
 				let resolvedVersion = sortedVersions[0]?.version ?? '';
 
 				// Try to find a version matching the constraint using semver

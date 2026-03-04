@@ -96,7 +96,7 @@ export const modQueries = {
 	resolvedDependencies: (dependencies: ModDependency[]) => {
 		const queryKey = dependencies
 			.map((d) => `${d.mod_id}:${d.version_constraint}`)
-			.sort()
+			.toSorted()
 			.join(',');
 
 		return queryOptions({

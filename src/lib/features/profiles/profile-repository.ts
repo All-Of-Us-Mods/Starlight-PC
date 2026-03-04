@@ -104,7 +104,7 @@ class ProfileRepository {
 			this.migrationDone = true;
 		}
 
-		return profiles.sort((a, b) => {
+		return profiles.toSorted((a, b) => {
 			const aLaunched = a.last_launched_at ?? 0;
 			const bLaunched = b.last_launched_at ?? 0;
 			if (aLaunched !== bLaunched) return bLaunched - aLaunched;

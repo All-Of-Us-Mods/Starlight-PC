@@ -104,8 +104,8 @@
 			const inferredProfileId = getInstallTarget(currentProfiles);
 			const mostRecentlyLaunched = [...currentProfiles]
 				.filter((profile) => profile.last_launched_at !== undefined)
-				.sort((a, b) => (b.last_launched_at ?? 0) - (a.last_launched_at ?? 0))[0];
-			const mostRecentlyCreated = [...currentProfiles].sort(
+				.toSorted((a, b) => (b.last_launched_at ?? 0) - (a.last_launched_at ?? 0))[0];
+			const mostRecentlyCreated = [...currentProfiles].toSorted(
 				(a, b) => b.created_at - a.created_at
 			)[0];
 
