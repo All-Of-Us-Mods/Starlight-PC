@@ -590,10 +590,18 @@ pub fn get_mod_files(profile_path: &str) -> Vec<String> {
 }
 
 pub fn delete_mod_file(profile_path: &str, file_name: &str) -> AppResult<()> {
+    let base_name = Path::new(file_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| AppError::validation("Invalid mod file name"))?;
+    if base_name != file_name || file_name.contains('/') || file_name.contains('\\') {
+        return Err(AppError::validation("Invalid mod file name"));
+    }
+
     let path = PathBuf::from(profile_path)
         .join("BepInEx")
         .join("plugins")
-        .join(file_name);
+        .join(base_name);
     if path.exists() {
         fs::remove_file(path)?;
     }

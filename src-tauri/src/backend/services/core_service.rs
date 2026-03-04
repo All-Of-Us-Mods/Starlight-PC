@@ -129,8 +129,16 @@ fn bepinex_cache_path<R: Runtime>(app: &AppHandle<R>) -> AppResult<String> {
 pub fn get_settings<R: Runtime>(app: &AppHandle<R>) -> AppResult<AppSettings> {
     let path = settings_path(app)?;
     if path.exists() {
-        let raw = fs::read_to_string(path)?;
-        return Ok(serde_json::from_str(&raw).unwrap_or_default());
+        let raw = fs::read_to_string(&path)?;
+        match serde_json::from_str::<AppSettings>(&raw) {
+            Ok(settings) => return Ok(settings),
+            Err(error) => {
+                log::warn!(
+                    "Failed to parse settings file at '{}': {error}. Falling back to migration/default settings.",
+                    path.display()
+                );
+            }
+        }
     }
 
     if let Some(legacy_settings) = read_legacy_settings(app)? {

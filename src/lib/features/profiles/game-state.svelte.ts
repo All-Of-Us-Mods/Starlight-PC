@@ -51,11 +51,15 @@ async function finalizeSession() {
 	if (running && runningProfileId) {
 		const duration = getSessionDuration();
 		if (duration > 0) {
-			await rustInvoke('profiles_add_play_time', {
-				profileId: runningProfileId,
-				durationMs: duration
-			});
-			notifyProfilesInvalidated();
+			try {
+				await rustInvoke('profiles_add_play_time', {
+					profileId: runningProfileId,
+					durationMs: duration
+				});
+				notifyProfilesInvalidated();
+			} catch (error) {
+				console.error('[gameState] Failed to persist play time', error);
+			}
 		}
 	}
 	sessionStartTime = null;

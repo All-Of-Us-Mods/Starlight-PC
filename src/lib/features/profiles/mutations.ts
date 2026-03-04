@@ -29,6 +29,7 @@ type DownloadTarget = {
 	fileName: string;
 	checksum: string;
 };
+let launchInFlight = false;
 
 function resolveDownloadTarget(
 	modId: string,
@@ -371,59 +372,72 @@ export const profileMutations = {
 
 	launchProfile: () => ({
 		mutationFn: async (profile: Profile) => {
+			if (launchInFlight) {
+				throw new Error('A launch is already in progress');
+			}
+			launchInFlight = true;
 			const settings = await rustInvoke('core_get_settings');
-			if (!settings.among_us_path?.trim()) {
-				throw new Error('Among Us path not configured');
-			}
-			if (!settings.allow_multi_instance_launch && gameState.running) {
-				throw new Error('An Among Us instance is already running');
-			}
-			if (settings.game_platform === 'epic') {
-				await epicService.ensureLoggedIn();
-			}
-
-			if (settings.game_platform === 'xbox') {
-				let appId = settings.xbox_app_id?.trim() ?? '';
-				if (!appId) {
-					appId = await rustInvoke('game_xbox_get_app_id');
-					await rustInvoke('core_update_settings', { updates: { xbox_app_id: appId } });
+			try {
+				if (!settings.among_us_path?.trim()) {
+					throw new Error('Among Us path not configured');
 				}
-				await rustInvoke('game_xbox_prepare_launch', {
-					gameDir: settings.among_us_path,
-					profilePath: profile.path
-				});
-				await rustInvoke('game_xbox_launch', {
-					appId,
-					profileId: profile.id
-				});
-			} else {
-				const gameExe = await join(settings.among_us_path, 'Among Us.exe');
-				await assertPathExists(gameExe, 'Among Us.exe not found at configured path');
-				const bepinexDll = await join(profile.path, 'BepInEx', 'core', 'BepInEx.Unity.IL2CPP.dll');
-				await assertPathExists(
-					bepinexDll,
-					'BepInEx DLL not found. Please wait for installation to complete.'
-				);
-				const dotnetDir = await join(profile.path, 'dotnet');
-				const coreclrPath = await join(dotnetDir, 'coreclr.dll');
-				await assertPathExists(
-					coreclrPath,
-					'dotnet runtime not found. Please wait for installation to complete.'
-				);
-				await rustInvoke('game_launch_modded', {
-					gameExe,
-					profileId: profile.id,
-					profilePath: profile.path,
-					bepinexDll,
-					dotnetDir,
-					coreclrPath,
-					platform: settings.game_platform
-				});
-			}
+				if (!settings.allow_multi_instance_launch && gameState.running) {
+					throw new Error('An Among Us instance is already running');
+				}
+				if (settings.game_platform === 'epic') {
+					await epicService.ensureLoggedIn();
+				}
 
-			if (settings.close_on_launch) {
-				const { getCurrentWindow } = await import('@tauri-apps/api/window');
-				await getCurrentWindow().close();
+				if (settings.game_platform === 'xbox') {
+					let appId = settings.xbox_app_id?.trim() ?? '';
+					if (!appId) {
+						appId = await rustInvoke('game_xbox_get_app_id');
+						await rustInvoke('core_update_settings', { updates: { xbox_app_id: appId } });
+					}
+					await rustInvoke('game_xbox_prepare_launch', {
+						gameDir: settings.among_us_path,
+						profilePath: profile.path
+					});
+					await rustInvoke('game_xbox_launch', {
+						appId,
+						profileId: profile.id
+					});
+				} else {
+					const gameExe = await join(settings.among_us_path, 'Among Us.exe');
+					await assertPathExists(gameExe, 'Among Us.exe not found at configured path');
+					const bepinexDll = await join(
+						profile.path,
+						'BepInEx',
+						'core',
+						'BepInEx.Unity.IL2CPP.dll'
+					);
+					await assertPathExists(
+						bepinexDll,
+						'BepInEx DLL not found. Please wait for installation to complete.'
+					);
+					const dotnetDir = await join(profile.path, 'dotnet');
+					const coreclrPath = await join(dotnetDir, 'coreclr.dll');
+					await assertPathExists(
+						coreclrPath,
+						'dotnet runtime not found. Please wait for installation to complete.'
+					);
+					await rustInvoke('game_launch_modded', {
+						gameExe,
+						profileId: profile.id,
+						profilePath: profile.path,
+						bepinexDll,
+						dotnetDir,
+						coreclrPath,
+						platform: settings.game_platform
+					});
+				}
+
+				if (settings.close_on_launch) {
+					const { getCurrentWindow } = await import('@tauri-apps/api/window');
+					await getCurrentWindow().close();
+				}
+			} finally {
+				launchInFlight = false;
 			}
 		}
 	}),
