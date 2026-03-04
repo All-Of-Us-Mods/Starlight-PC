@@ -539,6 +539,7 @@
 	async function handleSaveProfileIcon() {
 		if (!profile) return;
 		iconError = '';
+		let mutationCalled = false;
 
 		try {
 			if (iconModeDraft === 'custom') {
@@ -560,6 +561,7 @@
 							extension: customIconExtensionDraft
 						}
 					});
+					mutationCalled = true;
 				}
 			} else if (iconModeDraft === 'mod') {
 				if (!iconModIdDraft) {
@@ -571,11 +573,18 @@
 					profileId: profile.id,
 					selection: { mode: 'mod', modId: iconModIdDraft }
 				});
+				mutationCalled = true;
 			} else {
 				await updateProfileIcon.mutateAsync({
 					profileId: profile.id,
 					selection: { mode: 'default' }
 				});
+				mutationCalled = true;
+			}
+
+			if (!mutationCalled) {
+				iconDialogOpen = false;
+				return;
 			}
 
 			await refreshProfileIconSource();
