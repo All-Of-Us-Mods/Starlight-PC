@@ -113,7 +113,7 @@ async function rollbackInstalledMods(
 	);
 }
 
-async function installBepInEx(profileId: string, profilePath: string) {
+async function installBepInEx(profileId: string) {
 	if (bepinexInstallInFlight.has(profileId)) {
 		throw new Error('BepInEx install already in progress for this profile');
 	}
@@ -125,7 +125,7 @@ async function installBepInEx(profileId: string, profilePath: string) {
 		unlisten = await listen<BepInExProgress>('bepinex-progress', (event) => {
 			gameState.setBepInExProgress(profileId, event.payload);
 		});
-		await rustInvoke('profiles_install_bepinex', { profileId, profilePath });
+			await rustInvoke('profiles_install_bepinex', { profileId });
 		succeeded = true;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Unknown error';
@@ -165,12 +165,15 @@ async function invalidateProfileAndDiskQueries(
 export const profileMutations = {
 	create: (queryClient: QueryClient) => ({
 		mutationFn: async (name: string) => {
-				const profile = await rustInvoke('profiles_create', { name });
-				void installBepInEx(profile.id, profile.path)
-					.finally(() => {
-						void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
-					});
-				return profile;
+			const profile = await rustInvoke('profiles_create', { name });
+			void installBepInEx(profile.id)
+				.catch((error) => {
+					console.error('[profiles] Background BepInEx install failed', error);
+				})
+				.finally(() => {
+					void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+				});
+			return profile;
 		},
 		onSuccess: (created: Profile) => {
 			queryClient.setQueryData<Profile[] | undefined>(profilesQueryKey, (current) => {
@@ -257,8 +260,7 @@ export const profileMutations = {
 	}),
 
 	retryBepInExInstall: (queryClient: QueryClient) => ({
-		mutationFn: (args: { profileId: string; profilePath: string }) =>
-			installBepInEx(args.profileId, args.profilePath),
+		mutationFn: (args: { profileId: string }) => installBepInEx(args.profileId),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}

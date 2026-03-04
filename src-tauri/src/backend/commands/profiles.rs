@@ -40,7 +40,6 @@ pub struct ProfilesUpdateIconArgs {
 #[serde(rename_all = "camelCase")]
 pub struct ProfilesInstallBepInExArgs {
     pub profile_id: String,
-    pub profile_path: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -182,15 +181,9 @@ pub async fn profiles_install_bepinex<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesInstallBepInExArgs,
 ) -> Result<(), String> {
-    profile_service::install_bepinex_for_profile(
-        app,
-        profile_service::ProfileInstallArgs {
-            profile_id: args.profile_id,
-            profile_path: args.profile_path,
-        },
-    )
-    .await
-    .map_err(|e| e.to_string())
+    profile_service::install_bepinex_for_profile(app, &args.profile_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

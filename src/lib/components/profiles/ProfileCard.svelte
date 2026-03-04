@@ -117,7 +117,7 @@
 
 	async function handleRetryInstall() {
 		gameState.clearBepInExProgress(profile.id);
-		await retryBepInExInstall.mutateAsync({ profileId: profile.id, profilePath: profile.path });
+		await retryBepInExInstall.mutateAsync({ profileId: profile.id });
 	}
 
 	const totalPlayTime = $derived(

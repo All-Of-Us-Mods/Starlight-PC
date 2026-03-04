@@ -61,12 +61,6 @@ pub enum ProfileIconSelection {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct ProfileInstallArgs {
-    pub profile_id: String,
-    pub profile_path: String,
-}
-
 fn now_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -382,8 +376,11 @@ pub fn create_profile<R: Runtime>(app: &AppHandle<R>, name: &str) -> AppResult<P
 
 pub async fn install_bepinex_for_profile<R: Runtime>(
     app: AppHandle<R>,
-    args: ProfileInstallArgs,
+    profile_id: &str,
 ) -> AppResult<()> {
+    let mut profile = get_profile_by_id(&app, profile_id)?
+        .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))?;
+
     let settings = core_service::get_settings(&app)?;
     let cache_path = if settings.cache_bepinex {
         Some(core_service::get_bepinex_cache_path(&app)?)
@@ -394,15 +391,13 @@ pub async fn install_bepinex_for_profile<R: Runtime>(
     bepinex_service::install_bepinex(
         app.clone(),
         settings.bepinex_url,
-        args.profile_path.clone(),
+        profile.path.clone(),
         cache_path,
     )
     .await?;
 
-    if let Some(mut profile) = get_profile_by_id(&app, &args.profile_id)? {
-        profile.bepinex_installed = Some(true);
-        write_profile(&profile)?;
-    }
+    profile.bepinex_installed = Some(true);
+    write_profile(&profile)?;
     Ok(())
 }
 

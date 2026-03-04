@@ -19,7 +19,7 @@ export type RustCommandMap = {
 	profiles_list: { args: void; result: Profile[] };
 	profiles_get_by_id: { args: { id: string }; result: Profile | null };
 	profiles_create: { args: { name: string }; result: Profile };
-	profiles_install_bepinex: { args: { profileId: string; profilePath: string }; result: void };
+	profiles_install_bepinex: { args: { profileId: string }; result: void };
 	profiles_delete: { args: { profileId: string }; result: void };
 	profiles_rename: { args: { profileId: string; newName: string }; result: void };
 	profiles_update_icon: {
