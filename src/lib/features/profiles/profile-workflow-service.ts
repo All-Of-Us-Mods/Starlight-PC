@@ -1,7 +1,6 @@
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { error as logError } from '@tauri-apps/plugin-log';
-import { settingsService } from '../settings/settings-service';
-import { profileRepository } from './profile-repository';
-import { profilePlatformAdapter } from './profile-platform-adapter';
 import type { BepInExProgress, Profile, ProfileIconSelection, UnifiedMod } from './schema';
 
 interface ProfileLifecycleHooks {
@@ -12,48 +11,15 @@ interface ProfileLifecycleHooks {
 }
 
 class ProfileWorkflowService {
-	private readonly customIconExtensions = [
-		'.png',
-		'.jpg',
-		'.jpeg',
-		'.webp',
-		'.gif',
-		'.bmp',
-		'.avif'
-	];
-	private readonly customIconBaseName = 'icon';
-
-	readonly getProfilesDir = () => profileRepository.getProfilesDir();
-	readonly getProfiles = () => profileRepository.getProfiles();
-	readonly getProfileById = (id: string) => profileRepository.getProfileById(id);
+	readonly getProfilesDir = () => invoke<string>('profiles_get_dir');
+	readonly getProfiles = () => invoke<Profile[]>('profiles_list');
+	readonly getProfileById = (id: string) =>
+		invoke<Profile | null>('profiles_get_by_id', { args: { id } }).then((profile) => profile ?? undefined);
 
 	async createProfile(name: string, hooks?: ProfileLifecycleHooks): Promise<Profile> {
-		const trimmed = name.trim();
-		if (!trimmed) throw new Error('Profile name cannot be empty');
+		const profile = await invoke<Profile>('profiles_create', { args: { name } });
 
-		const profiles = await this.getProfiles();
-		if (profiles.some((profile) => profile.name.toLowerCase() === trimmed.toLowerCase())) {
-			throw new Error(`Profile '${trimmed}' already exists`);
-		}
-
-		const timestamp = Date.now();
-		const profileId = this.buildProfileId(trimmed, timestamp);
-		const profilePath = await profileRepository.createProfileDir(profileId);
-
-		const profile: Profile = {
-			id: profileId,
-			name: trimmed,
-			path: profilePath,
-			created_at: timestamp,
-			last_launched_at: undefined,
-			bepinex_installed: false,
-			total_play_time: 0,
-			icon_mode: 'default',
-			mods: []
-		};
-
-		await profileRepository.writeMetadata(profile);
-		this.installBepInExInBackground(profileId, profilePath, hooks).catch((error) => {
+		this.installBepInExInBackground(profile.id, profile.path, hooks).catch((error) => {
 			logError(
 				`installBepInExInBackground failed: ${error instanceof Error ? error.message : error}`
 			);
@@ -62,52 +28,11 @@ class ProfileWorkflowService {
 	}
 
 	async exportProfileZip(profileId: string, destination: string): Promise<void> {
-		const profile = await this.getProfileById(profileId);
-		if (!profile) throw new Error(`Profile '${profileId}' not found`);
-		await profilePlatformAdapter.exportProfileZip({
-			profilePath: profile.path,
-			destination
-		});
+		await invoke<void>('profiles_export_zip', { args: { profileId, destination } });
 	}
 
 	async importProfileZip(zipPath: string): Promise<Profile> {
-		const profiles = await this.getProfiles();
-		const zipName = this.deriveNameFromZipPath(zipPath);
-		const timestamp = Date.now();
-		const profileId = this.buildProfileId(zipName, timestamp);
-		const profilePath = await profileRepository.createProfileDir(profileId);
-
-		try {
-			const result = await profilePlatformAdapter.importProfileZip({
-				zipPath,
-				destination: profilePath
-			});
-
-			const importedMetadata = await this.readImportedMetadata(profilePath);
-			const requestedName = result?.metadata_name ?? importedMetadata.name ?? zipName;
-			const uniqueName = this.makeUniqueProfileName(requestedName, profiles);
-
-			const profile: Profile = {
-				id: profileId,
-				name: uniqueName,
-				path: profilePath,
-				created_at: timestamp,
-				last_launched_at: importedMetadata.lastLaunchedAt,
-				bepinex_installed: true,
-				total_play_time: 0,
-				icon_mode: importedMetadata.iconMode ?? 'default',
-				custom_icon_extension: importedMetadata.customIconExtension,
-				icon_mod_id: importedMetadata.iconModId,
-				mods: importedMetadata.mods
-			};
-			this.normalizeProfileIconSelection(profile);
-
-			await profileRepository.writeMetadata(profile);
-			return profile;
-		} catch (error) {
-			await profileRepository.deleteProfileDir(profilePath);
-			throw error;
-		}
+		return await invoke<Profile>('profiles_import_zip', { args: { zipPath } });
 	}
 
 	async retryBepInExInstall(profileId: string, profilePath: string, hooks?: ProfileLifecycleHooks) {
@@ -120,422 +45,54 @@ class ProfileWorkflowService {
 		profilePath: string,
 		hooks?: ProfileLifecycleHooks
 	): Promise<void> {
-		const bepinexUrl = await this.getBepInExUrl();
-
+		let unlisten: (() => void) | undefined;
 		try {
-			await this.downloadBepInEx(profilePath, bepinexUrl, (progress) => {
-				hooks?.onBepInExProgress?.(profileId, progress);
-			});
-
-			const profile = await this.getProfileById(profileId);
-			if (profile) {
-				profile.bepinex_installed = true;
-				await profileRepository.writeMetadata(profile);
-				hooks?.onBepInExInstalled?.(profileId);
+			if (hooks?.onBepInExProgress) {
+				unlisten = await listen<BepInExProgress>('bepinex-progress', (event) => {
+					hooks.onBepInExProgress?.(profileId, event.payload);
+				});
 			}
+
+			await invoke<void>('profiles_install_bepinex', { args: { profileId, profilePath } });
+			hooks?.onBepInExInstalled?.(profileId);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';
 			hooks?.onBepInExError?.(profileId, message);
 			throw error;
 		} finally {
+			unlisten?.();
 			hooks?.onBepInExDone?.(profileId);
 		}
 	}
 
-	private async downloadBepInEx(
-		profilePath: string,
-		bepinexUrl: string,
-		onProgress?: (progress: BepInExProgress) => void
-	): Promise<void> {
-		let unlisten: (() => void) | undefined;
-		try {
-			if (onProgress) {
-				unlisten = await profilePlatformAdapter.listenBepInExProgress(onProgress);
-			}
-
-			const settings = await settingsService.getSettings();
-			const cachePath = settings.cache_bepinex ? await settingsService.getBepInExCachePath() : null;
-			await profilePlatformAdapter.installBepInEx({
-				url: bepinexUrl,
-				destination: profilePath,
-				cachePath
-			});
-		} finally {
-			unlisten?.();
-		}
-	}
-
-	async deleteProfile(profileId: string): Promise<void> {
-		const profile = await this.getProfileById(profileId);
-		if (!profile) throw new Error(`Profile '${profileId}' not found`);
-		await profileRepository.deleteProfileDir(profile.path);
-	}
-
-	async renameProfile(profileId: string, newName: string): Promise<void> {
-		const trimmed = newName.trim();
-		if (!trimmed) throw new Error('Profile name cannot be empty');
-
-		const profiles = await this.getProfiles();
-		const profile = profiles.find((candidate) => candidate.id === profileId);
-		if (!profile) throw new Error(`Profile '${profileId}' not found`);
-
-		if (
-			profiles.some(
-				(candidate) =>
-					candidate.id !== profileId && candidate.name.toLowerCase() === trimmed.toLowerCase()
-			)
-		) {
-			throw new Error(`Profile '${trimmed}' already exists`);
-		}
-
-		profile.name = trimmed;
-		await profileRepository.writeMetadata(profile);
-	}
-
-	async updateProfileIcon(profileId: string, selection: ProfileIconSelection): Promise<void> {
-		const profile = await this.getProfileById(profileId);
-		if (!profile) throw new Error(`Profile '${profileId}' not found`);
-
-		if (selection.mode === 'default') {
-			await this.removeCustomIconFile(profile);
-			profile.icon_mode = 'default';
-			profile.custom_icon_extension = undefined;
-			profile.icon_mod_id = undefined;
-			await profileRepository.writeMetadata(profile);
-			return;
-		}
-
-		if (selection.mode === 'custom') {
-			const bytes = selection.bytes;
-			if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
-				throw new Error('Custom icon image is required');
-			}
-
-			const extension = this.normalizeCustomIconExtension(selection.extension);
-			if (!extension) {
-				throw new Error('Custom icon must be a PNG, JPG, WEBP, GIF, BMP, or AVIF image');
-			}
-
-			const iconFileName = `${this.customIconBaseName}${extension}`;
-			const destinationPath = await profilePlatformAdapter.joinPath(profile.path, iconFileName);
-			await profilePlatformAdapter.writeBinaryFile(destinationPath, bytes);
-			await this.removeCustomIconFile(profile, extension);
-
-			profile.icon_mode = 'custom';
-			profile.custom_icon_extension = extension;
-			profile.icon_mod_id = undefined;
-			await profileRepository.writeMetadata(profile);
-			return;
-		}
-
-		const modId = selection.modId.trim();
-		if (!modId) throw new Error('Mod icon selection is required');
-		const hasMod = profile.mods.some((mod) => mod.mod_id === modId);
-		if (!hasMod) {
-			throw new Error('Selected mod is not installed in this profile');
-		}
-
-		await this.removeCustomIconFile(profile);
-		profile.icon_mode = 'mod';
-		profile.icon_mod_id = modId;
-		profile.custom_icon_extension = undefined;
-		await profileRepository.writeMetadata(profile);
-	}
-
-	async getActiveProfile(): Promise<Profile | null> {
-		const profiles = await this.getProfiles();
-		const profilesWithLaunched = profiles.filter(
-			(profile) => profile.last_launched_at !== undefined
-		);
-		if (profilesWithLaunched.length === 0) return null;
-
-		return profilesWithLaunched.reduce((latest, profile) => {
-			const latestTime = latest.last_launched_at ?? 0;
-			const profileTime = profile.last_launched_at ?? 0;
-			return profileTime > latestTime ? profile : latest;
-		});
-	}
-
-	async updateLastLaunched(profileId: string): Promise<void> {
-		const profile = await this.getProfileById(profileId);
-		if (!profile) return;
-		profile.last_launched_at = Date.now();
-		await profileRepository.writeMetadata(profile);
-	}
-
-	async addModToProfile(
-		profileId: string,
-		modId: string,
-		version: string,
-		file: string
-	): Promise<void> {
-		const profile = await this.getProfileById(profileId);
-		if (!profile) throw new Error(`Profile '${profileId}' not found`);
-
-		const modIndex = profile.mods.findIndex((mod) => mod.mod_id === modId);
-		if (modIndex >= 0) {
-			profile.mods[modIndex] = { mod_id: modId, version, file };
-		} else {
-			profile.mods.push({ mod_id: modId, version, file });
-		}
-		await profileRepository.writeMetadata(profile);
-	}
-
-	async addPlayTime(profileId: string, durationMs: number): Promise<void> {
-		const profile = await this.getProfileById(profileId);
-		if (!profile) throw new Error(`Profile '${profileId}' not found`);
-		profile.total_play_time = (profile.total_play_time ?? 0) + durationMs;
-		await profileRepository.writeMetadata(profile);
-	}
-
-	async removeModFromProfile(profileId: string, modId: string): Promise<void> {
-		const profile = await this.getProfileById(profileId);
-		if (!profile) throw new Error(`Profile '${profileId}' not found`);
-		profile.mods = profile.mods.filter((mod) => mod.mod_id !== modId);
-		this.normalizeProfileIconSelection(profile);
-		await profileRepository.writeMetadata(profile);
-	}
-
-	readonly getModFiles = (profilePath: string) => profileRepository.getModFiles(profilePath);
-
-	async countMods(profilePath: string): Promise<number> {
-		const files = await profileRepository.getModFiles(profilePath);
-		return files.length;
-	}
-
+	readonly deleteProfile = (profileId: string) =>
+		invoke<void>('profiles_delete', { args: { profileId } });
+	readonly renameProfile = (profileId: string, newName: string) =>
+		invoke<void>('profiles_rename', { args: { profileId, newName } });
+	readonly updateProfileIcon = (profileId: string, selection: ProfileIconSelection) =>
+		invoke<void>('profiles_update_icon', { args: { profileId, selection } });
+	readonly getActiveProfile = () => invoke<Profile | null>('profiles_get_active');
+	readonly updateLastLaunched = (profileId: string) =>
+		invoke<void>('profiles_update_last_launched', { args: { profileId } });
+	readonly addModToProfile = (profileId: string, modId: string, version: string, file: string) =>
+		invoke<void>('profiles_add_mod', { args: { profileId, modId, version, file } });
+	readonly addPlayTime = (profileId: string, durationMs: number) =>
+		invoke<void>('profiles_add_play_time', { args: { profileId, durationMs } });
+	readonly removeModFromProfile = (profileId: string, modId: string) =>
+		invoke<void>('profiles_remove_mod', { args: { profileId, modId } });
+	readonly getModFiles = (profilePath: string) =>
+		invoke<string[]>('profiles_get_mod_files', { args: { profilePath } });
+	readonly countMods = async (profilePath: string) => (await this.getModFiles(profilePath)).length;
 	readonly deleteModFile = (profilePath: string, fileName: string) =>
-		profileRepository.deleteModFile(profilePath, fileName);
+		invoke<void>('profiles_delete_mod_file', { args: { profilePath, fileName } });
 	readonly getProfileLog = (profilePath: string, fileName = 'LogOutput.log') =>
-		profileRepository.getProfileLog(profilePath, fileName);
-
-	async getUnifiedMods(profileId: string): Promise<UnifiedMod[]> {
-		const profile = await this.getProfileById(profileId);
-		if (!profile) throw new Error(`Profile '${profileId}' not found`);
-
-		const diskFiles = await this.getModFiles(profile.path);
-		const diskFilesSet = new Set(diskFiles);
-		const managedFiles = new Set<string>();
-
-		const unified: UnifiedMod[] = profile.mods
-			.filter((mod) => mod.file)
-			.filter((mod) => {
-				managedFiles.add(mod.file!);
-				return diskFilesSet.has(mod.file!);
-			})
-			.map((mod) => ({
-				source: 'managed' as const,
-				mod_id: mod.mod_id,
-				version: mod.version,
-				file: mod.file!
-			}));
-
-		for (const file of diskFiles) {
-			if (!managedFiles.has(file)) {
-				unified.push({ source: 'custom' as const, file });
-			}
-		}
-
-		await this.cleanupMissingManagedMods(profileId, profile, diskFilesSet);
-		return unified;
-	}
-
-	private async cleanupMissingManagedMods(
-		profileId: string,
-		profile: Profile,
-		diskFiles: Set<string>
-	) {
-		const missingMods = profile.mods.filter((mod) => mod.file && !diskFiles.has(mod.file));
-		if (missingMods.length === 0) return;
-		profile.mods = profile.mods.filter((mod) => mod.file && diskFiles.has(mod.file));
-		this.normalizeProfileIconSelection(profile);
-		await profileRepository.writeMetadata(profile);
-	}
-
-	async cleanupMissingMods(profileId: string): Promise<void> {
-		const profile = await this.getProfileById(profileId);
-		if (!profile) throw new Error(`Profile '${profileId}' not found`);
-		const diskFilesSet = new Set(await this.getModFiles(profile.path));
-		const missingMods = profile.mods.filter((mod) => mod.file && !diskFilesSet.has(mod.file));
-		if (missingMods.length === 0) return;
-		profile.mods = profile.mods.filter((mod) => mod.file && diskFilesSet.has(mod.file));
-		this.normalizeProfileIconSelection(profile);
-		await profileRepository.writeMetadata(profile);
-	}
-
-	async deleteUnifiedMod(profileId: string, mod: UnifiedMod): Promise<void> {
-		const profile = await this.getProfileById(profileId);
-		if (!profile) throw new Error(`Profile '${profileId}' not found`);
-		await this.deleteModFile(profile.path, mod.file);
-		if (mod.source === 'managed') {
-			await this.removeModFromProfile(profileId, mod.mod_id);
-		}
-	}
-
-	private slugify(input: string): string {
-		return input
-			.toLowerCase()
-			.replace(/[^a-z0-9]/g, '-')
-			.replace(/-+/g, '-')
-			.replace(/^-|-$/g, '');
-	}
-
-	private buildProfileId(name: string, timestamp = Date.now()): string {
-		const slug = this.slugify(name);
-		return slug ? `${slug}-${timestamp}` : `profile-${timestamp}`;
-	}
-
-	private deriveNameFromZipPath(zipPath: string): string {
-		const parts = zipPath.split(/[\\/]/);
-		const fileName = (parts[parts.length - 1] ?? '').trim();
-		const withoutZip = fileName.replace(/\.zip$/i, '').trim();
-		return withoutZip || `Imported Profile ${new Date().toISOString().slice(0, 10)}`;
-	}
-
-	private makeUniqueProfileName(requested: string, profiles: Profile[]): string {
-		const base = requested.trim() || 'Imported Profile';
-		const names = new Set(profiles.map((profile) => profile.name.toLowerCase()));
-		if (!names.has(base.toLowerCase())) return base;
-
-		let suffix = 2;
-		let candidate = `${base} (${suffix})`;
-		while (names.has(candidate.toLowerCase())) {
-			suffix += 1;
-			candidate = `${base} (${suffix})`;
-		}
-		return candidate;
-	}
-
-	private async readImportedMetadata(profilePath: string): Promise<{
-		name?: string;
-		lastLaunchedAt?: number;
-		iconMode?: Profile['icon_mode'];
-		customIconExtension?: string;
-		iconModId?: string;
-		mods: Profile['mods'];
-	}> {
-		try {
-			const metadataPath = await profilePlatformAdapter.joinPath(profilePath, 'metadata.json');
-			const raw = await profilePlatformAdapter.readJsonFile<Record<string, unknown>>(metadataPath);
-
-			const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : undefined;
-			const lastLaunchedAt =
-				typeof raw.last_launched_at === 'number' && Number.isFinite(raw.last_launched_at)
-					? raw.last_launched_at
-					: undefined;
-			const iconMode =
-				raw.icon_mode === 'default' || raw.icon_mode === 'custom' || raw.icon_mode === 'mod'
-					? raw.icon_mode
-					: undefined;
-			const customIconExtension =
-				typeof raw.custom_icon_extension === 'string' && raw.custom_icon_extension.trim()
-					? this.normalizeCustomIconExtension(raw.custom_icon_extension)
-					: undefined;
-			const iconModId =
-				typeof raw.icon_mod_id === 'string' && raw.icon_mod_id.trim()
-					? raw.icon_mod_id.trim()
-					: undefined;
-			const mods = this.parseImportedMods(raw.mods);
-			const resolvedCustomIconExtension =
-				customIconExtension && (await this.customIconFileExists(profilePath, customIconExtension))
-					? customIconExtension
-					: undefined;
-
-			return {
-				name,
-				lastLaunchedAt,
-				iconMode,
-				customIconExtension: resolvedCustomIconExtension,
-				iconModId,
-				mods
-			};
-		} catch {
-			return { mods: [] };
-		}
-	}
-
-	private normalizeProfileIconSelection(profile: Profile): void {
-		const mode = profile.icon_mode ?? 'default';
-		if (mode === 'mod') {
-			const modId = profile.icon_mod_id;
-			const hasMod = typeof modId === 'string' && profile.mods.some((mod) => mod.mod_id === modId);
-			if (!hasMod) {
-				profile.icon_mode = 'default';
-				profile.icon_mod_id = undefined;
-			}
-		} else if (mode === 'custom') {
-			const iconExtension = this.normalizeCustomIconExtension(profile.custom_icon_extension ?? '');
-			if (!iconExtension) {
-				profile.icon_mode = 'default';
-				profile.custom_icon_extension = undefined;
-			} else {
-				profile.custom_icon_extension = iconExtension;
-			}
-		}
-
-		if (profile.icon_mode !== 'mod') {
-			profile.icon_mod_id = undefined;
-		}
-		if (profile.icon_mode !== 'custom') {
-			profile.custom_icon_extension = undefined;
-		}
-		if (!profile.icon_mode) {
-			profile.icon_mode = 'default';
-		}
-	}
-
-	private normalizeCustomIconExtension(raw: string): string | null {
-		const trimmed = raw.trim().toLowerCase();
-		if (!trimmed) return null;
-		const normalized = trimmed.startsWith('.') ? trimmed : `.${trimmed}`;
-		return this.customIconExtensions.includes(normalized) ? normalized : null;
-	}
-
-	private async customIconFileExists(profilePath: string, extension: string): Promise<boolean> {
-		const iconPath = await profilePlatformAdapter.joinPath(
-			profilePath,
-			`${this.customIconBaseName}${extension}`
-		);
-		return profilePlatformAdapter.pathExists(iconPath);
-	}
-
-	private async removeCustomIconFile(profile: Profile, keepExtension?: string): Promise<void> {
-		const extension = this.normalizeCustomIconExtension(profile.custom_icon_extension ?? '');
-		if (!extension) return;
-		if (keepExtension && extension === keepExtension) return;
-
-		const filePath = await profilePlatformAdapter.joinPath(
-			profile.path,
-			`${this.customIconBaseName}${extension}`
-		);
-		const exists = await profilePlatformAdapter.pathExists(filePath);
-		if (!exists) return;
-		await profilePlatformAdapter.removePath(filePath);
-	}
-
-	private parseImportedMods(rawMods: unknown): Profile['mods'] {
-		if (!Array.isArray(rawMods)) return [];
-
-		return rawMods
-			.map((entry) => {
-				if (!entry || typeof entry !== 'object') return null;
-				const mod = entry as Record<string, unknown>;
-				if (typeof mod.mod_id !== 'string' || typeof mod.version !== 'string') {
-					return null;
-				}
-				const file = typeof mod.file === 'string' ? mod.file : undefined;
-				return {
-					mod_id: mod.mod_id,
-					version: mod.version,
-					file
-				};
-			})
-			.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-	}
-
-	private async getBepInExUrl(): Promise<string> {
-		const settings = await settingsService.getSettings();
-		return settings.bepinex_url;
-	}
+		invoke<string>('profiles_get_log', { args: { profilePath, fileName } });
+	readonly getUnifiedMods = (profileId: string) =>
+		invoke<UnifiedMod[]>('profiles_get_unified_mods', { args: { profileId } });
+	readonly cleanupMissingMods = (profileId: string) =>
+		invoke<void>('profiles_cleanup_missing_mods', { args: { profileId } });
+	readonly deleteUnifiedMod = (profileId: string, mod: UnifiedMod) =>
+		invoke<void>('profiles_delete_unified_mod', { args: { profileId, modEntry: mod } });
 }
 
 export const profileWorkflowService = new ProfileWorkflowService();
