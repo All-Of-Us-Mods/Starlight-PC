@@ -49,7 +49,7 @@ pub struct AppSettingsPatch {
     pub allow_multi_instance_launch: Option<bool>,
     pub game_platform: Option<GamePlatform>,
     pub cache_bepinex: Option<bool>,
-    pub xbox_app_id: Option<String>,
+    pub xbox_app_id: Option<Option<String>>,
 }
 
 fn app_data_dir<R: Runtime>(app: &AppHandle<R>) -> AppResult<PathBuf> {
@@ -165,8 +165,8 @@ pub fn update_settings<R: Runtime>(
     if let Some(value) = patch.cache_bepinex {
         settings.cache_bepinex = value;
     }
-    if patch.xbox_app_id.is_some() {
-        settings.xbox_app_id = patch.xbox_app_id;
+    if let Some(value) = patch.xbox_app_id {
+        settings.xbox_app_id = value;
     }
 
     let path = settings_path(app)?;

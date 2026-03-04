@@ -449,12 +449,12 @@ export const profileMutations = {
 				}
 				await rustInvoke('game_xbox_cleanup', { gameDir: settings.among_us_path });
 				await rustInvoke('game_xbox_launch', { appId, profileId: null });
-				} else {
-					const gameExe = await join(settings.among_us_path, 'Among Us.exe');
-					await assertPathExists(gameExe, 'Among Us.exe not found at configured path');
-					await rustInvoke('game_launch_vanilla', {
-						gameExe,
-						platform: settings.game_platform
+			} else {
+				const gameExe = await join(settings.among_us_path, 'Among Us.exe');
+				await assertPathExists(gameExe, 'Among Us.exe not found at configured path');
+				await rustInvoke('game_launch_vanilla', {
+					gameExe,
+					platform: settings.game_platform
 				});
 			}
 

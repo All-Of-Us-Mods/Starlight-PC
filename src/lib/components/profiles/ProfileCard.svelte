@@ -23,6 +23,7 @@
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import type { UnifiedMod } from '$lib/features/profiles/schema';
 	import type { ProfileModChip } from '$lib/components/profiles/types';
+	import { mapModsById } from '$lib/components/mods/mod-utils';
 
 	let {
 		profile,
@@ -126,11 +127,7 @@
 	const modIds = $derived(profile.mods.map((m) => m.mod_id));
 	const modsQueries = $derived(modIds.map((id) => createQuery(() => modQueries.byId(id))));
 	const modsMap = $derived(
-		new Map(
-			(modsQueries.map((query) => query.data) as Array<Mod | undefined>)
-				.filter((mod): mod is Mod => mod !== undefined)
-				.map((mod) => [mod.id, mod])
-		)
+		mapModsById(modsQueries.map((query) => query.data) as Array<Mod | undefined>)
 	);
 
 	const diskFilesQuery = createQuery(() => profileQueries.diskFiles(profile.path));

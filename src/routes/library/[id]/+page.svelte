@@ -22,15 +22,11 @@
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
 	import { formatPlayTime } from '$lib/utils';
 	import { showError, showSuccess } from '$lib/utils/toast';
-	import type {
-		Profile,
-		ProfileModUpdatesMap,
-		UnifiedMod
-	} from '$lib/features/profiles/schema';
+	import type { Profile, ProfileModUpdatesMap, UnifiedMod } from '$lib/features/profiles/schema';
 	import type { Mod } from '$lib/features/mods/schema';
 	import { profileUnifiedModsKey, profilesQueryKey } from '$lib/features/profiles/profile-keys';
 	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
-	import { pickDefaultVersion } from '$lib/components/mods/mod-utils';
+	import { mapModsById, pickDefaultVersion } from '$lib/components/mods/mod-utils';
 
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -80,7 +76,7 @@
 				.map((result) => result.value);
 		}
 	}));
-	const modsMap = $derived(new Map((profileModsQuery.data ?? []).map((mod) => [mod.id, mod])));
+	const modsMap = $derived(mapModsById(profileModsQuery.data ?? []));
 
 	let searchInput = $state('');
 	const debouncedSearch = new Debounced(() => searchInput, 150);
