@@ -241,7 +241,8 @@ pub fn get_profiles<R: Runtime>(app: &AppHandle<R>) -> AppResult<Vec<ProfileEntr
 
     let entries = match fs::read_dir(&profiles_dir) {
         Ok(entries) => entries,
-        Err(_) => return Ok(vec![]),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(error) => return Err(error.into()),
     };
 
     for entry in entries {
