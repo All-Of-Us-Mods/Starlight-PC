@@ -245,10 +245,11 @@ pub async fn profiles_get_log(args: ProfilesGetLogArgs) -> Result<String, String
 }
 
 #[tauri::command]
-pub async fn profiles_read_binary_file(
+pub async fn profiles_read_binary_file<R: Runtime>(
+    app: AppHandle<R>,
     args: ProfilesReadBinaryFileArgs,
 ) -> Result<Vec<u8>, String> {
-    profile_service::read_binary_file(&args.path).map_err(|e| e.to_string())
+    profile_service::read_binary_file(&app, &args.path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -609,12 +609,26 @@ pub fn delete_mod_file(profile_path: &str, file_name: &str) -> AppResult<()> {
 }
 
 pub fn get_profile_log(profile_path: &str, file_name: &str) -> String {
-    let log_path = PathBuf::from(profile_path).join("BepInEx").join(file_name);
+    let Some(base_name) = Path::new(file_name).file_name().and_then(|name| name.to_str()) else {
+        return String::new();
+    };
+    if base_name != file_name || file_name.contains('/') || file_name.contains('\\') {
+        return String::new();
+    }
+
+    let log_path = PathBuf::from(profile_path).join("BepInEx").join(base_name);
     fs::read_to_string(log_path).unwrap_or_default()
 }
 
-pub fn read_binary_file(path: &str) -> AppResult<Vec<u8>> {
-    Ok(fs::read(path)?)
+pub fn read_binary_file<R: Runtime>(app: &AppHandle<R>, path: &str) -> AppResult<Vec<u8>> {
+    let allowed_root = PathBuf::from(get_profiles_dir(app)?).canonicalize()?;
+    let canonical = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|_| AppError::validation("Path does not exist"))?;
+    if !canonical.starts_with(&allowed_root) {
+        return Err(AppError::validation("Path is outside the allowed directory"));
+    }
+    Ok(fs::read(canonical)?)
 }
 
 pub fn delete_unified_mod<R: Runtime>(
