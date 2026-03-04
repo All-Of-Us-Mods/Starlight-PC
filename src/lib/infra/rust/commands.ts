@@ -82,11 +82,10 @@ export type RustCommandName = keyof RustCommandMap;
 export type RustCommandArgs<T extends RustCommandName> = RustCommandMap[T]['args'];
 export type RustCommandResult<T extends RustCommandName> = RustCommandMap[T]['result'];
 
-type WithoutReservedInvokeArgKey<T> = T extends Record<string, unknown>
-	? 'args' extends keyof T
-		? never
-		: T
-	: T;
+type WithoutReservedInvokeArgKey<T> =
+	T extends Record<string, unknown> ? ('args' extends keyof T ? never : T) : T;
 
 export type RustCommandArgsInput<T extends RustCommandName> =
-	RustCommandArgs<T> extends void ? void | undefined : WithoutReservedInvokeArgKey<RustCommandArgs<T>>;
+	RustCommandArgs<T> extends void
+		? void | undefined
+		: WithoutReservedInvokeArgKey<RustCommandArgs<T>>;
