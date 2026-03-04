@@ -37,6 +37,7 @@ type DownloadTarget = {
 };
 let launchInFlight = false;
 const bepinexInstallInFlight = new Set<string>();
+const modsInstallInFlight = new Set<string>();
 
 function resolveDownloadTarget(
 	modId: string,
@@ -288,18 +289,23 @@ export const profileMutations = {
 
 	installMods: (queryClient: QueryClient) => ({
 		mutationFn: async (args: InstallArgs) => {
-			const settings = await rustInvoke('core_get_settings');
-			const profile = await getProfileById(args.profileId);
-			if (!profile) {
-				throw new Error(`Profile '${args.profileId}' not found`);
+			if (modsInstallInFlight.has(args.profileId)) {
+				throw new Error('An install is already in progress for this profile');
 			}
+			modsInstallInFlight.add(args.profileId);
 			let unlistenModDownload: UnlistenFn | undefined;
-			unlistenModDownload = await listen<ModDownloadProgress>('mod-download-progress', (event) => {
-				gameState.setModDownloadProgress(event.payload.mod_id, event.payload);
-			});
 			const installed: InstalledModResult[] = [];
 
 			try {
+				const settings = await rustInvoke('core_get_settings');
+				const profile = await getProfileById(args.profileId);
+				if (!profile) {
+					throw new Error(`Profile '${args.profileId}' not found`);
+				}
+				unlistenModDownload = await listen<ModDownloadProgress>('mod-download-progress', (event) => {
+					gameState.setModDownloadProgress(event.payload.mod_id, event.payload);
+				});
+
 				const previousByModId: PreviousModState = new Map();
 				for (const item of args.mods) {
 					const previous = profile.mods.find((entry) => entry.mod_id === item.modId);
@@ -378,6 +384,7 @@ export const profileMutations = {
 
 				return installed;
 			} finally {
+				modsInstallInFlight.delete(args.profileId);
 				unlistenModDownload?.();
 				for (const item of args.mods) {
 					gameState.clearModDownload(item.modId);
