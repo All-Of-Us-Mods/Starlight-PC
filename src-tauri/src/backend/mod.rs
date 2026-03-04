@@ -61,6 +61,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::core::core_get_settings,
+            commands::core::core_update_settings,
+            commands::core::core_get_bepinex_cache_path,
+            commands::core::core_get_app_data_dir,
+            commands::core::core_auto_detect_bepinex_architecture,
             commands::game::game_launch_modded,
             commands::game::game_launch_vanilla,
             commands::game::game_xbox_get_app_id,

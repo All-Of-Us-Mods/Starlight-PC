@@ -1,3 +1,4 @@
+pub mod core_service;
 pub mod bepinex_service;
 pub mod epic_auth_service;
 pub mod epic_webview_login;

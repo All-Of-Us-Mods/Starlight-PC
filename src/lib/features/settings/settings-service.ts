@@ -1,8 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { appDataDir, join } from '@tauri-apps/api/path';
-import { exists } from '@tauri-apps/plugin-fs';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { debug } from '@tauri-apps/plugin-log';
 import { settingsRepository } from './settings-repository';
 import type { BepInExProgress } from '../profiles/schema';
 import type { GamePlatform } from './schema';
@@ -17,9 +14,7 @@ class SettingsService {
 		invoke<GamePlatform>('platform_detect_game_store', { args: { path } });
 
 	async getBepInExCachePath(): Promise<string> {
-		const dataDir = await appDataDir();
-		const cacheDir = await join(dataDir, 'cache');
-		return await join(cacheDir, 'bepinex.zip');
+		return invoke<string>('core_get_bepinex_cache_path');
 	}
 
 	async checkBepInExCacheExists(): Promise<boolean> {
@@ -50,7 +45,7 @@ class SettingsService {
 	}
 
 	async openDataFolder() {
-		await revealItemInDir(await appDataDir());
+		await revealItemInDir(await invoke<string>('core_get_app_data_dir'));
 	}
 
 	/**
@@ -59,21 +54,10 @@ class SettingsService {
 	 * @returns The new URL if it was updated, undefined otherwise.
 	 */
 	async autoDetectBepInExArchitecture(gamePath: string): Promise<string | undefined> {
-		const crashHandlerPath = `${gamePath}/UnityCrashHandler64.exe`;
-		const settings = await this.getSettings();
-		const currentUrl = settings.bepinex_url;
-
-		const is64Bit = await exists(crashHandlerPath);
-		const updatedUrl = is64Bit
-			? currentUrl.replace(/win-x86(?=-)/i, 'win-x64')
-			: currentUrl.replace(/win-x64(?=-)/i, 'win-x86');
-
-		if (updatedUrl !== currentUrl) {
-			await this.updateSettings({ bepinex_url: updatedUrl });
-			debug(`BepInEx architecture updated to ${is64Bit ? 'x64' : 'x86'}`);
-			return updatedUrl;
-		}
-		return undefined;
+		const result = await invoke<string | null>('core_auto_detect_bepinex_architecture', {
+			args: { gamePath }
+		});
+		return result ?? undefined;
 	}
 }
 

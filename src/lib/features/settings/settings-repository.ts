@@ -1,6 +1,5 @@
-import { debug, info } from '@tauri-apps/plugin-log';
+import { invoke } from '@tauri-apps/api/core';
 import { type } from 'arktype';
-import { getStore } from '$lib/state/store';
 import { Settings, type AppSettings } from './schema';
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -15,17 +14,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 class SettingsRepository {
 	async get(): Promise<AppSettings> {
-		const store = await getStore();
-		const raw = await store.get('settings');
-
-		if (!raw) {
-			debug('No settings found, using defaults');
-			return DEFAULT_SETTINGS;
-		}
-
-		const result = Settings({ ...DEFAULT_SETTINGS, ...raw });
+		const raw = await invoke<unknown>('core_get_settings');
+		const result = Settings({ ...DEFAULT_SETTINGS, ...(raw as Record<string, unknown>) });
 		if (result instanceof type.errors) {
-			debug('Invalid settings data, using defaults');
 			return DEFAULT_SETTINGS;
 		}
 
@@ -33,12 +24,9 @@ class SettingsRepository {
 	}
 
 	async update(updates: Partial<AppSettings>): Promise<void> {
-		info(`Updating settings: ${Object.keys(updates).join(', ')}`);
-		const store = await getStore();
-		const current = await this.get();
-		await store.set('settings', { ...current, ...updates });
-		await store.save();
-		debug('Settings saved');
+		await invoke('core_update_settings', {
+			args: { updates }
+		});
 	}
 }
 
