@@ -1,3 +1,16 @@
+# Prettier is only used for .svelte files — everything else uses oxfmt
+**/*.ts
+**/*.js
+**/*.mjs
+**/*.cjs
+**/*.json
+**/*.css
+**/*.html
+**/*.md
+**/*.yaml
+**/*.yml
+**/*.toml
+
 # Package Managers
 package-lock.json
 pnpm-lock.yaml
@@ -10,5 +23,3 @@ bun.lockb
 
 # Ignore the rust backend
 src-tauri/
-# Ignore the readme
-README.md

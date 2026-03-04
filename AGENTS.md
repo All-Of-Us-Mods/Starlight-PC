@@ -16,8 +16,8 @@
 
 ```bash
 # Quality
-bun lint                   # ESLint + Prettier check
-bun format                 # Prettier write
+bun lint                   # oxlint (JS/TS/Svelte) + ESLint (Svelte-specific rules only)
+bun format                 # oxfmt (JS/TS/JSON/CSS/etc.) + Prettier (.svelte files only)
 bun check                  # svelte-check (type checking)
 
 # Rust (run from src-tauri/)
