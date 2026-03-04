@@ -234,7 +234,7 @@ export const profileMutations = {
 			const diskFiles = await rustInvoke('profiles_get_mod_files', { profilePath: profile.path });
 			const diskSet = new Set(diskFiles);
 			const missingMods = profile.mods.filter((mod) => mod.file && !diskSet.has(mod.file));
-			await Promise.all(
+			await Promise.allSettled(
 				missingMods.map((mod) =>
 					rustInvoke('profiles_remove_mod', { profileId, modId: mod.mod_id })
 				)
