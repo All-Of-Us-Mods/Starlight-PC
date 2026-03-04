@@ -92,24 +92,40 @@ async function rollbackInstalledMods(
 					modId: item.mod_id,
 					version: previous.version,
 					file: previous.file
-				}).catch(() => undefined);
+				}).catch((error) => {
+					console.warn('[rollback] Failed to restore mod metadata', {
+						profileId,
+						modId: item.mod_id,
+						error
+					});
+				});
 				return;
 			}
 			await rustInvoke('profiles_remove_mod', {
 				profileId,
 				modId: item.mod_id
-			}).catch(() => undefined);
+			}).catch((error) => {
+				console.warn('[rollback] Failed to remove rolled-back mod metadata', {
+					profileId,
+					modId: item.mod_id,
+					error
+				});
+			});
 		})
 	);
 
 	await Promise.all(
-		installed
-			.toReversed()
-			.map((item) =>
-				rustInvoke('profiles_delete_mod_file', { profilePath, fileName: item.file_name }).catch(
-					() => undefined
-				)
+		installed.toReversed().map((item) =>
+			rustInvoke('profiles_delete_mod_file', { profilePath, fileName: item.file_name }).catch(
+				(error) => {
+					console.warn('[rollback] Failed to delete rolled-back mod file', {
+						profilePath,
+						fileName: item.file_name,
+						error
+					});
+				}
 			)
+		)
 	);
 }
 

@@ -378,8 +378,15 @@ pub async fn install_bepinex_for_profile<R: Runtime>(
     app: AppHandle<R>,
     profile_id: &str,
 ) -> AppResult<()> {
-    let mut profile = get_profile_by_id(&app, profile_id)?
-        .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))?;
+    let profile_id_owned = profile_id.to_string();
+    let mut profile = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        let profile_id = profile_id_owned.clone();
+        move || get_profile_by_id(&app, &profile_id)
+    })
+    .await
+    .map_err(|error| AppError::state(format!("Task failed: {error}")))??
+    .ok_or_else(|| AppError::validation(format!("Profile '{profile_id_owned}' not found")))?;
 
     let settings = core_service::get_settings(&app)?;
     let cache_path = if settings.cache_bepinex {
@@ -396,8 +403,12 @@ pub async fn install_bepinex_for_profile<R: Runtime>(
     )
     .await?;
 
-    profile.bepinex_installed = Some(true);
-    write_profile(&profile)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        profile.bepinex_installed = Some(true);
+        write_profile(&profile)
+    })
+    .await
+    .map_err(|error| AppError::state(format!("Task failed: {error}")))??;
     Ok(())
 }
 
