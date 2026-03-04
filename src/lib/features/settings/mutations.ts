@@ -1,15 +1,16 @@
 import type { QueryClient } from '@tanstack/svelte-query';
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { AppSettings } from './schema';
 import { settingsQueryKey } from './settings-keys';
 import type { BepInExProgress } from '../profiles/schema';
+import { rustInvoke } from '$lib/infra/rust/invoke';
+import { rustMutationOptions } from '$lib/infra/rust/mutation';
 
 export const settingsMutations = {
 	update: (queryClient: QueryClient) => ({
 		mutationFn: (settings: Partial<AppSettings>) =>
-			invoke<AppSettings>('core_update_settings', { args: { updates: settings } }),
+			rustInvoke('core_update_settings', { updates: settings }),
 		onSuccess: (updated: AppSettings, variables: Partial<AppSettings>) => {
 			queryClient.setQueryData<AppSettings | undefined>(settingsQueryKey, (current) => {
 				if (!current) return updated;
@@ -29,10 +30,8 @@ export const settingsMutations = {
 						args.onProgress?.(event.payload)
 					);
 				}
-				const cachePath = await invoke<string>('core_get_bepinex_cache_path');
-				await invoke<void>('modding_bepinex_cache_download', {
-					args: { url: args.url, cachePath }
-				});
+				const cachePath = await rustInvoke('core_get_bepinex_cache_path');
+				await rustInvoke('modding_bepinex_cache_download', { url: args.url, cachePath });
 			} finally {
 				unlisten?.();
 			}
@@ -40,13 +39,13 @@ export const settingsMutations = {
 	}),
 	clearBepInExCache: () => ({
 		mutationFn: async () => {
-			const cachePath = await invoke<string>('core_get_bepinex_cache_path');
-			await invoke<void>('modding_bepinex_cache_clear', { args: { cachePath } });
+			const cachePath = await rustInvoke('core_get_bepinex_cache_path');
+			await rustInvoke('modding_bepinex_cache_clear', { cachePath });
 		}
 	}),
 	autoDetectBepInExArchitecture: (queryClient: QueryClient) => ({
 		mutationFn: (gamePath: string) =>
-			invoke<string | null>('core_auto_detect_bepinex_architecture', { args: { gamePath } }),
+			rustInvoke('core_auto_detect_bepinex_architecture', { gamePath }),
 		onSuccess: (updatedUrl: string | null) => {
 			if (!updatedUrl) return;
 			queryClient.setQueryData<AppSettings | undefined>(settingsQueryKey, (current) =>
@@ -54,16 +53,24 @@ export const settingsMutations = {
 			);
 		}
 	}),
+	detectAmongUsPath: () => ({
+		...rustMutationOptions({
+			command: 'platform_detect_among_us'
+		})
+	}),
+	detectGameStore: () => ({
+		mutationFn: (path: string) => rustInvoke('platform_detect_game_store', { path })
+	}),
 	openDataFolder: () => ({
 		mutationFn: async () => {
-			const appDataPath = await invoke<string>('core_get_app_data_dir');
+			const appDataPath = await rustInvoke('core_get_app_data_dir');
 			await revealItemInDir(appDataPath);
 		}
 	}),
 	checkCacheExists: () => ({
 		mutationFn: async () => {
-			const cachePath = await invoke<string>('core_get_bepinex_cache_path');
-			return await invoke<boolean>('modding_bepinex_cache_exists', { args: { cachePath } });
+			const cachePath = await rustInvoke('core_get_bepinex_cache_path');
+			return await rustInvoke('modding_bepinex_cache_exists', { cachePath });
 		}
 	})
 };

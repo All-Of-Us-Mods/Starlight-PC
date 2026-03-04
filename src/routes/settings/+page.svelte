@@ -3,7 +3,6 @@
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
 	import { Settings } from '@jis3r/icons';
 	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
-	import { invoke } from '@tauri-apps/api/core';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { settingsMutations } from '$lib/features/settings/mutations';
 	import type { AppSettings, GamePlatform } from '$lib/features/settings/schema';
@@ -32,6 +31,8 @@
 	const clearCacheMutation = createMutation(() => settingsMutations.clearBepInExCache());
 	const openDataFolderMutation = createMutation(() => settingsMutations.openDataFolder());
 	const checkCacheExistsMutation = createMutation(() => settingsMutations.checkCacheExists());
+	const detectAmongUsPathMutation = createMutation(() => settingsMutations.detectAmongUsPath());
+	const detectGameStoreMutation = createMutation(() => settingsMutations.detectGameStore());
 
 	// Form state
 	let localPath = $state('');
@@ -86,7 +87,7 @@
 
 	async function detectPlatform(path: string) {
 		try {
-			localPlatform = await invoke<GamePlatform>('platform_detect_game_store', { args: { path } });
+			localPlatform = await detectGameStoreMutation.mutateAsync(path);
 		} catch (e) {
 			logError(`Platform detection failed: ${e}`);
 		}
@@ -95,7 +96,7 @@
 	async function handleAutoDetect() {
 		isDetecting = true;
 		try {
-			const path = await invoke<string | null>('platform_detect_among_us');
+			const path = await detectAmongUsPathMutation.mutateAsync();
 			if (path) {
 				localPath = path;
 				await detectPlatform(path);

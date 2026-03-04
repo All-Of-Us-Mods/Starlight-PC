@@ -1,7 +1,7 @@
-import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { SvelteMap } from 'svelte/reactivity';
 import type { BepInExProgress, ModDownloadProgress } from './schema';
+import { rustInvoke } from '$lib/infra/rust/invoke';
 
 type InvalidateCallback = () => void;
 
@@ -51,9 +51,7 @@ async function finalizeSession() {
 	if (running && runningProfileId) {
 		const duration = getSessionDuration();
 		if (duration > 0) {
-			await invoke<void>('profiles_add_play_time', {
-				args: { profileId: runningProfileId, durationMs: duration }
-			});
+			await rustInvoke('profiles_add_play_time', { profileId: runningProfileId, durationMs: duration });
 			notifyProfilesInvalidated();
 		}
 	}

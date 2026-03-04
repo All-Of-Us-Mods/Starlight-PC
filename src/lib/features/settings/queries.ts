@@ -1,12 +1,10 @@
-import { queryOptions } from '@tanstack/svelte-query';
-import { invoke } from '@tauri-apps/api/core';
+import { rustQueryOptions } from '$lib/infra/rust/query';
 import { settingsQueryKey } from './settings-keys';
-import type { AppSettings } from './schema';
 
 export const settingsQueries = {
 	get: () =>
-		queryOptions({
+		rustQueryOptions({
 			queryKey: settingsQueryKey,
-			queryFn: () => invoke<AppSettings>('core_get_settings')
+			command: 'core_get_settings'
 		})
 };

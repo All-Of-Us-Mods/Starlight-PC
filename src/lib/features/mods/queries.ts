@@ -8,7 +8,7 @@ import {
 	ModVersionInfo,
 	type ModDependency
 } from './schema';
-import { invoke } from '@tauri-apps/api/core';
+import { rustInvoke } from '$lib/infra/rust/invoke';
 import {
 	modsByIdKey,
 	modsExploreKey,
@@ -101,15 +101,7 @@ export const modQueries = {
 
 		return queryOptions({
 			queryKey: resolvedDepsKey(queryKey),
-			queryFn: () =>
-				invoke<
-					Array<{
-						mod_id: string;
-						modName: string;
-						resolvedVersion: string;
-						type: 'required' | 'optional' | 'conflict';
-					}>
-				>('modding_resolve_dependencies', { args: { dependencies } }),
+			queryFn: () => rustInvoke('modding_resolve_dependencies', { dependencies }),
 			enabled: dependencies.length > 0
 		});
 	}

@@ -6,7 +6,6 @@
 	import { join } from '@tauri-apps/api/path';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { save as saveDialog } from '@tauri-apps/plugin-dialog';
-	import { invoke } from '@tauri-apps/api/core';
 	import { createMutation, createQuery, useQueryClient, type QueryClient } from '@tanstack/svelte-query';
 	import { Debounced, watch } from 'runed';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -151,9 +150,7 @@
 
 	async function loadLocalImageBlobUrl(filePath: string): Promise<string | null> {
 		try {
-			const bytes = await invoke<Uint8Array>('profiles_read_binary_file', {
-				args: { path: filePath }
-			});
+			const bytes = await queryClient.fetchQuery(profileQueries.binaryFile(filePath));
 			if (!bytes || bytes.length === 0) return null;
 			return URL.createObjectURL(new Blob([Uint8Array.from(bytes)]));
 		} catch {

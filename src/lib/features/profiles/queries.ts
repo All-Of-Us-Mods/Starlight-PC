@@ -1,6 +1,6 @@
 import { queryOptions } from '@tanstack/svelte-query';
-import { invoke } from '@tauri-apps/api/core';
-import type { Profile, UnifiedMod } from './schema';
+import { rustQueryOptions } from '$lib/infra/rust/query';
+import { rustInvoke } from '$lib/infra/rust/invoke';
 import {
 	profileDiskFilesKey,
 	profileLogKey,
@@ -12,41 +12,51 @@ import {
 
 export const profileQueries = {
 	dir: () =>
-		queryOptions({
+		rustQueryOptions({
 			queryKey: ['profiles', 'dir'],
-			queryFn: () => invoke<string>('profiles_get_dir')
+			command: 'profiles_get_dir'
 		}),
 	all: () =>
-		queryOptions({
+		rustQueryOptions({
 			queryKey: profilesQueryKey,
-			queryFn: () => invoke<Profile[]>('profiles_list')
+			command: 'profiles_list'
 		}),
 	active: () =>
-		queryOptions({
+		rustQueryOptions({
 			queryKey: profilesActiveQueryKey,
-			queryFn: () => invoke<Profile | null>('profiles_get_active')
+			command: 'profiles_get_active'
 		}),
 	hasAny: () =>
 		queryOptions({
 			queryKey: profilesHasAnyQueryKey,
-			queryFn: () => invoke<Profile[]>('profiles_list').then((profiles) => profiles.length > 0)
+			queryFn: () => rustInvoke('profiles_list').then((profiles) => profiles.length > 0)
 		}),
 	diskFiles: (profilePath: string) =>
-		queryOptions({
+		rustQueryOptions({
 			queryKey: profileDiskFilesKey(profilePath),
-			queryFn: () => invoke<string[]>('profiles_get_mod_files', { args: { profilePath } }),
+			command: 'profiles_get_mod_files',
+			args: { profilePath },
 			enabled: !!profilePath
 		}),
 	unifiedMods: (profileId: string) =>
-		queryOptions({
+		rustQueryOptions({
 			queryKey: profileUnifiedModsKey(profileId),
-			queryFn: () => invoke<UnifiedMod[]>('profiles_get_unified_mods', { args: { profileId } }),
+			command: 'profiles_get_unified_mods',
+			args: { profileId },
 			enabled: !!profileId
 		}),
+	binaryFile: (path: string) =>
+		rustQueryOptions({
+			queryKey: ['profiles', 'binary-file', path],
+			command: 'profiles_read_binary_file',
+			args: { path },
+			enabled: !!path
+		}),
 	log: (profilePath: string, fileName = 'LogOutput.log') =>
-		queryOptions({
+		rustQueryOptions({
 			queryKey: profileLogKey(profilePath, fileName),
-			queryFn: () => invoke<string>('profiles_get_log', { args: { profilePath, fileName } }),
+			command: 'profiles_get_log',
+			args: { profilePath, fileName },
 			enabled: !!profilePath
 		})
 };
