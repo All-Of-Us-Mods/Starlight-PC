@@ -22,7 +22,11 @@
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
 	import { formatPlayTime } from '$lib/utils';
 	import { showError, showSuccess } from '$lib/utils/toast';
-	import type { Profile, UnifiedMod } from '$lib/features/profiles/schema';
+	import type {
+		Profile,
+		ProfileModUpdatesMap,
+		UnifiedMod
+	} from '$lib/features/profiles/schema';
 	import type { Mod } from '$lib/features/mods/schema';
 	import { profileUnifiedModsKey, profilesQueryKey } from '$lib/features/profiles/profile-keys';
 	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
@@ -166,15 +170,6 @@
 		modId: string;
 		installedVersion: string;
 	}
-
-	type ProfileModUpdateStatus = {
-		installedVersion: string;
-		latestVersion: string | null;
-		isOutdated: boolean;
-		status: 'checking' | 'ready' | 'error';
-	};
-
-	type ProfileModUpdatesMap = Record<string, ProfileModUpdateStatus>;
 
 	async function fetchProfileModUpdates(
 		client: QueryClient,

@@ -32,6 +32,15 @@ export type UnifiedMod =
 	| { source: 'managed'; mod_id: string; version: string; file: string }
 	| { source: 'custom'; file: string };
 
+export type ProfileModUpdateStatus = {
+	installedVersion: string;
+	latestVersion: string | null;
+	isOutdated: boolean;
+	status: 'checking' | 'ready' | 'error';
+};
+
+export type ProfileModUpdatesMap = Record<string, ProfileModUpdateStatus>;
+
 // Progress types for BepInEx installation
 export interface BepInExProgress {
 	stage: 'downloading' | 'extracting' | 'complete';

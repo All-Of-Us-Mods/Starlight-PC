@@ -1,14 +1,6 @@
 <script lang="ts" module>
 	import type { Mod } from '$lib/features/mods/schema';
-	import type { Profile, UnifiedMod } from '$lib/features/profiles/schema';
-
-	type ProfileModUpdateStatus = {
-		installedVersion: string;
-		latestVersion: string | null;
-		isOutdated: boolean;
-		status: 'checking' | 'ready' | 'error';
-	};
-	type ProfileModUpdatesMap = Record<string, ProfileModUpdateStatus>;
+	import type { Profile, ProfileModUpdatesMap, UnifiedMod } from '$lib/features/profiles/schema';
 
 	export interface ProfileModsListProps {
 		isPending: boolean;
