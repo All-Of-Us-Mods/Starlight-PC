@@ -1,4 +1,6 @@
-use crate::backend::services::profile_service::{self, ProfileEntry, ProfileIconSelection, UnifiedMod};
+use crate::backend::services::profile_service::{
+    self, ProfileEntry, ProfileIconSelection, UnifiedMod,
+};
 use tauri::{AppHandle, Runtime};
 
 #[derive(serde::Deserialize)]
@@ -170,7 +172,8 @@ pub async fn profiles_rename<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesRenameArgs,
 ) -> Result<(), String> {
-    profile_service::rename_profile(&app, &args.profile_id, &args.new_name).map_err(|e| e.to_string())
+    profile_service::rename_profile(&app, &args.profile_id, &args.new_name)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -178,11 +181,14 @@ pub async fn profiles_update_icon<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesUpdateIconArgs,
 ) -> Result<(), String> {
-    profile_service::update_profile_icon(&app, &args.profile_id, args.selection).map_err(|e| e.to_string())
+    profile_service::update_profile_icon(&app, &args.profile_id, args.selection)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn profiles_get_active<R: Runtime>(app: AppHandle<R>) -> Result<Option<ProfileEntry>, String> {
+pub async fn profiles_get_active<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<Option<ProfileEntry>, String> {
     profile_service::get_active_profile(&app).map_err(|e| e.to_string())
 }
 
@@ -214,7 +220,8 @@ pub async fn profiles_add_play_time<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesAddPlayTimeArgs,
 ) -> Result<(), String> {
-    profile_service::add_play_time(&app, &args.profile_id, args.duration_ms).map_err(|e| e.to_string())
+    profile_service::add_play_time(&app, &args.profile_id, args.duration_ms)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -222,7 +229,8 @@ pub async fn profiles_remove_mod<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesRemoveModArgs,
 ) -> Result<(), String> {
-    profile_service::remove_mod_from_profile(&app, &args.profile_id, &args.mod_id).map_err(|e| e.to_string())
+    profile_service::remove_mod_from_profile(&app, &args.profile_id, &args.mod_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -244,7 +252,9 @@ pub async fn profiles_get_log(args: ProfilesGetLogArgs) -> Result<String, String
 }
 
 #[tauri::command]
-pub async fn profiles_read_binary_file(args: ProfilesReadBinaryFileArgs) -> Result<Vec<u8>, String> {
+pub async fn profiles_read_binary_file(
+    args: ProfilesReadBinaryFileArgs,
+) -> Result<Vec<u8>, String> {
     profile_service::read_binary_file(&args.path).map_err(|e| e.to_string())
 }
 
@@ -253,7 +263,8 @@ pub async fn profiles_delete_unified_mod<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesDeleteUnifiedModArgs,
 ) -> Result<(), String> {
-    profile_service::delete_unified_mod(&app, &args.profile_id, args.mod_entry).map_err(|e| e.to_string())
+    profile_service::delete_unified_mod(&app, &args.profile_id, args.mod_entry)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -261,7 +272,8 @@ pub async fn profiles_export_zip<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesExportZipArgs,
 ) -> Result<(), String> {
-    profile_service::export_profile_zip(&app, &args.profile_id, &args.destination).map_err(|e| e.to_string())
+    profile_service::export_profile_zip(&app, &args.profile_id, &args.destination)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

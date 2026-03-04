@@ -8,7 +8,8 @@ use tauri::{AppHandle, Manager, Runtime};
 
 const PROFILE_METADATA_FILE: &str = "metadata.json";
 const CUSTOM_ICON_BASE_NAME: &str = "icon";
-const CUSTOM_ICON_EXTENSIONS: [&str; 7] = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif"];
+const CUSTOM_ICON_EXTENSIONS: [&str; 7] =
+    [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileModEntry {
@@ -49,7 +50,10 @@ pub enum UnifiedMod {
 #[serde(tag = "mode", rename_all = "lowercase")]
 pub enum ProfileIconSelection {
     Default,
-    Custom { bytes: Vec<u8>, extension: String },
+    Custom {
+        bytes: Vec<u8>,
+        extension: String,
+    },
     Mod {
         #[serde(rename = "modId")]
         mod_id: String,
@@ -138,7 +142,10 @@ fn normalize_icon_selection(profile: &mut ProfileEntry) {
     match mode.as_str() {
         "mod" => {
             let has_mod = profile.icon_mod_id.as_ref().is_some_and(|icon_mod_id| {
-                profile.mods.iter().any(|mod_entry| &mod_entry.mod_id == icon_mod_id)
+                profile
+                    .mods
+                    .iter()
+                    .any(|mod_entry| &mod_entry.mod_id == icon_mod_id)
             });
             if !has_mod {
                 profile.icon_mode = Some("default".to_string());
@@ -178,7 +185,8 @@ fn remove_custom_icon_file(profile: &ProfileEntry, keep_extension: Option<&str>)
         return Ok(());
     }
 
-    let icon_path = PathBuf::from(&profile.path).join(format!("{CUSTOM_ICON_BASE_NAME}{extension}"));
+    let icon_path =
+        PathBuf::from(&profile.path).join(format!("{CUSTOM_ICON_BASE_NAME}{extension}"));
     if icon_path.exists() {
         let _ = fs::remove_file(icon_path);
     }
@@ -225,7 +233,10 @@ pub fn get_profiles<R: Runtime>(app: &AppHandle<R>) -> AppResult<Vec<ProfileEntr
     Ok(profiles)
 }
 
-pub fn get_profile_by_id<R: Runtime>(app: &AppHandle<R>, id: &str) -> AppResult<Option<ProfileEntry>> {
+pub fn get_profile_by_id<R: Runtime>(
+    app: &AppHandle<R>,
+    id: &str,
+) -> AppResult<Option<ProfileEntry>> {
     let profile_dir = PathBuf::from(get_profiles_dir(app)?).join(id);
     Ok(parse_profile(&metadata_path(&profile_dir), &profile_dir))
 }
@@ -307,7 +318,11 @@ pub fn delete_profile<R: Runtime>(app: &AppHandle<R>, profile_id: &str) -> AppRe
     Ok(())
 }
 
-pub fn rename_profile<R: Runtime>(app: &AppHandle<R>, profile_id: &str, new_name: &str) -> AppResult<()> {
+pub fn rename_profile<R: Runtime>(
+    app: &AppHandle<R>,
+    profile_id: &str,
+    new_name: &str,
+) -> AppResult<()> {
     let trimmed = new_name.trim();
     if trimmed.is_empty() {
         return Err(AppError::validation("Profile name cannot be empty"));
@@ -377,7 +392,11 @@ pub fn update_profile_icon<R: Runtime>(
             if normalized_mod_id.is_empty() {
                 return Err(AppError::validation("Mod icon selection is required"));
             }
-            if !profile.mods.iter().any(|mod_entry| mod_entry.mod_id == normalized_mod_id) {
+            if !profile
+                .mods
+                .iter()
+                .any(|mod_entry| mod_entry.mod_id == normalized_mod_id)
+            {
                 return Err(AppError::validation(
                     "Selected mod is not installed in this profile",
                 ));
@@ -399,7 +418,11 @@ pub fn get_active_profile<R: Runtime>(app: &AppHandle<R>) -> AppResult<Option<Pr
         .filter(|profile| profile.last_launched_at.is_some())
         .collect();
 
-    profiles.sort_by(|a, b| b.last_launched_at.unwrap_or(0).cmp(&a.last_launched_at.unwrap_or(0)));
+    profiles.sort_by(|a, b| {
+        b.last_launched_at
+            .unwrap_or(0)
+            .cmp(&a.last_launched_at.unwrap_or(0))
+    });
     Ok(profiles.into_iter().next())
 }
 
@@ -424,7 +447,11 @@ pub fn add_mod_to_profile<R: Runtime>(
         )));
     };
 
-    if let Some(existing) = profile.mods.iter_mut().find(|mod_entry| mod_entry.mod_id == mod_id) {
+    if let Some(existing) = profile
+        .mods
+        .iter_mut()
+        .find(|mod_entry| mod_entry.mod_id == mod_id)
+    {
         existing.version = version.to_string();
         existing.file = Some(file.to_string());
     } else {
@@ -437,7 +464,11 @@ pub fn add_mod_to_profile<R: Runtime>(
     write_profile(&profile)
 }
 
-pub fn add_play_time<R: Runtime>(app: &AppHandle<R>, profile_id: &str, duration_ms: i64) -> AppResult<()> {
+pub fn add_play_time<R: Runtime>(
+    app: &AppHandle<R>,
+    profile_id: &str,
+    duration_ms: i64,
+) -> AppResult<()> {
     let Some(mut profile) = get_profile_by_id(app, profile_id)? else {
         return Err(AppError::validation(format!(
             "Profile '{profile_id}' not found"
@@ -447,7 +478,11 @@ pub fn add_play_time<R: Runtime>(app: &AppHandle<R>, profile_id: &str, duration_
     write_profile(&profile)
 }
 
-pub fn remove_mod_from_profile<R: Runtime>(app: &AppHandle<R>, profile_id: &str, mod_id: &str) -> AppResult<()> {
+pub fn remove_mod_from_profile<R: Runtime>(
+    app: &AppHandle<R>,
+    profile_id: &str,
+    mod_id: &str,
+) -> AppResult<()> {
     let Some(mut profile) = get_profile_by_id(app, profile_id)? else {
         return Err(AppError::validation(format!(
             "Profile '{profile_id}' not found"
@@ -501,7 +536,11 @@ pub fn read_binary_file(path: &str) -> AppResult<Vec<u8>> {
     Ok(fs::read(path)?)
 }
 
-pub fn delete_unified_mod<R: Runtime>(app: &AppHandle<R>, profile_id: &str, mod_entry: UnifiedMod) -> AppResult<()> {
+pub fn delete_unified_mod<R: Runtime>(
+    app: &AppHandle<R>,
+    profile_id: &str,
+    mod_entry: UnifiedMod,
+) -> AppResult<()> {
     let Some(profile) = get_profile_by_id(app, profile_id)? else {
         return Err(AppError::validation(format!(
             "Profile '{profile_id}' not found"
@@ -547,7 +586,10 @@ fn make_unique_profile_name(requested: &str, profiles: &[ProfileEntry]) -> Strin
     } else {
         requested.trim().to_string()
     };
-    let existing: HashSet<String> = profiles.iter().map(|profile| profile.name.to_lowercase()).collect();
+    let existing: HashSet<String> = profiles
+        .iter()
+        .map(|profile| profile.name.to_lowercase())
+        .collect();
 
     if !existing.contains(&base.to_lowercase()) {
         return base;
@@ -573,7 +615,10 @@ struct ImportedMetadata {
     mods: Option<Vec<ProfileModEntry>>,
 }
 
-pub fn import_profile_zip<R: Runtime>(app: &AppHandle<R>, zip_path: &str) -> AppResult<ProfileEntry> {
+pub fn import_profile_zip<R: Runtime>(
+    app: &AppHandle<R>,
+    zip_path: &str,
+) -> AppResult<ProfileEntry> {
     let profiles = get_profiles(app)?;
     let zip_name = derive_name_from_zip_path(zip_path);
     let timestamp = now_millis();
@@ -617,9 +662,7 @@ pub fn import_profile_zip<R: Runtime>(app: &AppHandle<R>, zip_path: &str) -> App
             .and_then(|item| item.custom_icon_extension.clone())
             .and_then(|ext| normalize_custom_icon_extension(&ext)),
         icon_mod_id: imported.as_ref().and_then(|item| item.icon_mod_id.clone()),
-        mods: imported
-            .and_then(|item| item.mods)
-            .unwrap_or_default(),
+        mods: imported.and_then(|item| item.mods).unwrap_or_default(),
     };
     normalize_icon_selection(&mut profile);
     write_profile(&profile)?;
