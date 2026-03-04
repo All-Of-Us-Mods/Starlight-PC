@@ -1,3 +1,5 @@
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+
 const DEFAULT_API_BASE_URL = 'https://starlight.allofus.dev';
 
 export function apiBaseUrl(): string {
@@ -39,7 +41,7 @@ export async function apiFetch<T>(
 	let response: Response;
 
 	try {
-		response = await fetch(url);
+		response = await tauriFetch(url);
 	} catch (cause) {
 		throw new FetchApiError('Network request failed', path, undefined, cause);
 	}
