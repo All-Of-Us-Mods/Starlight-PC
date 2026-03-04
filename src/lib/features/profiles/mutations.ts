@@ -4,7 +4,7 @@ import { exists } from '@tauri-apps/plugin-fs';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { gameState } from './game-state.svelte';
 import type { BepInExProgress, Profile, ProfileIconSelection, UnifiedMod } from './schema';
-import { profileDiskFilesKey, profilesActiveQueryKey, profilesQueryKey } from './profile-keys';
+import { profileDiskFilesKey, profilesQueryKey } from './profile-keys';
 import { rustInvoke } from '$lib/infra/rust/invoke';
 import type { AppSettings } from '$lib/features/settings/schema';
 import { modQueries } from '$lib/features/mods/queries';
@@ -192,7 +192,6 @@ export const profileMutations = {
 			rustInvoke('profiles_update_icon', args),
 		onSuccess: async (_data: void, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
-			await queryClient.invalidateQueries({ queryKey: profilesActiveQueryKey });
 		}
 	}),
 
@@ -263,7 +262,6 @@ export const profileMutations = {
 		mutationFn: (zipPath: string) => rustInvoke('profiles_import_zip', { zipPath }),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
-			queryClient.invalidateQueries({ queryKey: profilesActiveQueryKey });
 		}
 	}),
 
@@ -271,7 +269,6 @@ export const profileMutations = {
 		mutationFn: (profileId: string) => rustInvoke('profiles_update_last_launched', { profileId }),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
-			queryClient.invalidateQueries({ queryKey: profilesActiveQueryKey });
 		}
 	}),
 

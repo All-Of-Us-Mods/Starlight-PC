@@ -186,13 +186,6 @@ pub async fn profiles_update_icon<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn profiles_get_active<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<Option<ProfileEntry>, String> {
-    profile_service::get_active_profile(&app).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub async fn profiles_update_last_launched<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesUpdateLastLaunchedArgs,

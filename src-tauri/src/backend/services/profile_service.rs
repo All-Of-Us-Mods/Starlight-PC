@@ -499,20 +499,6 @@ pub fn update_profile_icon<R: Runtime>(
     }
 }
 
-pub fn get_active_profile<R: Runtime>(app: &AppHandle<R>) -> AppResult<Option<ProfileEntry>> {
-    let mut profiles: Vec<ProfileEntry> = get_profiles(app)?
-        .into_iter()
-        .filter(|profile| profile.last_launched_at.is_some())
-        .collect();
-
-    profiles.sort_by(|a, b| {
-        b.last_launched_at
-            .unwrap_or(0)
-            .cmp(&a.last_launched_at.unwrap_or(0))
-    });
-    Ok(profiles.into_iter().next())
-}
-
 pub fn update_last_launched<R: Runtime>(app: &AppHandle<R>, profile_id: &str) -> AppResult<()> {
     let Some(mut profile) = get_profile_by_id(app, profile_id)? else {
         return Ok(());

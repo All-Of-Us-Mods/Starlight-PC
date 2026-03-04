@@ -25,7 +25,7 @@
 	const sidebar = setSidebar();
 	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
 	const launchProfile = createMutation(() => profileMutations.launchProfile());
-	const activeProfileQuery = createQuery(() => profileQueries.active());
+	const profilesQuery = createQuery(() => profileQueries.all());
 	const shellController = createShellController({
 		launchProfile: (profile) => launchProfile.mutateAsync(profile),
 		updateLastLaunched: (id) => updateLastLaunched.mutateAsync(id)
@@ -34,7 +34,12 @@
 	let platformName = $state<Platform>('other');
 	let appWindow = $state<TauriWindow | null>(null);
 
-	const activeProfile = $derived(activeProfileQuery.data as Profile | null);
+	const activeProfile = $derived.by(() => {
+		const profiles = (profilesQuery.data as Profile[] | undefined) ?? [];
+		return profiles
+			.filter((profile) => profile.last_launched_at != null)
+			.toSorted((a, b) => (b.last_launched_at ?? 0) - (a.last_launched_at ?? 0))[0] ?? null;
+	});
 	const sidebarWidth = $derived(getSidebarWidth(sidebar.isMaximized));
 	const canLaunch = $derived<boolean>(canLaunchProfile(activeProfile));
 

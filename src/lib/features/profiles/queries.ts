@@ -5,7 +5,6 @@ import {
 	profileDiskFilesKey,
 	profileLogKey,
 	profileUnifiedModsKey,
-	profilesActiveQueryKey,
 	profilesHasAnyQueryKey,
 	profilesQueryKey
 } from './profile-keys';
@@ -21,11 +20,6 @@ export const profileQueries = {
 		rustQueryOptions({
 			queryKey: profilesQueryKey,
 			command: 'profiles_list'
-		}),
-	active: () =>
-		rustQueryOptions({
-			queryKey: profilesActiveQueryKey,
-			command: 'profiles_get_active'
 		}),
 	hasAny: () =>
 		queryOptions({

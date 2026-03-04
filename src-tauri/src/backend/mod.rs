@@ -87,7 +87,6 @@ pub fn run() {
             commands::profiles::profiles_delete,
             commands::profiles::profiles_rename,
             commands::profiles::profiles_update_icon,
-            commands::profiles::profiles_get_active,
             commands::profiles::profiles_update_last_launched,
             commands::profiles::profiles_add_mod,
             commands::profiles::profiles_add_play_time,
