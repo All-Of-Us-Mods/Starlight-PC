@@ -13,6 +13,7 @@ export type RustCommandMap = {
 
 	profiles_get_dir: { args: void; result: string };
 	profiles_list: { args: void; result: Profile[] };
+	profiles_get_by_id: { args: { id: string }; result: Profile | null };
 	profiles_get_active: { args: void; result: Profile | null };
 	profiles_create: { args: { name: string }; result: Profile };
 	profiles_install_bepinex: { args: { profileId: string; profilePath: string }; result: void };

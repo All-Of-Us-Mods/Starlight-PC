@@ -10,6 +10,7 @@ import { modQueries } from '$lib/features/mods/queries';
 import type { ModVersionInfo } from '$lib/features/mods/schema';
 import { resolveApiUrl } from '$lib/api/client';
 import { showError } from '$lib/utils/toast';
+import { epicService } from '$lib/features/settings/epic-service';
 
 type ProfileSummary = { id: string; path: string };
 type InstallArgs = {
@@ -63,8 +64,7 @@ function resolveDownloadTarget(
 }
 
 async function getProfileById(profileId: string): Promise<Profile | null> {
-	const profiles = await rustInvoke('profiles_list');
-	return profiles.find((profile) => profile.id === profileId) ?? null;
+	return rustInvoke('profiles_get_by_id', { id: profileId });
 }
 
 async function rollbackInstalledMods(
@@ -154,8 +154,14 @@ export const profileMutations = {
 				});
 			return profile;
 		},
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+		onSuccess: (created: Profile) => {
+			queryClient.setQueryData<Profile[] | undefined>(profilesQueryKey, (current) => {
+				if (!current) return [created];
+				const hasProfile = current.some((profile) => profile.id === created.id);
+				return hasProfile
+					? current.map((profile) => (profile.id === created.id ? created : profile))
+					: [...current, created];
+			});
 		}
 	}),
 
@@ -367,6 +373,9 @@ export const profileMutations = {
 			}
 			if (!settings.allow_multi_instance_launch && gameState.running) {
 				throw new Error('An Among Us instance is already running');
+			}
+			if (settings.game_platform === 'epic') {
+				await epicService.ensureLoggedIn();
 			}
 
 			if (settings.game_platform === 'xbox') {

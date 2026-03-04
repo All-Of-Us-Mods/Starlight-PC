@@ -5,6 +5,7 @@
 	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { settingsMutations } from '$lib/features/settings/mutations';
+	import { settingsCacheExistsQueryKey } from '$lib/features/settings/settings-keys';
 	import type { AppSettings, GamePlatform } from '$lib/features/settings/schema';
 	import { showError, showSuccess } from '$lib/utils/toast';
 	import { exists } from '@tauri-apps/plugin-fs';
@@ -22,6 +23,7 @@
 
 	const queryClient = useQueryClient();
 	const settingsQuery = createQuery(() => settingsQueries.get());
+	const cacheExistsQuery = createQuery(() => settingsQueries.cacheExists());
 	const settings = $derived(settingsQuery.data as AppSettings | undefined);
 	const updateMutation = createMutation(() => settingsMutations.update(queryClient));
 	const detectBepInExMutation = createMutation(() =>
@@ -30,7 +32,6 @@
 	const downloadCacheMutation = createMutation(() => settingsMutations.downloadBepInExToCache());
 	const clearCacheMutation = createMutation(() => settingsMutations.clearBepInExCache());
 	const openDataFolderMutation = createMutation(() => settingsMutations.openDataFolder());
-	const checkCacheExistsMutation = createMutation(() => settingsMutations.checkCacheExists());
 	const detectAmongUsPathMutation = createMutation(() => settingsMutations.detectAmongUsPath());
 	const detectGameStoreMutation = createMutation(() => settingsMutations.detectGameStore());
 
@@ -47,7 +48,7 @@
 	let isHydrating = $state(true);
 	let pathError = $state('');
 	let isLoggedIn = $state(false);
-	let isCacheExists = $state(false);
+	const isCacheExists = $derived((cacheExistsQuery.data as boolean | undefined) ?? false);
 	let isDetecting = $state(false);
 	let epicLoginOpen = $state(false);
 	let isCacheDownloading = $state(false);
@@ -138,7 +139,7 @@
 					cacheDownloadProgress = progress.progress;
 				}
 			});
-			isCacheExists = true;
+			queryClient.setQueryData(settingsCacheExistsQueryKey, true);
 			showSuccess('BepInEx downloaded to cache');
 		} catch (e) {
 			showError(e);
@@ -151,7 +152,7 @@
 	async function handleClearCache() {
 		try {
 			await clearCacheMutation.mutateAsync();
-			isCacheExists = false;
+			queryClient.setQueryData(settingsCacheExistsQueryKey, false);
 			showSuccess('Cache cleared');
 		} catch (e) {
 			showError(e);
@@ -176,7 +177,6 @@
 			localPlatform = settings.game_platform ?? 'steam';
 			localCacheBepInEx = settings.cache_bepinex ?? false;
 			epicService.isLoggedIn().then((v) => (isLoggedIn = v));
-			checkCacheExistsMutation.mutateAsync().then((v) => (isCacheExists = v));
 			initialized = true;
 			isHydrating = false;
 		}

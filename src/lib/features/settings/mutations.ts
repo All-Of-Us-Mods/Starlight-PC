@@ -63,11 +63,5 @@ export const settingsMutations = {
 			const appDataPath = await rustInvoke('core_get_app_data_dir');
 			await revealItemInDir(appDataPath);
 		}
-	}),
-	checkCacheExists: () => ({
-		mutationFn: async () => {
-			const cachePath = await rustInvoke('core_get_bepinex_cache_path');
-			return await rustInvoke('modding_bepinex_cache_exists', { cachePath });
-		}
 	})
 };
