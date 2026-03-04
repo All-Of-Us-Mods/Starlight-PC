@@ -1,9 +1,15 @@
-import { listen } from '@tauri-apps/api/event';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { join } from '@tauri-apps/api/path';
 import { exists } from '@tauri-apps/plugin-fs';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { gameState } from './game-state.svelte';
-import type { BepInExProgress, Profile, ProfileIconSelection, UnifiedMod } from './schema';
+import type {
+	BepInExProgress,
+	ModDownloadProgress,
+	Profile,
+	ProfileIconSelection,
+	UnifiedMod
+} from './schema';
 import { profileDiskFilesKey, profilesQueryKey } from './profile-keys';
 import { rustInvoke } from '$lib/infra/rust/invoke';
 import type { AppSettings } from '$lib/features/settings/schema';
@@ -287,85 +293,93 @@ export const profileMutations = {
 			if (!profile) {
 				throw new Error(`Profile '${args.profileId}' not found`);
 			}
+			let unlistenModDownload: UnlistenFn | undefined;
+			unlistenModDownload = await listen<ModDownloadProgress>('mod-download-progress', (event) => {
+				gameState.setModDownloadProgress(event.payload.mod_id, event.payload);
+			});
 
-			const previousByModId: PreviousModState = new Map();
-			for (const item of args.mods) {
-				const previous = profile.mods.find((entry) => entry.mod_id === item.modId);
-				previousByModId.set(
-					item.modId,
-					previous ? { version: previous.version, file: previous.file ?? undefined } : null
-				);
-			}
-
-			const installed: InstalledModResult[] = [];
-			const persisted: InstalledModResult[] = [];
-			const replacedFilesToDelete = new Set<string>();
-
-			/* eslint-disable no-await-in-loop */
-			for (const item of args.mods) {
-				try {
-					const versionInfo = await queryClient.fetchQuery(
-						modQueries.versionInfo(item.modId, item.version)
-					);
-					const target = resolveDownloadTarget(
+			try {
+				const previousByModId: PreviousModState = new Map();
+				for (const item of args.mods) {
+					const previous = profile.mods.find((entry) => entry.mod_id === item.modId);
+					previousByModId.set(
 						item.modId,
-						item.version,
-						versionInfo,
-						settings.game_platform
+						previous ? { version: previous.version, file: previous.file ?? undefined } : null
 					);
-					const destination = await join(args.profilePath, 'BepInEx', 'plugins', target.fileName);
-					await rustInvoke('modding_mod_download', {
-						modId: item.modId,
-						url: target.url,
-						destination,
-						expectedChecksum: target.checksum
-					});
-
-					installed.push({
-						mod_id: item.modId,
-						version: item.version,
-						file_name: target.fileName
-					});
-
-					await rustInvoke('profiles_add_mod', {
-						profileId: args.profileId,
-						modId: item.modId,
-						version: item.version,
-						file: target.fileName
-					});
-
-					persisted.push({
-						mod_id: item.modId,
-						version: item.version,
-						file_name: target.fileName
-					});
-
-					const previous = previousByModId.get(item.modId);
-					if (previous?.file && previous.file !== target.fileName) {
-						replacedFilesToDelete.add(previous.file);
-					}
-				} catch (error) {
-					await rollbackInstalledMods(
-						args.profileId,
-						args.profilePath,
-						installed,
-						persisted,
-						previousByModId
-					);
-					throw error;
 				}
-			}
-			/* eslint-enable no-await-in-loop */
-			await Promise.all(
-				Array.from(replacedFilesToDelete).map((fileName) =>
-					rustInvoke('profiles_delete_mod_file', {
-						profilePath: args.profilePath,
-						fileName
-					}).catch(() => undefined)
-				)
-			);
 
-			return installed;
+				const installed: InstalledModResult[] = [];
+				const persisted: InstalledModResult[] = [];
+				const replacedFilesToDelete = new Set<string>();
+
+				/* eslint-disable no-await-in-loop */
+				for (const item of args.mods) {
+					try {
+						const versionInfo = await queryClient.fetchQuery(
+							modQueries.versionInfo(item.modId, item.version)
+						);
+						const target = resolveDownloadTarget(
+							item.modId,
+							item.version,
+							versionInfo,
+							settings.game_platform
+						);
+						const destination = await join(args.profilePath, 'BepInEx', 'plugins', target.fileName);
+						await rustInvoke('modding_mod_download', {
+							modId: item.modId,
+							url: target.url,
+							destination,
+							expectedChecksum: target.checksum
+						});
+
+						installed.push({
+							mod_id: item.modId,
+							version: item.version,
+							file_name: target.fileName
+						});
+
+						await rustInvoke('profiles_add_mod', {
+							profileId: args.profileId,
+							modId: item.modId,
+							version: item.version,
+							file: target.fileName
+						});
+
+						persisted.push({
+							mod_id: item.modId,
+							version: item.version,
+							file_name: target.fileName
+						});
+
+						const previous = previousByModId.get(item.modId);
+						if (previous?.file && previous.file !== target.fileName) {
+							replacedFilesToDelete.add(previous.file);
+						}
+					} catch (error) {
+						await rollbackInstalledMods(
+							args.profileId,
+							args.profilePath,
+							installed,
+							persisted,
+							previousByModId
+						);
+						throw error;
+					}
+				}
+				/* eslint-enable no-await-in-loop */
+				await Promise.all(
+					Array.from(replacedFilesToDelete).map((fileName) =>
+						rustInvoke('profiles_delete_mod_file', {
+							profilePath: args.profilePath,
+							fileName
+						}).catch(() => undefined)
+					)
+				);
+
+				return installed;
+			} finally {
+				unlistenModDownload?.();
+			}
 		},
 		onSuccess: (_data: InstalledModResult[], args: InstallArgs) => {
 			void invalidateProfileAndDiskQueries(queryClient, args);
@@ -378,8 +392,8 @@ export const profileMutations = {
 				throw new Error('A launch is already in progress');
 			}
 			launchInFlight = true;
-			const settings = await rustInvoke('core_get_settings');
 			try {
+				const settings = await rustInvoke('core_get_settings');
 				if (!settings.among_us_path?.trim()) {
 					throw new Error('Among Us path not configured');
 				}
@@ -450,8 +464,8 @@ export const profileMutations = {
 				throw new Error('A launch is already in progress');
 			}
 			launchInFlight = true;
-			const settings = await rustInvoke('core_get_settings');
 			try {
+				const settings = await rustInvoke('core_get_settings');
 				if (!settings.among_us_path?.trim()) {
 					throw new Error('Among Us path not configured');
 				}
