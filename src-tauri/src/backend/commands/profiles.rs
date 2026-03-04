@@ -122,9 +122,10 @@ fn ensure_profile_path_in_profiles_dir<R: Runtime>(
     app: &AppHandle<R>,
     profile_path: &str,
 ) -> Result<(), String> {
-    let allowed_root = PathBuf::from(profile_service::get_profiles_dir(app).map_err(|e| e.to_string())?)
-        .canonicalize()
-        .map_err(|_| "Invalid profiles directory".to_string())?;
+    let allowed_root =
+        PathBuf::from(profile_service::get_profiles_dir(app).map_err(|e| e.to_string())?)
+            .canonicalize()
+            .map_err(|_| "Invalid profiles directory".to_string())?;
     let canonical = PathBuf::from(profile_path)
         .canonicalize()
         .map_err(|_| "Invalid profile path".to_string())?;
@@ -159,8 +160,10 @@ pub async fn profiles_get_by_id<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesGetByIdArgs,
 ) -> Result<Option<ProfileEntry>, String> {
-    run_blocking(move || profile_service::get_profile_by_id(&app, &args.id).map_err(|e| e.to_string()))
-        .await
+    run_blocking(move || {
+        profile_service::get_profile_by_id(&app, &args.id).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -168,8 +171,10 @@ pub async fn profiles_create<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesCreateArgs,
 ) -> Result<ProfileEntry, String> {
-    run_blocking(move || profile_service::create_profile(&app, &args.name).map_err(|e| e.to_string()))
-        .await
+    run_blocking(move || {
+        profile_service::create_profile(&app, &args.name).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -193,8 +198,10 @@ pub async fn profiles_delete<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesDeleteArgs,
 ) -> Result<(), String> {
-    run_blocking(move || profile_service::delete_profile(&app, &args.profile_id).map_err(|e| e.to_string()))
-        .await
+    run_blocking(move || {
+        profile_service::delete_profile(&app, &args.profile_id).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -293,7 +300,8 @@ pub async fn profiles_delete_mod_file<R: Runtime>(
 ) -> Result<(), String> {
     run_blocking(move || {
         ensure_profile_path_in_profiles_dir(&app, &args.profile_path)?;
-        profile_service::delete_mod_file(&args.profile_path, &args.file_name).map_err(|e| e.to_string())
+        profile_service::delete_mod_file(&args.profile_path, &args.file_name)
+            .map_err(|e| e.to_string())
     })
     .await
 }
@@ -318,8 +326,10 @@ pub async fn profiles_read_binary_file<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesReadBinaryFileArgs,
 ) -> Result<Vec<u8>, String> {
-    run_blocking(move || profile_service::read_binary_file(&app, &args.path).map_err(|e| e.to_string()))
-        .await
+    run_blocking(move || {
+        profile_service::read_binary_file(&app, &args.path).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
