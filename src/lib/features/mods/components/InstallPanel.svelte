@@ -65,8 +65,8 @@
 	const installController = createInstallPanelController({
 		onDownloadProgress: modInstallService.onDownloadProgress,
 		installMods: (input) => installModsMutation.mutateAsync(input),
-		setModProgress: (modId, progress) => gameState.setModDownloadProgress(modId, progress),
-		clearModProgress: (modId) => gameState.clearModDownload(modId)
+		setModProgress: (id, progress) => gameState.setModDownloadProgress(id, progress),
+		clearModProgress: (id) => gameState.clearModDownload(id)
 	});
 
 	// ============ DERIVED ============

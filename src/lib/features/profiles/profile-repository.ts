@@ -66,21 +66,28 @@ class ProfileRepository {
 			}
 		}
 
-		let migratedCount = 0;
 		const profiles: Profile[] = [];
+		const pendingMigrations: Profile[] = [];
 
-		for (const entry of entries) {
-			if (!entry.isDirectory) continue;
+		const directoryEntries = entries.filter((entry) => entry.isDirectory);
 
-			const profileDir = await profilePlatformAdapter.joinPath(profilesDir, entry.name);
-			let profile = await this.readMetadata(profileDir);
+		// Resolve all profile dirs and read metadata in parallel
+		const profileResults = await Promise.all(
+			directoryEntries.map(async (entry) => {
+				const profileDir = await profilePlatformAdapter.joinPath(profilesDir, entry.name);
+				const profile = await this.readMetadata(profileDir);
+				return { entry, profileDir, profile };
+			})
+		);
+
+		for (const { entry, profileDir, profile: readProfile } of profileResults) {
+			let profile = readProfile;
 
 			if (!profile && legacyMap) {
 				const legacy = legacyMap.get(entry.name);
 				if (legacy) {
 					profile = { ...legacy, path: profileDir };
-					await this.writeMetadata(profile);
-					migratedCount++;
+					pendingMigrations.push(profile);
 					info(`Migrated profile ${entry.name} to metadata.json`);
 				}
 			}
@@ -88,6 +95,12 @@ class ProfileRepository {
 			if (!profile) continue;
 			profiles.push(profile);
 		}
+
+		// Write all pending migrations in parallel
+		if (pendingMigrations.length > 0) {
+			await Promise.all(pendingMigrations.map((profile) => this.writeMetadata(profile)));
+		}
+		const migratedCount = pendingMigrations.length;
 
 		if (legacyMap && migratedCount > 0) {
 			const allMigrated = [...legacyMap.keys()].every((id) =>

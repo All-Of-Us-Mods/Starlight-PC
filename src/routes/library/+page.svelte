@@ -60,7 +60,7 @@
 
 		queryClient.setQueryData(profilesQueryKey, (old = []) =>
 			(old as Profile[]).map((p) =>
-				p.id === profile.id ? { ...p, last_launched_at: Date.now() } : p
+				p.id === profile.id ? Object.assign({}, p, { last_launched_at: Date.now() }) : p
 			)
 		);
 

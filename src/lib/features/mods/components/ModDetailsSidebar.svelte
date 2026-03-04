@@ -129,8 +129,8 @@
 	// Set default version when versions load
 	watch(
 		() => versions,
-		(versions) => {
-			const latestVersion = pickDefaultVersion(versions);
+		(currentVersions) => {
+			const latestVersion = pickDefaultVersion(currentVersions);
 			if (latestVersion && !selectedVersion) {
 				selectedVersion = latestVersion;
 			}
@@ -140,9 +140,14 @@
 	// Update selected version to match installed version when profile context is provided initially
 	watch(
 		() => unifiedMod,
-		(mod) => {
-			if (mod && mod.source === 'managed' && mod.version && !hasSetProfileVersion) {
-				selectedVersion = mod.version;
+		(currentMod) => {
+			if (
+				currentMod &&
+				currentMod.source === 'managed' &&
+				currentMod.version &&
+				!hasSetProfileVersion
+			) {
+				selectedVersion = currentMod.version;
 				hasSetProfileVersion = true;
 			}
 		}

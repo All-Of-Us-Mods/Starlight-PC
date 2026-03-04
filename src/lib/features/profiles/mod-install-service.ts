@@ -88,10 +88,8 @@ class ModInstallService {
 	 * Resolves dependencies with their mod names and latest matching versions
 	 */
 	async resolveDependencies(dependencies: ModDependency[]): Promise<DependencyWithMeta[]> {
-		const resolved: DependencyWithMeta[] = [];
-
-		for (const dep of dependencies) {
-			try {
+		const results = await Promise.allSettled(
+			dependencies.map(async (dep) => {
 				const [mod, versions] = await Promise.all([
 					this.getModById(dep.mod_id),
 					this.getModVersions(dep.mod_id)
@@ -115,17 +113,18 @@ class ModInstallService {
 					}
 				}
 
-				resolved.push({
-					...dep,
-					modName: mod.name,
-					resolvedVersion
-				});
-			} catch {
-				// If we can't resolve a dependency, skip it
-				warn(`Failed to resolve dependency: ${dep.mod_id}`);
+				return { ...dep, modName: mod.name, resolvedVersion };
+			})
+		);
+
+		const resolved: DependencyWithMeta[] = [];
+		for (const [i, result] of results.entries()) {
+			if (result.status === 'fulfilled') {
+				resolved.push(result.value);
+			} else {
+				warn(`Failed to resolve dependency: ${dependencies[i].mod_id}`);
 			}
 		}
-
 		return resolved;
 	}
 

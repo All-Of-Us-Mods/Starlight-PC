@@ -35,31 +35,37 @@ async function rollbackInstalledMods(
 	persisted: InstalledMod[],
 	previousByModId: Map<string, { version: string; file: string | undefined } | undefined>
 ) {
-	for (const mod of persisted.toReversed()) {
-		const previous = previousByModId.get(mod.modId);
-		try {
-			if (previous?.file) {
-				await profileWorkflowService.addModToProfile(
-					args.profileId,
-					mod.modId,
-					previous.version,
-					previous.file
-				);
-			} else {
-				await profileWorkflowService.removeModFromProfile(args.profileId, mod.modId);
+	// Rollback metadata for persisted mods
+	await Promise.allSettled(
+		persisted.toReversed().map(async (mod) => {
+			const previous = previousByModId.get(mod.modId);
+			try {
+				if (previous?.file) {
+					await profileWorkflowService.addModToProfile(
+						args.profileId,
+						mod.modId,
+						previous.version,
+						previous.file
+					);
+				} else {
+					await profileWorkflowService.removeModFromProfile(args.profileId, mod.modId);
+				}
+			} catch (error) {
+				warn(`Failed to rollback metadata for mod "${mod.modId}": ${error}`);
 			}
-		} catch (error) {
-			warn(`Failed to rollback metadata for mod "${mod.modId}": ${error}`);
-		}
-	}
+		})
+	);
 
-	for (const mod of installed.toReversed()) {
-		try {
-			await profileWorkflowService.deleteModFile(args.profilePath, mod.fileName);
-		} catch (error) {
-			warn(`Failed to rollback mod file "${mod.fileName}": ${error}`);
-		}
-	}
+	// Rollback downloaded files
+	await Promise.allSettled(
+		installed.toReversed().map(async (mod) => {
+			try {
+				await profileWorkflowService.deleteModFile(args.profilePath, mod.fileName);
+			} catch (error) {
+				warn(`Failed to rollback mod file "${mod.fileName}": ${error}`);
+			}
+		})
+	);
 }
 
 export const profileMutations = {
@@ -182,36 +188,49 @@ export const profileMutations = {
 			const installed: InstalledMod[] = [];
 			const persisted: InstalledMod[] = [];
 			try {
-				for (const mod of args.mods) {
-					const fileName = await modInstallService.installModToProfile(
-						mod.modId,
-						mod.version,
-						args.profilePath
-					);
-					installed.push({ modId: mod.modId, version: mod.version, fileName });
-				}
-
-				for (const mod of installed) {
-					await profileWorkflowService.addModToProfile(
-						args.profileId,
-						mod.modId,
-						mod.version,
-						mod.fileName
-					);
-					persisted.push(mod);
-				}
-
-				for (const mod of persisted) {
-					const previous = previousByModId.get(mod.modId);
-					if (!previous?.file || previous.file === mod.fileName) continue;
-					try {
-						await profileWorkflowService.deleteModFile(args.profilePath, previous.file);
-					} catch (error) {
-						warn(
-							`Failed to remove replaced mod file "${previous.file}" for mod "${mod.modId}": ${error}`
+				// Download mods sequentially for progress tracking
+				const installResults = await args.mods.reduce(
+					async (chain, mod) => {
+						const acc = await chain;
+						const fileName = await modInstallService.installModToProfile(
+							mod.modId,
+							mod.version,
+							args.profilePath
 						);
-					}
-				}
+						acc.push({ modId: mod.modId, version: mod.version, fileName });
+						return acc;
+					},
+					Promise.resolve([] as InstalledMod[])
+				);
+				installed.push(...installResults);
+
+				// Persist metadata for all installed mods in parallel
+				await Promise.all(
+					installed.map(async (mod) => {
+						await profileWorkflowService.addModToProfile(
+							args.profileId,
+							mod.modId,
+							mod.version,
+							mod.fileName
+						);
+						persisted.push(mod);
+					})
+				);
+
+				// Clean up replaced mod files in parallel
+				await Promise.all(
+					persisted.map(async (mod) => {
+						const previous = previousByModId.get(mod.modId);
+						if (!previous?.file || previous.file === mod.fileName) return;
+						try {
+							await profileWorkflowService.deleteModFile(args.profilePath, previous.file);
+						} catch (error) {
+							warn(
+								`Failed to remove replaced mod file "${previous.file}" for mod "${mod.modId}": ${error}`
+							);
+						}
+					})
+				);
 
 				return installed;
 			} catch (error) {
