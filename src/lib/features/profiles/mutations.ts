@@ -9,6 +9,7 @@ import type { AppSettings } from '$lib/features/settings/schema';
 import { modQueries } from '$lib/features/mods/queries';
 import type { ModVersionInfo } from '$lib/features/mods/schema';
 import { resolveApiUrl } from '$lib/api/client';
+import { showError } from '$lib/utils/toast';
 
 type ProfileSummary = { id: string; path: string };
 type InstallArgs = {
@@ -105,18 +106,22 @@ async function rollbackInstalledMods(
 
 async function installBepInEx(profileId: string, profilePath: string) {
 	let unlisten: (() => void) | undefined;
+	let succeeded = false;
 	try {
 		unlisten = await listen<BepInExProgress>('bepinex-progress', (event) => {
 			gameState.setBepInExProgress(profileId, event.payload);
 		});
 		await rustInvoke('profiles_install_bepinex', { profileId, profilePath });
+		succeeded = true;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Unknown error';
 		gameState.setBepInExError(profileId, message);
 		throw error;
 	} finally {
 		unlisten?.();
-		gameState.clearBepInExProgress(profileId);
+		if (succeeded) {
+			gameState.clearBepInExProgress(profileId);
+		}
 	}
 }
 
@@ -140,9 +145,13 @@ export const profileMutations = {
 	create: (queryClient: QueryClient) => ({
 		mutationFn: async (name: string) => {
 			const profile = await rustInvoke('profiles_create', { name });
-			void installBepInEx(profile.id, profile.path).finally(() => {
-				void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
-			});
+			void installBepInEx(profile.id, profile.path)
+				.catch((error) => {
+					showError(error, 'BepInEx install');
+				})
+				.finally(() => {
+					void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+				});
 			return profile;
 		},
 		onSuccess: () => {
