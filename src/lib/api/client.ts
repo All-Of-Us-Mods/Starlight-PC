@@ -1,7 +1,7 @@
 const DEFAULT_API_BASE_URL = 'https://starlight.allofus.dev';
 
-function apiBaseUrl(): string {
-	const raw = import.meta.env.VITE_STARLIGHT_API_URL;
+export function apiBaseUrl(): string {
+	const raw = import.meta.env.PUBLIC_API_URL;
 	if (typeof raw === 'string' && raw.trim().length > 0) {
 		return raw.trim();
 	}
@@ -22,9 +22,12 @@ export class FetchApiError extends Error {
 	}
 }
 
-function buildApiUrl(path: string): string {
+export function resolveApiUrl(pathOrUrl: string): string {
+	if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+		return pathOrUrl;
+	}
 	const base = apiBaseUrl().replace(/\/+$/, '');
-	const route = path.startsWith('/') ? path : `/${path}`;
+	const route = pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`;
 	return `${base}${route}`;
 }
 
@@ -32,7 +35,7 @@ export async function apiFetch<T>(
 	path: string,
 	validator: { assert: (data: unknown) => T }
 ): Promise<T> {
-	const url = buildApiUrl(path);
+	const url = resolveApiUrl(path);
 	let response: Response;
 
 	try {

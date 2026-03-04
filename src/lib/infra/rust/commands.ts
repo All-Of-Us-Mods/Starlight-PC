@@ -31,7 +31,7 @@ export type RustCommandMap = {
 	profiles_get_mod_files: { args: { profilePath: string }; result: string[] };
 	profiles_delete_mod_file: { args: { profilePath: string; fileName: string }; result: void };
 	profiles_get_log: { args: { profilePath: string; fileName: string }; result: string };
-	profiles_read_binary_file: { args: { path: string }; result: Uint8Array };
+	profiles_read_binary_file: { args: { path: string }; result: number[] };
 	profiles_delete_unified_mod: { args: { profileId: string; modEntry: UnifiedMod }; result: void };
 	profiles_export_zip: { args: { profileId: string; destination: string }; result: void };
 	profiles_import_zip: { args: { zipPath: string }; result: Profile };

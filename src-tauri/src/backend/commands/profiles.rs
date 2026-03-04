@@ -272,8 +272,13 @@ pub async fn profiles_export_zip<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesExportZipArgs,
 ) -> Result<(), String> {
-    profile_service::export_profile_zip(&app, &args.profile_id, &args.destination)
-        .map_err(|e| e.to_string())
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        profile_service::export_profile_zip(&app, &args.profile_id, &args.destination)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?;
+
+    result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -281,5 +286,10 @@ pub async fn profiles_import_zip<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesImportZipArgs,
 ) -> Result<ProfileEntry, String> {
-    profile_service::import_profile_zip(&app, &args.zip_path).map_err(|e| e.to_string())
+    let result =
+        tauri::async_runtime::spawn_blocking(move || profile_service::import_profile_zip(&app, &args.zip_path))
+            .await
+            .map_err(|e| format!("Task failed: {e}"))?;
+
+    result.map_err(|e| e.to_string())
 }

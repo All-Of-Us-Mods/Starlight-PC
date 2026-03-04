@@ -8,6 +8,7 @@ import { rustInvoke } from '$lib/infra/rust/invoke';
 import type { AppSettings } from '$lib/features/settings/schema';
 import { modQueries } from '$lib/features/mods/queries';
 import type { ModVersionInfo } from '$lib/features/mods/schema';
+import { resolveApiUrl } from '$lib/api/client';
 
 type ProfileSummary = { id: string; path: string };
 type InstallArgs = {
@@ -26,33 +27,16 @@ type DownloadTarget = {
 	checksum: string;
 };
 
-const DEFAULT_API_BASE_URL = 'https://starlight.allofus.dev';
-
-function getApiBaseUrl(): string {
-	const raw = import.meta.env.VITE_STARLIGHT_API_URL;
-	return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : DEFAULT_API_BASE_URL;
-}
-
-function resolveAbsoluteUrl(baseUrl: string, pathOrUrl: string): string {
-	if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
-		return pathOrUrl;
-	}
-	const base = baseUrl.replace(/\/+$/, '');
-	const route = pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`;
-	return `${base}${route}`;
-}
-
 function resolveDownloadTarget(
 	modId: string,
 	version: string,
 	versionInfo: ModVersionInfo,
 	platform: AppSettings['game_platform']
 ): DownloadTarget {
-	const apiBaseUrl = getApiBaseUrl();
 	const legacyPath = `/api/v2/mods/${modId}/versions/${version}/file`;
 	const defaultUrl = versionInfo.download_url ?? legacyPath;
 	const fallback: DownloadTarget = {
-		url: resolveAbsoluteUrl(apiBaseUrl, defaultUrl),
+		url: resolveApiUrl(defaultUrl),
 		fileName: versionInfo.file_name,
 		checksum: versionInfo.checksum
 	};
@@ -68,7 +52,7 @@ function resolveDownloadTarget(
 		if (!entry) continue;
 		const downloadUrl = entry.download_url ?? `${legacyPath}?platform=windows&arch=${arch}`;
 		return {
-			url: resolveAbsoluteUrl(apiBaseUrl, downloadUrl),
+			url: resolveApiUrl(downloadUrl),
 			fileName: entry.file_name ?? versionInfo.file_name,
 			checksum: entry.checksum ?? versionInfo.checksum
 		};
@@ -366,6 +350,9 @@ export const profileMutations = {
 			if (!settings.among_us_path?.trim()) {
 				throw new Error('Among Us path not configured');
 			}
+			if (!settings.allow_multi_instance_launch && gameState.running) {
+				throw new Error('An Among Us instance is already running');
+			}
 
 			if (settings.game_platform === 'xbox') {
 				let appId = settings.xbox_app_id?.trim() ?? '';
@@ -409,6 +396,9 @@ export const profileMutations = {
 			const settings = await rustInvoke('core_get_settings');
 			if (!settings.among_us_path?.trim()) {
 				throw new Error('Among Us path not configured');
+			}
+			if (!settings.allow_multi_instance_launch && gameState.running) {
+				throw new Error('An Among Us instance is already running');
 			}
 
 			if (settings.game_platform === 'xbox') {
