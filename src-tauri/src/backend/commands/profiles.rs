@@ -1,6 +1,7 @@
 use crate::backend::services::profile_service::{
     self, ProfileEntry, ProfileIconSelection, UnifiedMod,
 };
+use crate::backend::commands::blocking::run_blocking;
 use std::path::PathBuf;
 use tauri::{AppHandle, Runtime};
 
@@ -132,16 +133,6 @@ fn ensure_profile_path_in_profiles_dir<R: Runtime>(
         return Err("Path is outside the allowed directory".to_string());
     }
     Ok(())
-}
-
-async fn run_blocking<T, F>(work: F) -> Result<T, String>
-where
-    T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
-{
-    tauri::async_runtime::spawn_blocking(work)
-        .await
-        .map_err(|e| format!("Task failed: {e}"))?
 }
 
 #[tauri::command]

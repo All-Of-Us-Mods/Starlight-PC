@@ -1,4 +1,7 @@
-use crate::backend::services::core_service::{self, AppSettings, AppSettingsPatch};
+use crate::backend::{
+    commands::blocking::run_blocking,
+    services::core_service::{self, AppSettings, AppSettingsPatch},
+};
 use tauri::{AppHandle, Runtime};
 
 #[derive(serde::Deserialize)]
@@ -15,7 +18,7 @@ pub struct CoreAutoDetectBepInExArchitectureArgs {
 
 #[tauri::command]
 pub async fn core_get_settings<R: Runtime>(app: AppHandle<R>) -> Result<AppSettings, String> {
-    core_service::get_settings(&app).map_err(|e| e.to_string())
+    run_blocking(move || core_service::get_settings(&app).map_err(|e| e.to_string())).await
 }
 
 #[tauri::command]
@@ -23,7 +26,10 @@ pub async fn core_update_settings<R: Runtime>(
     app: AppHandle<R>,
     args: CoreUpdateSettingsArgs,
 ) -> Result<AppSettings, String> {
-    core_service::update_settings(&app, args.updates).map_err(|e| e.to_string())
+    run_blocking(move || {
+        core_service::update_settings(&app, args.updates).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -41,24 +47,27 @@ pub async fn core_auto_detect_bepinex_architecture<R: Runtime>(
     app: AppHandle<R>,
     args: CoreAutoDetectBepInExArchitectureArgs,
 ) -> Result<Option<String>, String> {
-    let detected = core_service::auto_detect_bepinex_architecture(&app, &args.game_path)
-        .map_err(|e| e.to_string())?;
+    run_blocking(move || {
+        let detected = core_service::auto_detect_bepinex_architecture(&app, &args.game_path)
+            .map_err(|e| e.to_string())?;
 
-    if let Some(url) = detected.clone() {
-        core_service::update_settings(
-            &app,
-            AppSettingsPatch {
-                bepinex_url: Some(url),
-                among_us_path: None,
-                close_on_launch: None,
-                allow_multi_instance_launch: None,
-                game_platform: None,
-                cache_bepinex: None,
-                xbox_app_id: None,
-            },
-        )
-        .map_err(|e| e.to_string())?;
-    }
+        if let Some(url) = detected.clone() {
+            core_service::update_settings(
+                &app,
+                AppSettingsPatch {
+                    bepinex_url: Some(url),
+                    among_us_path: None,
+                    close_on_launch: None,
+                    allow_multi_instance_launch: None,
+                    game_platform: None,
+                    cache_bepinex: None,
+                    xbox_app_id: None,
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        }
 
-    Ok(detected)
+        Ok(detected)
+    })
+    .await
 }
