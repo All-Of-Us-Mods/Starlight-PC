@@ -121,7 +121,7 @@
 	}
 
 	const totalPlayTime = $derived(
-		(profile.total_play_time ?? 0) + (isRunning ? gameState.getSessionDuration() : 0)
+		(profile.total_play_time ?? 0) + (isRunning ? gameState.getSessionDuration(profile.id) : 0)
 	);
 
 	const modIds = $derived(profile.mods.map((m) => m.mod_id));

@@ -23,12 +23,11 @@ type ModDownloadState =
 let running = $state(false);
 let runningCount = $state(0);
 let profileInstanceCounts = $state<Record<string, number>>({});
-let runningProfileId = $state<string | null>(null);
-let sessionStartTime = $state<number | null>(null);
 let currentTime = $state(Date.now());
 
 const bepinexInstalls = new SvelteMap<string, BepInExInstallState>();
 const modDownloads = new SvelteMap<string, ModDownloadState>();
+const activeProfileSessions = new SvelteMap<string, number>();
 
 let onProfilesInvalidate: InvalidateCallback | null = null;
 let unlistenGameState: UnlistenFn | null = null;
@@ -42,9 +41,15 @@ function notifyProfilesInvalidated() {
 	onProfilesInvalidate?.();
 }
 
-function getSessionDuration() {
-	if (!sessionStartTime) return 0;
-	return currentTime - sessionStartTime;
+function getSessionDuration(profileId?: string) {
+	if (!profileId) {
+		return Array.from(activeProfileSessions.values()).reduce(
+			(maxDuration, startedAt) => Math.max(maxDuration, currentTime - startedAt),
+			0
+		);
+	}
+	const startedAt = activeProfileSessions.get(profileId);
+	return startedAt ? currentTime - startedAt : 0;
 }
 
 async function finalizeSession(profileId: string, durationMs: number) {
@@ -60,15 +65,18 @@ async function finalizeSession(profileId: string, durationMs: number) {
 	}
 }
 
-function startSessionTimer() {
-	if (sessionStartTime) return;
-	sessionStartTime = Date.now();
-	currentTime = sessionStartTime;
+function startTicker() {
 	if (!ticker) {
 		ticker = setInterval(() => {
 			currentTime = Date.now();
 		}, 1000);
 	}
+}
+
+function stopTickerIfIdle() {
+	if (activeProfileSessions.size > 0 || !ticker) return;
+	clearInterval(ticker);
+	ticker = null;
 }
 
 export const gameState = {
@@ -88,50 +96,47 @@ export const gameState = {
 	init: async () => {
 		if (unlistenGameState) return;
 		unlistenGameState = await listen<GameStatePayload>('game-state-changed', async (event) => {
-			const wasRunning = running;
-			const prevProfileId = runningProfileId;
-			const prevDuration = getSessionDuration();
-
-			if (wasRunning && !event.payload.running) {
-				sessionStartTime = null;
-				if (ticker) {
-					clearInterval(ticker);
-					ticker = null;
-				}
-			}
+			const previousCounts = profileInstanceCounts;
+			const nextCounts = event.payload.profile_instance_counts ?? {};
+			const touchedProfileIds = new Set([
+				...Object.keys(previousCounts),
+				...Object.keys(nextCounts)
+			]);
 
 			running = event.payload.running;
 			runningCount = event.payload.running_count ?? (event.payload.running ? 1 : 0);
-			profileInstanceCounts = event.payload.profile_instance_counts ?? {};
+			profileInstanceCounts = nextCounts;
+			currentTime = Date.now();
 
-			const runningProfileIds = Object.entries(profileInstanceCounts)
-				.filter(([, count]) => count > 0)
-				.map(([profileId]) => profileId);
+			const finalizedSessions: Array<Promise<void>> = [];
+			for (const profileId of touchedProfileIds) {
+				const previousCount = previousCounts[profileId] ?? 0;
+				const nextCount = nextCounts[profileId] ?? 0;
+				const startedAt = activeProfileSessions.get(profileId);
 
-			if (runningProfileIds.length === 1) {
-				runningProfileId = runningProfileIds[0] ?? null;
-			} else if (runningProfileIds.length === 0) {
-				runningProfileId = null;
-			} else if (runningProfileId && !runningProfileIds.includes(runningProfileId)) {
-				runningProfileId = null;
+				if (previousCount <= 0 && nextCount > 0) {
+					activeProfileSessions.set(profileId, currentTime);
+					startTicker();
+					continue;
+				}
+
+				if (previousCount > 0 && nextCount <= 0 && startedAt) {
+					activeProfileSessions.delete(profileId);
+					finalizedSessions.push(finalizeSession(profileId, currentTime - startedAt));
+				}
 			}
 
-			if (running && sessionStartTime === null) {
-				startSessionTimer();
+			if (finalizedSessions.length > 0) {
+				await Promise.all(finalizedSessions);
 			}
-
-			if (wasRunning && !event.payload.running && prevProfileId) {
-				await finalizeSession(prevProfileId, prevDuration);
-			}
+			stopTickerIfIdle();
 		});
 	},
 	destroy: () => {
 		unlistenGameState?.();
 		unlistenGameState = null;
-		if (ticker) {
-			clearInterval(ticker);
-			ticker = null;
-		}
+		activeProfileSessions.clear();
+		stopTickerIfIdle();
 	},
 	getBepInExState(profileId: string): BepInExInstallState | undefined {
 		return bepinexInstalls.get(profileId);

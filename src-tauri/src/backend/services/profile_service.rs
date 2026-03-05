@@ -3,6 +3,7 @@ use crate::backend::services::{bepinex_service, core_service, profile_zip_servic
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_store::StoreExt;
@@ -104,11 +105,20 @@ fn is_safe_profile_id(id: &str) -> bool {
         && components.next().is_none()
 }
 
-fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> Option<ProfileEntry> {
-    let raw = fs::read_to_string(metadata_path).ok()?;
-    let mut profile = serde_json::from_str::<ProfileEntry>(&raw).ok()?;
+fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> AppResult<Option<ProfileEntry>> {
+    let raw = match fs::read_to_string(metadata_path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let mut profile = serde_json::from_str::<ProfileEntry>(&raw).map_err(|error| {
+        AppError::parse(format!(
+            "Failed to parse profile metadata at '{}': {error}",
+            metadata_path.display()
+        ))
+    })?;
     profile.path = profile_dir.to_string_lossy().to_string();
-    Some(profile)
+    Ok(Some(profile))
 }
 
 fn load_legacy_profiles_by_id<R: Runtime>(
@@ -148,7 +158,10 @@ fn write_profile(profile: &ProfileEntry) -> AppResult<()> {
     let profile_dir = PathBuf::from(&profile.path);
     fs::create_dir_all(&profile_dir)?;
     let metadata = serde_json::to_vec_pretty(profile)?;
-    fs::write(metadata_path(&profile_dir), metadata)?;
+    let metadata_path = metadata_path(&profile_dir);
+    let temporary_path = metadata_path.with_extension("json.tmp");
+    fs::write(&temporary_path, metadata)?;
+    fs::rename(&temporary_path, &metadata_path)?;
     Ok(())
 }
 
@@ -257,7 +270,7 @@ pub fn get_profiles<R: Runtime>(app: &AppHandle<R>) -> AppResult<Vec<ProfileEntr
         if !path.is_dir() {
             continue;
         }
-        let profile = if let Some(profile) = parse_profile(&metadata_path(&path), &path) {
+        let profile = if let Some(profile) = parse_profile(&metadata_path(&path), &path)? {
             profile
         } else {
             let file_name = match path.file_name().and_then(|name| name.to_str()) {
@@ -312,7 +325,7 @@ pub fn get_profile_by_id<R: Runtime>(
     }
 
     let profile_dir = PathBuf::from(get_profiles_dir(app)?).join(id);
-    if let Some(profile) = parse_profile(&metadata_path(&profile_dir), &profile_dir) {
+    if let Some(profile) = parse_profile(&metadata_path(&profile_dir), &profile_dir)? {
         return Ok(Some(profile));
     }
 

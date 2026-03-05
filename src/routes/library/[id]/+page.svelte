@@ -410,7 +410,8 @@
 	const isLaunchDisabled = $derived(isInstalling || (isRunning && !allowMultiInstanceLaunch));
 
 	const totalPlayTime = $derived(
-		(profile?.total_play_time ?? 0) + (isRunning ? gameState.getSessionDuration() : 0)
+		(profile?.total_play_time ?? 0) +
+			(isRunning && profile ? gameState.getSessionDuration(profile.id) : 0)
 	);
 	const lastLaunched = $derived(
 		profile?.last_launched_at ? new Date(profile.last_launched_at).toLocaleDateString() : 'Never'
