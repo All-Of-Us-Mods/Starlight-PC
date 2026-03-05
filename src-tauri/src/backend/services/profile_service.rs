@@ -370,7 +370,10 @@ pub fn create_profile<R: Runtime>(app: &AppHandle<R>, name: &str) -> AppResult<P
         icon_mod_id: None,
         mods: vec![],
     };
-    write_profile(&profile)?;
+    if let Err(error) = write_profile(&profile) {
+        let _ = fs::remove_dir_all(&profile_path);
+        return Err(error);
+    }
     Ok(profile)
 }
 
@@ -388,7 +391,12 @@ pub async fn install_bepinex_for_profile<R: Runtime>(
     .map_err(|error| AppError::state(format!("Task failed: {error}")))??
     .ok_or_else(|| AppError::validation(format!("Profile '{profile_id_owned}' not found")))?;
 
-    let settings = core_service::get_settings(&app)?;
+    let settings = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        move || core_service::get_settings(&app)
+    })
+    .await
+    .map_err(|error| AppError::state(format!("Task failed: {error}")))??;
     let cache_path = if settings.cache_bepinex {
         Some(core_service::get_bepinex_cache_path(&app)?)
     } else {
