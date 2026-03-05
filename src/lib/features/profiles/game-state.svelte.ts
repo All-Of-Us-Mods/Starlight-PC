@@ -1,5 +1,5 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { SvelteMap } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { BepInExProgress, ModDownloadProgress } from './schema';
 import { rustInvoke } from '$lib/infra/rust/invoke';
 
@@ -98,7 +98,7 @@ export const gameState = {
 		unlistenGameState = await listen<GameStatePayload>('game-state-changed', async (event) => {
 			const previousCounts = profileInstanceCounts;
 			const nextCounts = event.payload.profile_instance_counts ?? {};
-			const touchedProfileIds = new Set([
+			const touchedProfileIds = new SvelteSet([
 				...Object.keys(previousCounts),
 				...Object.keys(nextCounts)
 			]);

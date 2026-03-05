@@ -1,4 +1,4 @@
-import type { Profile, ProfileIconSelection, UnifiedMod } from '$lib/features/profiles/schema';
+import type { Profile, ProfileIconSelection } from '$lib/features/profiles/schema';
 import type { AppSettings, GamePlatform } from '$lib/features/settings/schema';
 
 type AppSettingsUpdate = Omit<Partial<AppSettings>, 'xbox_app_id'> & {
