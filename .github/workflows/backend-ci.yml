@@ -11,7 +11,7 @@ on:
       - 'src-tauri/**'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
