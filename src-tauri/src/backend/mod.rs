@@ -95,7 +95,6 @@ pub fn run() {
             commands::profiles::profiles_delete_mod_file,
             commands::profiles::profiles_get_log,
             commands::profiles::profiles_read_binary_file,
-            commands::profiles::profiles_delete_unified_mod,
             commands::profiles::profiles_export_zip,
             commands::profiles::profiles_import_zip,
             commands::epic::epic_auth_url,

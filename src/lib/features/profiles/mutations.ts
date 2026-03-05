@@ -246,8 +246,23 @@ export const profileMutations = {
 	}),
 
 	deleteUnifiedMod: (queryClient: QueryClient) => ({
-		mutationFn: (args: { profileId: string; mod: UnifiedMod }) =>
-			rustInvoke('profiles_delete_unified_mod', { profileId: args.profileId, modEntry: args.mod }),
+		mutationFn: async (args: { profileId: string; mod: UnifiedMod }) => {
+			const profile = await getProfileById(args.profileId);
+			if (!profile) {
+				throw new Error(`Profile '${args.profileId}' not found`);
+			}
+
+			await rustInvoke('profiles_delete_mod_file', {
+				profilePath: profile.path,
+				fileName: args.mod.file
+			});
+			if (args.mod.source === 'managed') {
+				await rustInvoke('profiles_remove_mod', {
+					profileId: args.profileId,
+					modId: args.mod.mod_id
+				});
+			}
+		},
 		onSuccess: async (_data: void, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
 		}

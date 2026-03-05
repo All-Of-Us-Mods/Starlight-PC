@@ -40,8 +40,14 @@ export const settingsMutations = {
 		}
 	}),
 	autoDetectBepInExArchitecture: (queryClient: QueryClient) => ({
-		mutationFn: (gamePath: string) =>
-			rustInvoke('core_auto_detect_bepinex_architecture', { gamePath }),
+		mutationFn: async (gamePath: string) => {
+			const updatedUrl = await rustInvoke('core_auto_detect_bepinex_architecture', { gamePath });
+			if (!updatedUrl) return null;
+			await rustInvoke('core_update_settings', {
+				updates: { bepinex_url: updatedUrl }
+			});
+			return updatedUrl;
+		},
 		onSuccess: (updatedUrl: string | null) => {
 			if (!updatedUrl) return;
 			queryClient.setQueryData<AppSettings | undefined>(settingsQueryKey, (current) =>

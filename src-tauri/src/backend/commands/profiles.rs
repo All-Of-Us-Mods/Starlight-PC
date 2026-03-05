@@ -1,6 +1,6 @@
 use crate::backend::commands::blocking::run_blocking;
 use crate::backend::services::profile_service::{
-    self, ProfileEntry, ProfileIconSelection, UnifiedMod,
+    self, ProfileEntry, ProfileIconSelection,
 };
 use std::path::PathBuf;
 use tauri::{AppHandle, Runtime};
@@ -96,13 +96,6 @@ pub struct ProfilesGetLogArgs {
 #[serde(rename_all = "camelCase")]
 pub struct ProfilesReadBinaryFileArgs {
     pub path: String,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfilesDeleteUnifiedModArgs {
-    pub profile_id: String,
-    pub mod_entry: UnifiedMod,
 }
 
 #[derive(serde::Deserialize)]
@@ -312,18 +305,6 @@ pub async fn profiles_read_binary_file<R: Runtime>(
 ) -> Result<Vec<u8>, String> {
     run_blocking(move || {
         profile_service::read_binary_file(&app, &args.path).map_err(|e| e.to_string())
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn profiles_delete_unified_mod<R: Runtime>(
-    app: AppHandle<R>,
-    args: ProfilesDeleteUnifiedModArgs,
-) -> Result<(), String> {
-    run_blocking(move || {
-        profile_service::delete_unified_mod(&app, &args.profile_id, args.mod_entry)
-            .map_err(|e| e.to_string())
     })
     .await
 }

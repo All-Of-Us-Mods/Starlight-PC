@@ -35,19 +35,6 @@ pub struct ProfileEntry {
     pub mods: Vec<ProfileModEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "source", rename_all = "lowercase")]
-pub enum UnifiedMod {
-    Managed {
-        mod_id: String,
-        version: String,
-        file: String,
-    },
-    Custom {
-        file: String,
-    },
-}
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "mode", rename_all = "lowercase")]
 pub enum ProfileIconSelection {
@@ -687,33 +674,6 @@ pub fn read_binary_file<R: Runtime>(app: &AppHandle<R>, path: &str) -> AppResult
         ));
     }
     Ok(fs::read(canonical)?)
-}
-
-pub fn delete_unified_mod<R: Runtime>(
-    app: &AppHandle<R>,
-    profile_id: &str,
-    mod_entry: UnifiedMod,
-) -> AppResult<()> {
-    let Some(profile) = get_profile_by_id(app, profile_id)? else {
-        return Err(AppError::validation(format!(
-            "Profile '{profile_id}' not found"
-        )));
-    };
-
-    match mod_entry {
-        UnifiedMod::Managed {
-            mod_id,
-            file,
-            version: _,
-        } => {
-            delete_mod_file(&profile.path, &file)?;
-            remove_mod_from_profile(app, profile_id, &mod_id)?;
-        }
-        UnifiedMod::Custom { file } => {
-            delete_mod_file(&profile.path, &file)?;
-        }
-    }
-    Ok(())
 }
 
 fn derive_name_from_zip_path(zip_path: &str) -> String {
