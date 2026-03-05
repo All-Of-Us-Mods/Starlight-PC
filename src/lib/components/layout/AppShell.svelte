@@ -23,7 +23,7 @@
 
 	const queryClient = useQueryClient();
 	const sidebar = setSidebar();
-	const launchProfile = createMutation(() => profileMutations.launchProfile());
+	const launchProfile = createMutation(() => profileMutations.launchProfile(queryClient));
 	const profilesQuery = createQuery(() => profileQueries.all());
 	const shellController = createShellController({
 		launchProfile: (profile) => launchProfile.mutateAsync(profile)

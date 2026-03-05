@@ -13,6 +13,7 @@ import type {
 import { profileDiskFilesKey, profilesQueryKey } from './profile-keys';
 import { rustInvoke } from '$lib/infra/rust/invoke';
 import type { AppSettings } from '$lib/features/settings/schema';
+import { settingsQueryKey } from '$lib/features/settings/settings-keys';
 import { modQueries } from '$lib/features/mods/queries';
 import type { ModVersionInfo } from '$lib/features/mods/schema';
 import { resolveApiUrl } from '$lib/api/client';
@@ -434,7 +435,7 @@ export const profileMutations = {
 		}
 	}),
 
-	launchProfile: () => ({
+	launchProfile: (queryClient?: QueryClient) => ({
 		mutationFn: async (profile: Profile) => {
 			if (launchInFlight) {
 				throw new Error('A launch is already in progress');
@@ -457,6 +458,9 @@ export const profileMutations = {
 					if (!appId) {
 						appId = await rustInvoke('game_xbox_get_app_id');
 						await rustInvoke('core_update_settings', { updates: { xbox_app_id: appId } });
+						queryClient?.setQueryData<AppSettings | undefined>(settingsQueryKey, (current) =>
+							current ? { ...current, xbox_app_id: appId } : current
+						);
 					}
 					await rustInvoke('game_xbox_prepare_launch', {
 						gameDir: settings.among_us_path,
@@ -511,7 +515,7 @@ export const profileMutations = {
 		}
 	}),
 
-	launchVanilla: () => ({
+	launchVanilla: (queryClient?: QueryClient) => ({
 		mutationFn: async () => {
 			if (launchInFlight) {
 				throw new Error('A launch is already in progress');
@@ -534,6 +538,9 @@ export const profileMutations = {
 					if (!appId) {
 						appId = await rustInvoke('game_xbox_get_app_id');
 						await rustInvoke('core_update_settings', { updates: { xbox_app_id: appId } });
+						queryClient?.setQueryData<AppSettings | undefined>(settingsQueryKey, (current) =>
+							current ? { ...current, xbox_app_id: appId } : current
+						);
 					}
 					await rustInvoke('game_xbox_cleanup', { gameDir: settings.among_us_path });
 					await rustInvoke('game_xbox_launch', { appId, profileId: null });

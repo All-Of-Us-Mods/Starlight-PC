@@ -13,7 +13,7 @@
 		type QueryClient
 	} from '@tanstack/svelte-query';
 	import { Debounced, watch } from 'runed';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { settingsQueries } from '$lib/features/settings/queries';
@@ -54,7 +54,7 @@
 			null) as Profile | null
 	);
 
-	const launchProfileMutation = createMutation(() => profileMutations.launchProfile());
+	const launchProfileMutation = createMutation(() => profileMutations.launchProfile(queryClient));
 	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
 	const renameProfile = createMutation(() => profileMutations.rename(queryClient));
 	const updateProfileIcon = createMutation(() => profileMutations.updateIcon(queryClient));
@@ -62,7 +62,7 @@
 	const cleanupMissingMods = createMutation(() => profileMutations.cleanupMissingMods(queryClient));
 	const installMods = createMutation(() => profileMutations.installMods(queryClient));
 	const exportProfileZip = createMutation(() => profileMutations.exportZip());
-	const cleanedProfiles = new SvelteSet<string>();
+	const lastCleanupSignatureByProfile = new SvelteMap<string, string>();
 
 	const modIds = $derived(Array.from(new Set(profile?.mods.map((mod) => mod.mod_id) ?? [])));
 	const profileModsQuery = createQuery(() => ({
@@ -263,6 +263,22 @@
 		const unified = unifiedModsQuery.data ?? [];
 		return filterProfileMods(unified, modsMap, debouncedSearch.current);
 	});
+	const cleanupSignature = $derived.by(() => {
+		if (!profile) return '';
+		const profileModsSignature = profile.mods
+			.map((mod) => `${mod.mod_id}:${mod.version}:${mod.file ?? ''}`)
+			.toSorted()
+			.join('|');
+		const unifiedModsSignature = (unifiedModsQuery.data ?? [])
+			.map((mod) =>
+				mod.source === 'managed'
+					? `managed:${mod.mod_id}:${mod.version}:${mod.file}`
+					: `custom:${mod.file}`
+			)
+			.toSorted()
+			.join('|');
+		return `${profile.id}::${profileModsSignature}::${unifiedModsSignature}`;
+	});
 	const managedModsForUpdates = $derived.by(() => {
 		const unified = unifiedModsQuery.data ?? [];
 		return unified
@@ -367,12 +383,14 @@
 	);
 
 	watch(
-		() => profile?.id ?? '',
-		(currentProfileId) => {
-			if (!currentProfileId || cleanedProfiles.has(currentProfileId)) return;
-			cleanedProfiles.add(currentProfileId);
+		() => cleanupSignature,
+		(currentSignature) => {
+			const currentProfileId = profile?.id ?? '';
+			if (!currentProfileId || !currentSignature) return;
+			if (lastCleanupSignatureByProfile.get(currentProfileId) === currentSignature) return;
+			lastCleanupSignatureByProfile.set(currentProfileId, currentSignature);
 			void cleanupMissingMods.mutateAsync(currentProfileId).catch(() => {
-				cleanedProfiles.delete(currentProfileId);
+				lastCleanupSignatureByProfile.delete(currentProfileId);
 			});
 		}
 	);

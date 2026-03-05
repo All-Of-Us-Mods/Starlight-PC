@@ -29,8 +29,8 @@
 	const queryClient = useQueryClient();
 	const profilesQuery = createQuery(() => profileQueries.all());
 	const settingsQuery = createQuery(() => settingsQueries.get());
-	const launchProfileMutation = createMutation(() => profileMutations.launchProfile());
-	const launchVanillaMutation = createMutation(() => profileMutations.launchVanilla());
+	const launchProfileMutation = createMutation(() => profileMutations.launchProfile(queryClient));
+	const launchVanillaMutation = createMutation(() => profileMutations.launchVanilla(queryClient));
 	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
 	const importProfileZip = createMutation(() => profileMutations.importZip(queryClient));
 	const profiles = $derived((profilesQuery.data ?? []) as Profile[]);
