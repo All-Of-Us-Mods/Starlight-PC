@@ -2,7 +2,7 @@
 	import { Library, Plus } from '@lucide/svelte';
 	import { Upload } from '@jis3r/icons';
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
-	import CreateProfileDialog from '$lib/features/profiles/components/CreateProfileDialog.svelte';
+	import CreateProfileDialog from '$lib/components/profiles/CreateProfileDialog.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import {
@@ -18,7 +18,6 @@
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { profileQueries } from '$lib/features/profiles/queries';
-	import { launchService } from '$lib/features/profiles/launch-service';
 	import { profileMutations } from '$lib/features/profiles/mutations';
 	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
 	import type { Profile } from '$lib/features/profiles/schema';
@@ -30,7 +29,8 @@
 	const queryClient = useQueryClient();
 	const profilesQuery = createQuery(() => profileQueries.all());
 	const settingsQuery = createQuery(() => settingsQueries.get());
-	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
+	const launchProfileMutation = createMutation(() => profileMutations.launchProfile(queryClient));
+	const launchVanillaMutation = createMutation(() => profileMutations.launchVanilla(queryClient));
 	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
 	const importProfileZip = createMutation(() => profileMutations.importZip(queryClient));
 	const profiles = $derived((profilesQuery.data ?? []) as Profile[]);
@@ -47,7 +47,7 @@
 	async function handleLaunchVanilla() {
 		isLaunchingVanilla = true;
 		try {
-			await launchService.launchVanilla();
+			await launchVanillaMutation.mutateAsync();
 		} catch (e) {
 			showError(e);
 		} finally {
@@ -65,8 +65,7 @@
 		);
 
 		try {
-			await launchService.launchProfile(profile);
-			await updateLastLaunched.mutateAsync(profile.id);
+			await launchProfileMutation.mutateAsync(profile);
 			rememberInstallTarget(profile.id, 'launch');
 		} catch (e) {
 			queryClient.setQueryData(profilesQueryKey, previousProfiles);

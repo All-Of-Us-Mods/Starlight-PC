@@ -3,16 +3,18 @@
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
 	import { Settings } from '@jis3r/icons';
 	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
+	import { listen } from '@tauri-apps/api/event';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { settingsMutations } from '$lib/features/settings/mutations';
-	import { settingsService } from '$lib/features/settings/settings-service';
+	import { settingsCacheExistsQueryKey } from '$lib/features/settings/settings-keys';
 	import type { AppSettings, GamePlatform } from '$lib/features/settings/schema';
+	import type { BepInExProgress } from '$lib/features/profiles/schema';
 	import { showError, showSuccess } from '$lib/utils/toast';
 	import { exists } from '@tauri-apps/plugin-fs';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { error as logError } from '@tauri-apps/plugin-log';
 	import { epicService } from '$lib/features/settings/epic-service';
-	import EpicLoginDialog from '$lib/features/settings/EpicLoginDialog.svelte';
+	import EpicLoginDialog from '$lib/components/settings/EpicLoginDialog.svelte';
 	import { Debounced, watch } from 'runed';
 	import GameSettingsSection from './_components/GameSettingsSection.svelte';
 	import BepInExSettingsSection from './_components/BepInExSettingsSection.svelte';
@@ -23,8 +25,17 @@
 
 	const queryClient = useQueryClient();
 	const settingsQuery = createQuery(() => settingsQueries.get());
+	const cacheExistsQuery = createQuery(() => settingsQueries.cacheExists());
 	const settings = $derived(settingsQuery.data as AppSettings | undefined);
 	const updateMutation = createMutation(() => settingsMutations.update(queryClient));
+	const detectBepInExMutation = createMutation(() =>
+		settingsMutations.autoDetectBepInExArchitecture(queryClient)
+	);
+	const downloadCacheMutation = createMutation(() => settingsMutations.downloadBepInExToCache());
+	const clearCacheMutation = createMutation(() => settingsMutations.clearBepInExCache());
+	const openDataFolderMutation = createMutation(() => settingsMutations.openDataFolder());
+	const detectAmongUsPathMutation = createMutation(() => settingsMutations.detectAmongUsPath());
+	const detectGameStoreMutation = createMutation(() => settingsMutations.detectGameStore());
 
 	// Form state
 	let localPath = $state('');
@@ -39,7 +50,7 @@
 	let isHydrating = $state(true);
 	let pathError = $state('');
 	let isLoggedIn = $state(false);
-	let isCacheExists = $state(false);
+	const isCacheExists = $derived((cacheExistsQuery.data as boolean | undefined) ?? false);
 	let isDetecting = $state(false);
 	let epicLoginOpen = $state(false);
 	let isCacheDownloading = $state(false);
@@ -62,7 +73,7 @@
 
 		try {
 			await updateMutation.mutateAsync({ among_us_path: path, game_platform: platform });
-			const newUrl = await settingsService.autoDetectBepInExArchitecture(path);
+			const newUrl = await detectBepInExMutation.mutateAsync(path);
 			if (newUrl) localUrl = newUrl;
 		} catch (e) {
 			showError(e);
@@ -79,7 +90,7 @@
 
 	async function detectPlatform(path: string) {
 		try {
-			localPlatform = await settingsService.detectGamePlatform(path);
+			localPlatform = await detectGameStoreMutation.mutateAsync(path);
 		} catch (e) {
 			logError(`Platform detection failed: ${e}`);
 		}
@@ -88,7 +99,7 @@
 	async function handleAutoDetect() {
 		isDetecting = true;
 		try {
-			const path = await settingsService.detectAmongUsPath();
+			const path = await detectAmongUsPathMutation.mutateAsync();
 			if (path) {
 				localPath = path;
 				await detectPlatform(path);
@@ -123,15 +134,18 @@
 		if (!localUrl) return showError('BepInEx URL is required');
 		isCacheDownloading = true;
 		cacheDownloadProgress = 0;
+		let unlisten: (() => void) | undefined;
 		try {
-			await settingsService.downloadBepInExToCache(localUrl, (progress) => {
-				cacheDownloadProgress = progress.progress;
+			unlisten = await listen<BepInExProgress>('bepinex-progress', (event) => {
+				cacheDownloadProgress = event.payload.progress;
 			});
-			isCacheExists = true;
+			await downloadCacheMutation.mutateAsync(localUrl);
+			queryClient.setQueryData(settingsCacheExistsQueryKey, true);
 			showSuccess('BepInEx downloaded to cache');
 		} catch (e) {
 			showError(e);
 		} finally {
+			unlisten?.();
 			isCacheDownloading = false;
 			cacheDownloadProgress = 0;
 		}
@@ -139,8 +153,8 @@
 
 	async function handleClearCache() {
 		try {
-			await settingsService.clearBepInExCache();
-			isCacheExists = false;
+			await clearCacheMutation.mutateAsync();
+			queryClient.setQueryData(settingsCacheExistsQueryKey, false);
 			showSuccess('Cache cleared');
 		} catch (e) {
 			showError(e);
@@ -149,7 +163,7 @@
 
 	async function handleOpenDataFolder() {
 		try {
-			await settingsService.openDataFolder();
+			await openDataFolderMutation.mutateAsync();
 		} catch (e) {
 			showError(e, 'Open data folder');
 		}
@@ -165,7 +179,6 @@
 			localPlatform = settings.game_platform ?? 'steam';
 			localCacheBepInEx = settings.cache_bepinex ?? false;
 			epicService.isLoggedIn().then((v) => (isLoggedIn = v));
-			settingsService.checkBepInExCacheExists().then((v) => (isCacheExists = v));
 			initialized = true;
 			isHydrating = false;
 		}
@@ -180,7 +193,7 @@
 
 			// Path controls the Xbox identity context; clear stale app id on edits.
 			if (newPath !== oldPath && settings?.xbox_app_id) {
-				void updateMutation.mutateAsync({ xbox_app_id: undefined });
+				void updateMutation.mutateAsync({ xbox_app_id: null });
 			}
 		},
 		{ lazy: true }
@@ -194,7 +207,7 @@
 			void updateMutation.mutateAsync({ game_platform: newPlatform });
 
 			if (newPlatform !== oldPlatform && settings?.xbox_app_id) {
-				void updateMutation.mutateAsync({ xbox_app_id: undefined });
+				void updateMutation.mutateAsync({ xbox_app_id: null });
 			}
 		},
 		{ lazy: true }

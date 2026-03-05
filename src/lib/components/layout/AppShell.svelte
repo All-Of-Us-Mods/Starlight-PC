@@ -3,7 +3,6 @@
 	import { setSidebar } from '$lib/state/sidebar.svelte';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { profileQueries } from '$lib/features/profiles/queries';
-	import { launchService } from '$lib/features/profiles/launch-service';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
 	import { profileMutations } from '$lib/features/profiles/mutations';
@@ -24,17 +23,23 @@
 
 	const queryClient = useQueryClient();
 	const sidebar = setSidebar();
-	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
-	const activeProfileQuery = createQuery(() => profileQueries.active());
+	const launchProfile = createMutation(() => profileMutations.launchProfile(queryClient));
+	const profilesQuery = createQuery(() => profileQueries.all());
 	const shellController = createShellController({
-		launchProfile: launchService.launchProfile,
-		updateLastLaunched: (id) => updateLastLaunched.mutateAsync(id)
+		launchProfile: (profile) => launchProfile.mutateAsync(profile)
 	});
 
 	let platformName = $state<Platform>('other');
 	let appWindow = $state<TauriWindow | null>(null);
 
-	const activeProfile = $derived(activeProfileQuery.data as Profile | null);
+	const activeProfile = $derived.by(() => {
+		const profiles = (profilesQuery.data as Profile[] | undefined) ?? [];
+		return (
+			profiles
+				.filter((profile) => profile.last_launched_at != null)
+				.toSorted((a, b) => (b.last_launched_at ?? 0) - (a.last_launched_at ?? 0))[0] ?? null
+		);
+	});
 	const sidebarWidth = $derived(getSidebarWidth(sidebar.isMaximized));
 	const canLaunch = $derived<boolean>(canLaunchProfile(activeProfile));
 

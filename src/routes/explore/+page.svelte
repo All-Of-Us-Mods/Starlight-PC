@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { modQueries } from '$lib/features/mods/queries';
-	import { getDefaultSortOptions } from '$lib/features/mods/ui/mod-query-controller';
 	import { createQuery, keepPreviousData } from '@tanstack/svelte-query';
 	import { Button } from '$lib/components/ui/button';
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
@@ -17,7 +16,10 @@
 	const debouncedSearch = new Debounced(() => searchInput, 250);
 	let sortBy = $state<SortKey>('trending');
 
-	const sortOptions: { value: SortKey; label: string }[] = getDefaultSortOptions();
+	const sortOptions: { value: SortKey; label: string }[] = [
+		{ value: 'trending', label: 'Trending' },
+		{ value: 'latest', label: 'Latest' }
+	];
 
 	// Reset pagination when debounced search changes
 	watch(

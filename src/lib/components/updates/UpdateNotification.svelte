@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-	import { updateState } from './update-state.svelte';
+	import { updateState } from '$lib/features/updates/update-state.svelte';
 
 	const AVAILABLE_TOAST_ID = 'update-available';
 	const PROGRESS_TOAST_ID = 'update-progress';

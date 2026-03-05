@@ -13,7 +13,7 @@
 
 <script lang="ts">
 	import { Library, Plus } from '@lucide/svelte';
-	import ProfileCard from '$lib/features/profiles/components/ProfileCard.svelte';
+	import ProfileCard from '$lib/components/profiles/ProfileCard.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 

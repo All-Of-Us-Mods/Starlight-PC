@@ -1,5 +1,6 @@
 import { queryOptions } from '@tanstack/svelte-query';
 import { type } from 'arktype';
+import { satisfies, valid } from 'semver';
 import { apiFetch } from '$lib/api/client';
 import {
 	ModResponse,
@@ -8,7 +9,6 @@ import {
 	ModVersionInfo,
 	type ModDependency
 } from './schema';
-import { modInstallService } from '$lib/features/profiles/mod-install-service';
 import {
 	modsByIdKey,
 	modsExploreKey,
@@ -23,6 +23,27 @@ import {
 
 // Pre-create validators (avoid recreating on every call)
 const ModArrayValidator = type(ModResponse.array());
+const ModVersionsValidator = type(ModVersion.array());
+
+function resolveDependencyVersion(
+	versionConstraint: string,
+	versionsSortedByNewest: Array<{ version: string }>
+): string | null {
+	if (versionsSortedByNewest.length === 0) return null;
+	if (versionConstraint === '*') return versionsSortedByNewest[0]?.version ?? null;
+
+	try {
+		for (const item of versionsSortedByNewest) {
+			if (valid(item.version) && satisfies(item.version, versionConstraint)) {
+				return item.version;
+			}
+		}
+	} catch {
+		// Invalid semver requirement from API; fallback to latest version.
+	}
+
+	return versionsSortedByNewest[0]?.version ?? null;
+}
 
 export const modQueries = {
 	latest: (limit = 20, offset = 0) =>
@@ -101,7 +122,35 @@ export const modQueries = {
 
 		return queryOptions({
 			queryKey: resolvedDepsKey(queryKey),
-			queryFn: () => modInstallService.resolveDependencies(dependencies),
+			queryFn: async () => {
+				const resolved = await Promise.all(
+					dependencies.map(async (dependency) => {
+						const [mod, versions] = await Promise.all([
+							apiFetch(`/api/v2/mods/${dependency.mod_id}`, ModResponse),
+							apiFetch(`/api/v2/mods/${dependency.mod_id}/versions`, ModVersionsValidator)
+						]);
+						const sorted = [...versions].toSorted((a, b) => b.created_at - a.created_at);
+						const resolvedVersion = resolveDependencyVersion(dependency.version_constraint, sorted);
+						if (!resolvedVersion) return null;
+						return {
+							mod_id: dependency.mod_id,
+							modName: mod.name,
+							resolvedVersion,
+							type: dependency.type
+						};
+					})
+				);
+				return resolved.filter(
+					(
+						item
+					): item is {
+						mod_id: string;
+						modName: string;
+						resolvedVersion: string;
+						type: 'required' | 'optional' | 'conflict';
+					} => item !== null
+				);
+			},
 			enabled: dependencies.length > 0
 		});
 	}

@@ -1,39 +1,32 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
+	import { join } from '@tauri-apps/api/path';
+	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { save as saveDialog } from '@tauri-apps/plugin-dialog';
-	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import {
+		createMutation,
+		createQuery,
+		useQueryClient,
+		type QueryClient
+	} from '@tanstack/svelte-query';
 	import { Debounced, watch } from 'runed';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { profileMutations } from '$lib/features/profiles/mutations';
-	import { profilePlatformAdapter } from '$lib/features/profiles/profile-platform-adapter';
 	import { modQueries } from '$lib/features/mods/queries';
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
 	import { formatPlayTime } from '$lib/utils';
 	import { showError, showSuccess } from '$lib/utils/toast';
-	import type { Profile, UnifiedMod } from '$lib/features/profiles/schema';
+	import type { Profile, ProfileModUpdatesMap, UnifiedMod } from '$lib/features/profiles/schema';
 	import type { Mod } from '$lib/features/mods/schema';
 	import { profileUnifiedModsKey, profilesQueryKey } from '$lib/features/profiles/profile-keys';
-	import { mapModsById } from '$lib/features/mods/ui/mod-query-controller';
 	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
-	import { findProfileById } from '$lib/features/profiles/ui/profile-query-controller';
-	import {
-		fetchProfileModUpdates,
-		type ProfileModUpdatesMap
-	} from '$lib/features/profiles/ui/profile-mod-updates-model';
-	import {
-		createProfileDetailController,
-		profileDetailRuntime
-	} from '$lib/features/profiles/ui/profile-detail-controller';
-	import {
-		filterProfileMods,
-		getProfileModsPagination,
-		paginateProfileMods,
-		PROFILE_MODS_PAGE_SIZE
-	} from '$lib/features/profiles/ui/profile-mods-view-model';
+	import { mapModsById, pickDefaultVersion } from '$lib/components/mods/mod-utils';
 
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -47,33 +40,29 @@
 
 	const queryClient = useQueryClient();
 	const profileId = $derived(page.params.id ?? '');
+	const PROFILE_MODS_PAGE_SIZE = 6;
 
 	const profilesQuery = createQuery(() => profileQueries.all());
 	const settingsQuery = createQuery(() => settingsQueries.get());
 	const unifiedModsQuery = createQuery(() => ({
-		...profileQueries.unifiedMods(profileId),
+		...profileQueries.unifiedMods(profileId, queryClient),
 		enabled: !!profileId
 	}));
 
-	const profile = $derived(findProfileById(profilesQuery.data as Profile[] | undefined, profileId));
+	const profile = $derived(
+		((profilesQuery.data as Profile[] | undefined)?.find((entry) => entry.id === profileId) ??
+			null) as Profile | null
+	);
 
-	const updateLastLaunched = createMutation(() => profileMutations.updateLastLaunched(queryClient));
+	const launchProfileMutation = createMutation(() => profileMutations.launchProfile(queryClient));
 	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
 	const renameProfile = createMutation(() => profileMutations.rename(queryClient));
 	const updateProfileIcon = createMutation(() => profileMutations.updateIcon(queryClient));
 	const deleteUnifiedMod = createMutation(() => profileMutations.deleteUnifiedMod(queryClient));
+	const cleanupMissingMods = createMutation(() => profileMutations.cleanupMissingMods(queryClient));
 	const installMods = createMutation(() => profileMutations.installMods(queryClient));
 	const exportProfileZip = createMutation(() => profileMutations.exportZip());
-
-	const controller = createProfileDetailController({
-		launchProfile: profileDetailRuntime.launchProfile,
-		updateLastLaunched: (id) => updateLastLaunched.mutateAsync(id),
-		deleteProfile: (id) => deleteProfile.mutateAsync(id),
-		removeProfileQueries: (id) =>
-			queryClient.removeQueries({ queryKey: profileUnifiedModsKey(id) }),
-		renameProfile: (id, newName) => renameProfile.mutateAsync({ profileId: id, newName }),
-		deleteUnifiedMod: (id, mod) => deleteUnifiedMod.mutateAsync({ profileId: id, mod })
-	});
+	const lastCleanupSignatureByProfile = new SvelteMap<string, string>();
 
 	const modIds = $derived(Array.from(new Set(profile?.mods.map((mod) => mod.mod_id) ?? [])));
 	const profileModsQuery = createQuery(() => ({
@@ -166,12 +155,100 @@
 
 	async function loadLocalImageBlobUrl(filePath: string): Promise<string | null> {
 		try {
-			const bytes = await profilePlatformAdapter.readBinaryFile(filePath);
+			const bytes = await queryClient.fetchQuery(profileQueries.binaryFile(filePath));
 			if (!bytes || bytes.length === 0) return null;
-			return URL.createObjectURL(new Blob([bytes]));
+			return URL.createObjectURL(new Blob([Uint8Array.from(bytes)]));
 		} catch {
 			return null;
 		}
+	}
+
+	interface ManagedProfileModVersion {
+		modId: string;
+		installedVersion: string;
+	}
+
+	async function fetchProfileModUpdates(
+		client: QueryClient,
+		managedMods: ManagedProfileModVersion[]
+	): Promise<ProfileModUpdatesMap> {
+		const updatesByModId: ProfileModUpdatesMap = {};
+
+		for (const mod of managedMods) {
+			updatesByModId[mod.modId] = {
+				installedVersion: mod.installedVersion,
+				latestVersion: null,
+				isOutdated: false,
+				status: 'checking'
+			};
+		}
+
+		const results = await Promise.allSettled(
+			managedMods.map(async (mod) => {
+				const versions = await client.fetchQuery(modQueries.versions(mod.modId));
+				const latestVersion = pickDefaultVersion(versions);
+				return { mod, latestVersion };
+			})
+		);
+
+		for (const result of results) {
+			if (result.status === 'rejected') continue;
+			const { mod, latestVersion } = result.value;
+			updatesByModId[mod.modId] = {
+				installedVersion: mod.installedVersion,
+				latestVersion: latestVersion ?? null,
+				isOutdated: Boolean(latestVersion && latestVersion !== mod.installedVersion),
+				status: 'ready'
+			};
+		}
+
+		for (const mod of managedMods) {
+			const entry = updatesByModId[mod.modId];
+			if (entry?.status === 'checking') {
+				updatesByModId[mod.modId] = {
+					installedVersion: mod.installedVersion,
+					latestVersion: null,
+					isOutdated: false,
+					status: 'error'
+				};
+			}
+		}
+
+		return updatesByModId;
+	}
+
+	function filterProfileMods(unified: UnifiedMod[], modsById: Map<string, Mod>, search: string) {
+		const searchLower = search.trim().toLowerCase();
+		return unified.filter((mod) => {
+			if (!searchLower) return true;
+			if (mod.source === 'managed') {
+				return modsById.get(mod.mod_id)?.name.toLowerCase().includes(searchLower) ?? false;
+			}
+			return mod.file.toLowerCase().includes(searchLower);
+		});
+	}
+
+	function paginateProfileMods(
+		mods: UnifiedMod[],
+		pageIndex: number,
+		pageSize = PROFILE_MODS_PAGE_SIZE
+	) {
+		const start = pageIndex * pageSize;
+		return mods.slice(start, start + pageSize);
+	}
+
+	function getProfileModsPagination(
+		total: number,
+		pageIndex: number,
+		pageSize = PROFILE_MODS_PAGE_SIZE
+	) {
+		const totalPages = Math.ceil(total / pageSize);
+		const hasNextPage = pageIndex < totalPages - 1;
+		return {
+			totalPages,
+			hasNextPage,
+			showPagination: pageIndex > 0 || hasNextPage
+		};
 	}
 
 	watch(
@@ -185,6 +262,22 @@
 	const filteredMods = $derived.by(() => {
 		const unified = unifiedModsQuery.data ?? [];
 		return filterProfileMods(unified, modsMap, debouncedSearch.current);
+	});
+	const cleanupSignature = $derived.by(() => {
+		if (!profile) return '';
+		const profileModsSignature = profile.mods
+			.map((mod) => `${mod.mod_id}:${mod.version}:${mod.file ?? ''}`)
+			.toSorted()
+			.join('|');
+		const unifiedModsSignature = (unifiedModsQuery.data ?? [])
+			.map((mod) =>
+				mod.source === 'managed'
+					? `managed:${mod.mod_id}:${mod.version}:${mod.file}`
+					: `custom:${mod.file}`
+			)
+			.toSorted()
+			.join('|');
+		return `${profile.id}::${profileModsSignature}::${unifiedModsSignature}`;
 	});
 	const managedModsForUpdates = $derived.by(() => {
 		const unified = unifiedModsQuery.data ?? [];
@@ -289,6 +382,19 @@
 		}
 	);
 
+	watch(
+		() => cleanupSignature,
+		(currentSignature) => {
+			const currentProfileId = profile?.id ?? '';
+			if (!currentProfileId || !currentSignature) return;
+			if (lastCleanupSignatureByProfile.get(currentProfileId) === currentSignature) return;
+			lastCleanupSignatureByProfile.set(currentProfileId, currentSignature);
+			void cleanupMissingMods.mutateAsync(currentProfileId).catch(() => {
+				lastCleanupSignatureByProfile.delete(currentProfileId);
+			});
+		}
+	);
+
 	const runningInstanceCount = $derived(
 		profile ? gameState.getProfileRunningInstanceCount(profile.id) : 0
 	);
@@ -304,7 +410,8 @@
 	const isLaunchDisabled = $derived(isInstalling || (isRunning && !allowMultiInstanceLaunch));
 
 	const totalPlayTime = $derived(
-		(profile?.total_play_time ?? 0) + (isRunning ? gameState.getSessionDuration() : 0)
+		(profile?.total_play_time ?? 0) +
+			(isRunning && profile ? gameState.getSessionDuration(profile.id) : 0)
 	);
 	const lastLaunched = $derived(
 		profile?.last_launched_at ? new Date(profile.last_launched_at).toLocaleDateString() : 'Never'
@@ -314,7 +421,7 @@
 		if (!profile || isLaunchDisabled) return;
 		isLaunching = true;
 		try {
-			await controller.launchProfile(profile);
+			await launchProfileMutation.mutateAsync(profile);
 			rememberInstallTarget(profile.id, 'launch');
 		} catch (error) {
 			showError(error);
@@ -345,7 +452,10 @@
 		if (!profile) return;
 		deleteDialogOpen = false;
 		try {
-			await controller.deleteProfile(profile);
+			await deleteProfile.mutateAsync(profile.id);
+			queryClient.removeQueries({ queryKey: profileUnifiedModsKey(profile.id) });
+			showSuccess(`Profile "${profile.name}" deleted`);
+			goto(resolve('/library'));
 		} catch (error) {
 			showError(error);
 		}
@@ -445,6 +555,7 @@
 	async function handleSaveProfileIcon() {
 		if (!profile) return;
 		iconError = '';
+		let mutationCalled = false;
 
 		try {
 			if (iconModeDraft === 'custom') {
@@ -466,6 +577,7 @@
 							extension: customIconExtensionDraft
 						}
 					});
+					mutationCalled = true;
 				}
 			} else if (iconModeDraft === 'mod') {
 				if (!iconModIdDraft) {
@@ -477,11 +589,18 @@
 					profileId: profile.id,
 					selection: { mode: 'mod', modId: iconModIdDraft }
 				});
+				mutationCalled = true;
 			} else {
 				await updateProfileIcon.mutateAsync({
 					profileId: profile.id,
 					selection: { mode: 'default' }
 				});
+				mutationCalled = true;
+			}
+
+			if (!mutationCalled) {
+				iconDialogOpen = false;
+				return;
 			}
 
 			await refreshProfileIconSource();
@@ -496,7 +615,8 @@
 		if (!profile || !newProfileName.trim()) return;
 		renameError = '';
 		try {
-			await controller.renameProfile(profile, newProfileName);
+			await renameProfile.mutateAsync({ profileId: profile.id, newName: newProfileName });
+			showSuccess('Profile renamed');
 			renameDialogOpen = false;
 		} catch (error) {
 			renameError = error instanceof Error ? error.message : 'Failed to rename';
@@ -512,12 +632,26 @@
 		if (!profile || !modToDelete) return;
 		deleteModDialogOpen = false;
 		try {
-			await controller.removeMod(profile, modToDelete);
+			await deleteUnifiedMod.mutateAsync({ profileId: profile.id, mod: modToDelete });
+			showSuccess('Mod removed');
 		} catch (error) {
 			showError(error, 'Remove mod');
 		} finally {
 			modToDelete = null;
 		}
+	}
+
+	async function openProfileFolder(profileEntry: Profile) {
+		try {
+			await revealItemInDir(await join(profileEntry.path, 'BepInEx'));
+		} catch (error) {
+			showError(error, 'Open folder');
+		}
+	}
+
+	function goToInstallMods(targetProfileId: string) {
+		rememberInstallTarget(targetProfileId, 'install-click');
+		goto(resolve('/explore'));
 	}
 
 	function cancelDeleteMod() {
@@ -584,7 +718,6 @@
 		try {
 			await installMods.mutateAsync({
 				profileId: profile.id,
-				profilePath: profile.path,
 				mods: [{ modId, version: status.latestVersion }]
 			});
 			applyInstantUpdate([{ modId, version: status.latestVersion }]);
@@ -618,7 +751,6 @@
 		try {
 			await installMods.mutateAsync({
 				profileId: profile.id,
-				profilePath: profile.path,
 				mods: modsToUpdate
 			});
 			applyInstantUpdate(modsToUpdate);
@@ -684,7 +816,7 @@
 			{isLaunchDisabled}
 			{isLaunching}
 			onLaunch={handleLaunch}
-			onOpenFolder={() => controller.openProfileFolder(profile)}
+			onOpenFolder={() => openProfileFolder(profile)}
 			onExport={handleExportProfile}
 			onOpenIconEditor={openIconDialog}
 			onOpenRename={openRenameDialog}
@@ -700,7 +832,7 @@
 				{updatesAvailableCount}
 				{isCheckingUpdates}
 				{isUpdatingAll}
-				onInstallMods={() => controller.goToInstallMods(profile.id)}
+				onInstallMods={() => goToInstallMods(profile.id)}
 				onRefreshUpdates={handleRefreshUpdates}
 				onUpdateAll={handleUpdateAll}
 			/>
@@ -719,7 +851,7 @@
 				totalPages={pagination.totalPages}
 				hasNextPage={pagination.hasNextPage}
 				onClearSearch={() => (searchInput = '')}
-				onInstallMods={() => controller.goToInstallMods(profile.id)}
+				onInstallMods={() => goToInstallMods(profile.id)}
 				onDeleteMod={confirmDeleteMod}
 				onUpdateMod={handleUpdateOne}
 				onPrevPage={() => currentPage--}

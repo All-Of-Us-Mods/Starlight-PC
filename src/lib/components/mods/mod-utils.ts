@@ -1,6 +1,7 @@
 import { marked } from 'marked';
 import { Globe, MessageCircle, Github } from '@lucide/svelte';
 import type { Component } from 'svelte';
+import type { Mod } from '$lib/features/mods/schema';
 
 export function safeParseMarkdown(content: string | undefined): string {
 	if (!content) return '';
@@ -31,4 +32,8 @@ export function getLinkIcon(type: string): Component {
 
 export function formatLinkType(type: string) {
 	return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+export function mapModsById(mods: Array<Mod | undefined>): Map<string, Mod> {
+	return new Map(mods.filter((mod): mod is Mod => mod !== undefined).map((mod) => [mod.id, mod]));
 }

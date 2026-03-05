@@ -4,12 +4,12 @@
 	import { queryClient } from '$lib/state/query-client';
 	import { Toaster } from '$lib/components/ui/sonner';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
-	import AmongUsPathDialog from '$lib/features/settings/AmongUsPathDialog.svelte';
-	import UpdateNotification from '$lib/features/updates/UpdateNotification.svelte';
-	import { invoke } from '@tauri-apps/api/core';
-	import { settingsService } from '$lib/features/settings/settings-service';
+	import AmongUsPathDialog from '$lib/components/settings/AmongUsPathDialog.svelte';
+	import UpdateNotification from '$lib/components/updates/UpdateNotification.svelte';
 	import { registerProfilesInvalidateCallback } from '$lib/features/profiles/game-state.svelte';
-	import { profileWorkflowService } from '$lib/features/profiles/profile-workflow-service';
+	import { profileQueries } from '$lib/features/profiles/queries';
+	import { settingsQueries } from '$lib/features/settings/queries';
+	import { rustInvoke } from '$lib/infra/rust/invoke';
 	import { watchDirectory } from '$lib/utils/file-watcher';
 	import { updateState } from '$lib/features/updates/update-state.svelte';
 	import { onMount } from 'svelte';
@@ -41,10 +41,10 @@
 		let unwatchProfiles: (() => void) | undefined;
 
 		const initializeLayout = async () => {
-			const settings = await settingsService.getSettings();
+			const settings = await queryClient.fetchQuery(settingsQueries.get());
 			if (!settings.among_us_path) {
 				try {
-					const path = await invoke<string | null>('platform_detect_among_us');
+					const path = await rustInvoke('platform_detect_among_us');
 					detectedPath = path ?? '';
 					dialogOpen = true;
 				} catch {
@@ -59,7 +59,7 @@
 			// Debounced to avoid rapid-fire invalidations when our own mutations write
 			// metadata.json (the mutation already invalidates explicitly).
 			try {
-				const profilesDir = await profileWorkflowService.getProfilesDir();
+				const profilesDir = await queryClient.fetchQuery(profileQueries.dir());
 				unwatchProfiles = await watchDirectory(profilesDir, () => {
 					clearTimeout(debounceTimer);
 					debounceTimer = setTimeout(() => {

@@ -7,12 +7,12 @@
 	import { Download, Check, TriangleAlert } from '@jis3r/icons';
 	import { LoaderCircle, Package } from '@lucide/svelte';
 	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
-	import { modQueries } from '../queries';
+	import { modQueries } from '$lib/features/mods/queries';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { profileMutations } from '$lib/features/profiles/mutations';
-	import { modInstallService } from '$lib/features/profiles/mod-install-service';
 	import { gameState } from '$lib/features/profiles/game-state.svelte';
-	import type { ModDependency } from '../schema';
+	import { showSuccess } from '$lib/utils/toast';
+	import type { ModDependency } from '$lib/features/mods/schema';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { watch } from 'runed';
 	import {
@@ -20,12 +20,7 @@
 		getInstallTarget,
 		rememberInstallTarget
 	} from '$lib/features/mods/state/install-target.svelte';
-	import {
-		buildInitialDependencySelection,
-		toggleDependencySelection
-	} from '$lib/features/mods/ui/dependency-selection-model';
-	import { createInstallPanelController } from '$lib/features/mods/ui/install-panel-controller';
-	import type { ResolvedDependency } from '$lib/features/mods/ui/types';
+	import type { ResolvedDependency } from '$lib/components/mods/types';
 
 	interface Props {
 		modId: string;
@@ -61,13 +56,6 @@
 	// ============ MUTATIONS ============
 
 	const installModsMutation = createMutation(() => profileMutations.installMods(queryClient));
-
-	const installController = createInstallPanelController({
-		onDownloadProgress: modInstallService.onDownloadProgress,
-		installMods: (input) => installModsMutation.mutateAsync(input),
-		setModProgress: (id, progress) => gameState.setModDownloadProgress(id, progress),
-		clearModProgress: (id) => gameState.clearModDownload(id)
-	});
 
 	// ============ DERIVED ============
 
@@ -127,7 +115,9 @@
 		() => resolvedDeps,
 		(currentDeps) => {
 			if (currentDeps.length > 0 && !hasInitializedDeps) {
-				selectedDependencies = buildInitialDependencySelection(currentDeps);
+				selectedDependencies = new Set(
+					currentDeps.filter((dep) => dep.type !== 'conflict').map((dep) => dep.mod_id)
+				);
 				hasInitializedDeps = true;
 			}
 		}
@@ -136,30 +126,34 @@
 	// ============ HANDLERS ============
 
 	function toggleDependency(depModId: string) {
-		selectedDependencies = toggleDependencySelection(selectedDependencies, depModId);
+		if (selectedDependencies.has(depModId)) {
+			selectedDependencies = new Set([...selectedDependencies].filter((id) => id !== depModId));
+			return;
+		}
+		selectedDependencies = new Set([...selectedDependencies, depModId]);
 	}
 
 	async function handleInstall() {
 		if (!selectedProfile || !selectedVersion) return;
 
-		const modsToInstall = installController.buildInstallList({
-			modId,
-			selectedVersion,
-			installableDependencies,
-			selectedDependencies,
-			installedDepsInProfile
-		});
+		const modsToInstall = [{ modId, version: selectedVersion }];
+		for (const dep of installableDependencies) {
+			if (selectedDependencies.has(dep.mod_id) && !installedDepsInProfile.has(dep.mod_id)) {
+				modsToInstall.push({ modId: dep.mod_id, version: dep.resolvedVersion });
+			}
+		}
 
 		modsBeingInstalled = modsToInstall.map((m) => m.modId);
 		isInstalling = true;
 		installError = '';
 
 		try {
-			await installController.installToProfile({
-				profile: selectedProfile,
-				mods: modsToInstall,
-				onInstalled: onInstallComplete
+			await installModsMutation.mutateAsync({
+				profileId: selectedProfile.id,
+				mods: modsToInstall
 			});
+			showSuccess(`Installed to ${selectedProfile.name}`);
+			onInstallComplete?.();
 		} catch (e) {
 			installError = e instanceof Error ? e.message : 'Failed to install';
 		} finally {

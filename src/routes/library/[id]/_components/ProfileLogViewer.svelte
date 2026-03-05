@@ -21,16 +21,14 @@
 	import { profileLogKey } from '$lib/features/profiles/profile-keys';
 	import { watchDirectory } from '$lib/utils/file-watcher';
 	import { warn } from '@tauri-apps/plugin-log';
-	import {
-		levelToTextClass,
-		MAX_LOG_LINES,
-		parseProfileLog
-	} from '$lib/features/profiles/ui/profile-log-view-model';
 
 	let { profile, isRunning }: ProfileLogViewerProps = $props();
 
 	const LOG_FILES = ['LogOutput.log', 'ErrorLog.log'] as const;
 	type LogFileName = (typeof LOG_FILES)[number];
+	type LogLevel = 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'unknown';
+	type ParsedLogLine = { id: string; text: string; level: LogLevel };
+	const MAX_LOG_LINES = 2000;
 
 	const queryClient = useQueryClient();
 	let activeLogFile = $state<LogFileName>('LogOutput.log');
@@ -43,6 +41,45 @@
 
 	const parsedLines = $derived(parseProfileLog(logQuery.data ?? ''));
 	const displayedLines = $derived(isViewCleared ? [] : parsedLines);
+
+	function parseProfileLog(rawLog: string): ParsedLogLine[] {
+		if (!rawLog.trim()) return [];
+		const allLines = rawLog.split(/\r?\n/).filter((line) => line.length > 0);
+		const start = Math.max(0, allLines.length - MAX_LOG_LINES);
+		const visibleLines = allLines.slice(start);
+		return visibleLines.map((text, index) => ({
+			id: String(start + index),
+			text,
+			level: detectLogLevel(text)
+		}));
+	}
+
+	function detectLogLevel(text: string): LogLevel {
+		const normalized = text.toLowerCase();
+		if (normalized.includes('fatal') || normalized.includes('error')) return 'error';
+		if (normalized.includes('warn') || normalized.includes('warning')) return 'warn';
+		if (normalized.includes('debug')) return 'debug';
+		if (normalized.includes('trace')) return 'trace';
+		if (normalized.includes('info')) return 'info';
+		return 'unknown';
+	}
+
+	function levelToTextClass(level: LogLevel): string {
+		switch (level) {
+			case 'error':
+				return 'text-red-400';
+			case 'warn':
+				return 'text-amber-300';
+			case 'info':
+				return 'text-yellow-300';
+			case 'debug':
+				return 'text-green-400';
+			case 'trace':
+				return 'text-cyan-300';
+			default:
+				return 'text-muted-foreground';
+		}
+	}
 
 	$effect(() => {
 		if (!autoScrollEnabled || !logContainer || displayedLines.length === 0) return;

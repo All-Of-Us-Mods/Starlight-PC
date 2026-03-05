@@ -25,3 +25,10 @@ cargo check                # Check Rust code
 cargo clippy               # Lint Rust code
 cargo fmt                  # Format Rust code
 ```
+
+## Architecture Boundary
+
+1. Start features in frontend.
+2. Move logic to Rust only when it requires filesystem/native APIs, secrets, or heavy computation.
+3. Do not add new Rust workflow commands when existing primitives are sufficient.
+4. Keep `@tauri-apps/api/core` imports confined to `src/lib/infra/rust`.

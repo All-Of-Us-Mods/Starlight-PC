@@ -2,7 +2,7 @@
 	import { NavButton } from '$lib/components/ui/nav-button';
 	import { Settings, Compass, House, Plus } from '@jis3r/icons';
 	import { Library } from '@lucide/svelte';
-	import CreateProfileDialog from '$lib/features/profiles/components/CreateProfileDialog.svelte';
+	import CreateProfileDialog from '$lib/components/profiles/CreateProfileDialog.svelte';
 
 	let createDialogOpen = $state(false);
 </script>

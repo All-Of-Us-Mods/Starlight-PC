@@ -1,7 +1,6 @@
 <script lang="ts" module>
 	import type { Mod } from '$lib/features/mods/schema';
-	import type { Profile, UnifiedMod } from '$lib/features/profiles/schema';
-	import type { ProfileModUpdatesMap } from '$lib/features/profiles/ui/profile-mod-updates-model';
+	import type { Profile, ProfileModUpdatesMap, UnifiedMod } from '$lib/features/profiles/schema';
 
 	export interface ProfileModsListProps {
 		isPending: boolean;
@@ -27,7 +26,7 @@
 </script>
 
 <script lang="ts">
-	import ProfilesModCard from '$lib/features/mods/components/ProfilesModCard.svelte';
+	import ProfilesModCard from '$lib/components/mods/ProfilesModCard.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
