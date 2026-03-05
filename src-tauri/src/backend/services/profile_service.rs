@@ -607,7 +607,13 @@ pub fn get_mod_files(profile_path: &str) -> Vec<String> {
     };
 
     entries
-        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| match entry {
+            Ok(entry) => Some(entry),
+            Err(error) => {
+                log::warn!("Failed to read plugins directory entry: {error}");
+                None
+            }
+        })
         .filter_map(|entry| {
             let file_type = entry.file_type().ok()?;
             if file_type.is_dir() {

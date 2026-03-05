@@ -1,9 +1,7 @@
 import type { QueryClient } from '@tanstack/svelte-query';
-import { listen } from '@tauri-apps/api/event';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { AppSettings } from './schema';
 import { settingsQueryKey } from './settings-keys';
-import type { BepInExProgress } from '../profiles/schema';
 import { rustInvoke } from '$lib/infra/rust/invoke';
 import { rustMutationOptions } from '$lib/infra/rust/mutation';
 
@@ -30,19 +28,9 @@ export const settingsMutations = {
 		}
 	}),
 	downloadBepInExToCache: () => ({
-		mutationFn: async (args: { url: string; onProgress?: (progress: BepInExProgress) => void }) => {
-			let unlisten: (() => void) | undefined;
-			try {
-				if (args.onProgress) {
-					unlisten = await listen<BepInExProgress>('bepinex-progress', (event) =>
-						args.onProgress?.(event.payload)
-					);
-				}
-				const cachePath = await rustInvoke('core_get_bepinex_cache_path');
-				await rustInvoke('modding_bepinex_cache_download', { url: args.url, cachePath });
-			} finally {
-				unlisten?.();
-			}
+		mutationFn: async (url: string) => {
+			const cachePath = await rustInvoke('core_get_bepinex_cache_path');
+			await rustInvoke('modding_bepinex_cache_download', { url, cachePath });
 		}
 	}),
 	clearBepInExCache: () => ({

@@ -699,7 +699,6 @@
 		try {
 			await installMods.mutateAsync({
 				profileId: profile.id,
-				profilePath: profile.path,
 				mods: [{ modId, version: status.latestVersion }]
 			});
 			applyInstantUpdate([{ modId, version: status.latestVersion }]);
@@ -733,7 +732,6 @@
 		try {
 			await installMods.mutateAsync({
 				profileId: profile.id,
-				profilePath: profile.path,
 				mods: modsToUpdate
 			});
 			applyInstantUpdate(modsToUpdate);

@@ -3,10 +3,12 @@
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
 	import { Settings } from '@jis3r/icons';
 	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
+	import { listen } from '@tauri-apps/api/event';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { settingsMutations } from '$lib/features/settings/mutations';
 	import { settingsCacheExistsQueryKey } from '$lib/features/settings/settings-keys';
 	import type { AppSettings, GamePlatform } from '$lib/features/settings/schema';
+	import type { BepInExProgress } from '$lib/features/profiles/schema';
 	import { showError, showSuccess } from '$lib/utils/toast';
 	import { exists } from '@tauri-apps/plugin-fs';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -132,18 +134,18 @@
 		if (!localUrl) return showError('BepInEx URL is required');
 		isCacheDownloading = true;
 		cacheDownloadProgress = 0;
+		let unlisten: (() => void) | undefined;
 		try {
-			await downloadCacheMutation.mutateAsync({
-				url: localUrl,
-				onProgress: (progress) => {
-					cacheDownloadProgress = progress.progress;
-				}
+			unlisten = await listen<BepInExProgress>('bepinex-progress', (event) => {
+				cacheDownloadProgress = event.payload.progress;
 			});
+			await downloadCacheMutation.mutateAsync(localUrl);
 			queryClient.setQueryData(settingsCacheExistsQueryKey, true);
 			showSuccess('BepInEx downloaded to cache');
 		} catch (e) {
 			showError(e);
 		} finally {
+			unlisten?.();
 			isCacheDownloading = false;
 			cacheDownloadProgress = 0;
 		}

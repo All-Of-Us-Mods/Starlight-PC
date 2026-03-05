@@ -21,7 +21,6 @@ import { epicService } from '$lib/features/settings/epic-service';
 type ProfileSummary = { id: string; path: string };
 type InstallArgs = {
 	profileId: string;
-	profilePath: string;
 	mods: Array<{ modId: string; version: string }>;
 };
 
@@ -352,7 +351,7 @@ export const profileMutations = {
 							versionInfo,
 							settings.game_platform
 						);
-						const destination = await join(args.profilePath, 'BepInEx', 'plugins', target.fileName);
+						const destination = await join(profile.path, 'BepInEx', 'plugins', target.fileName);
 						await rustInvoke('modding_mod_download', {
 							modId: item.modId,
 							url: target.url,
@@ -386,7 +385,7 @@ export const profileMutations = {
 					} catch (error) {
 						await rollbackInstalledMods(
 							args.profileId,
-							args.profilePath,
+							profile.path,
 							installed,
 							persisted,
 							previousByModId
@@ -398,9 +397,15 @@ export const profileMutations = {
 				await Promise.all(
 					Array.from(replacedFilesToDelete).map((fileName) =>
 						rustInvoke('profiles_delete_mod_file', {
-							profilePath: args.profilePath,
+							profilePath: profile.path,
 							fileName
-						}).catch(() => undefined)
+						}).catch((error) => {
+							console.warn('[installMods] Failed to delete replaced mod file', {
+								profilePath: profile.path,
+								fileName,
+								error
+							});
+						})
 					)
 				);
 

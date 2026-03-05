@@ -150,7 +150,6 @@
 		try {
 			await installModsMutation.mutateAsync({
 				profileId: selectedProfile.id,
-				profilePath: selectedProfile.path,
 				mods: modsToInstall
 			});
 			showSuccess(`Installed to ${selectedProfile.name}`);
