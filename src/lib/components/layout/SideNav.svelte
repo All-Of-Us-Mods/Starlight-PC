@@ -2,7 +2,7 @@
 	import { NavButton } from '$lib/components/ui/nav-button';
 	import { Settings, Compass, House, Plus } from '@jis3r/icons';
 	import { Library } from '@lucide/svelte';
-	import CreateProfileDialog from '$lib/components/profiles/CreateProfileDialog.svelte';
+	import CreateProfileDialogContainer from '$lib/features/profiles/containers/CreateProfileDialogContainer.svelte';
 
 	let createDialogOpen = $state(false);
 </script>
@@ -31,7 +31,7 @@
 	<NavButton to={() => (createDialogOpen = true)} tooltip="Create New">
 		<Plus class="h-6 w-6" />
 	</NavButton>
-	<CreateProfileDialog bind:open={createDialogOpen} />
+	<CreateProfileDialogContainer bind:open={createDialogOpen} />
 
 	<div class="grow"></div>
 

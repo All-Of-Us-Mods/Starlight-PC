@@ -20,7 +20,7 @@
 		if (anchor?.href.startsWith('http')) {
 			event.preventDefault();
 			openUrl(anchor.href).catch((error) => {
-				logError(`Failed to open external URL "${anchor.href}": ${error}`);
+				void logError(`Failed to open external URL "${anchor.href}": ${error}`);
 			});
 		}
 	}

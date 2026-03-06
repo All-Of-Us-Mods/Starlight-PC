@@ -5,7 +5,7 @@
 	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import { listen } from '@tauri-apps/api/event';
 	import { settingsQueries } from '$lib/features/settings/queries';
-	import { settingsMutations } from '$lib/features/settings/mutations';
+	import { settingsActions } from '$lib/features/settings/actions';
 	import { settingsCacheExistsQueryKey } from '$lib/features/settings/settings-keys';
 	import type { AppSettings, GamePlatform } from '$lib/features/settings/schema';
 	import type { BepInExProgress } from '$lib/features/profiles/schema';
@@ -13,13 +13,13 @@
 	import { exists } from '@tauri-apps/plugin-fs';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { error as logError } from '@tauri-apps/plugin-log';
-	import { epicService } from '$lib/features/settings/epic-service';
-	import EpicLoginDialog from '$lib/components/settings/EpicLoginDialog.svelte';
+	import { epicAuthService } from '$lib/features/settings/services/epic-auth.service';
+	import EpicLoginDialogContainer from '$lib/features/settings/containers/EpicLoginDialogContainer.svelte';
 	import { Debounced, watch } from 'runed';
-	import GameSettingsSection from './_components/GameSettingsSection.svelte';
-	import BepInExSettingsSection from './_components/BepInExSettingsSection.svelte';
-	import AppBehaviorSection from './_components/AppBehaviorSection.svelte';
-	import AboutStarlightCard from './_components/AboutStarlightCard.svelte';
+	import GameSettingsSection from '$lib/features/settings/components/GameSettingsSection.svelte';
+	import BepInExSettingsSection from '$lib/features/settings/components/BepInExSettingsSection.svelte';
+	import AppBehaviorSection from '$lib/features/settings/components/AppBehaviorSection.svelte';
+	import AboutStarlightCardContainer from '$lib/features/settings/containers/AboutStarlightCardContainer.svelte';
 
 	const GITHUB_URL = 'https://github.com/All-Of-Us-Mods/Starlight-PC';
 
@@ -27,15 +27,15 @@
 	const settingsQuery = createQuery(() => settingsQueries.get());
 	const cacheExistsQuery = createQuery(() => settingsQueries.cacheExists());
 	const settings = $derived(settingsQuery.data as AppSettings | undefined);
-	const updateMutation = createMutation(() => settingsMutations.update(queryClient));
+	const updateMutation = createMutation(() => settingsActions.update(queryClient));
 	const detectBepInExMutation = createMutation(() =>
-		settingsMutations.autoDetectBepInExArchitecture(queryClient)
+		settingsActions.autoDetectBepInExArchitecture(queryClient)
 	);
-	const downloadCacheMutation = createMutation(() => settingsMutations.downloadBepInExToCache());
-	const clearCacheMutation = createMutation(() => settingsMutations.clearBepInExCache());
-	const openDataFolderMutation = createMutation(() => settingsMutations.openDataFolder());
-	const detectAmongUsPathMutation = createMutation(() => settingsMutations.detectAmongUsPath());
-	const detectGameStoreMutation = createMutation(() => settingsMutations.detectGameStore());
+	const downloadCacheMutation = createMutation(() => settingsActions.downloadBepInExToCache());
+	const clearCacheMutation = createMutation(() => settingsActions.clearBepInExCache());
+	const openDataFolderMutation = createMutation(() => settingsActions.openDataFolder());
+	const detectAmongUsPathMutation = createMutation(() => settingsActions.detectAmongUsPath());
+	const detectGameStoreMutation = createMutation(() => settingsActions.detectGameStore());
 
 	// Form state
 	let localPath = $state('');
@@ -178,7 +178,7 @@
 			localAllowMultiInstanceLaunch = settings.allow_multi_instance_launch ?? false;
 			localPlatform = settings.game_platform ?? 'steam';
 			localCacheBepInEx = settings.cache_bepinex ?? false;
-			epicService.isLoggedIn().then((v) => (isLoggedIn = v));
+			epicAuthService.isLoggedIn().then((v) => (isLoggedIn = v));
 			initialized = true;
 			isHydrating = false;
 		}
@@ -298,12 +298,12 @@
 				onClearCache={handleClearCache}
 			/>
 			<AppBehaviorSection bind:localCloseOnLaunch bind:localAllowMultiInstanceLaunch />
-			<AboutStarlightCard githubUrl={GITHUB_URL} onOpenDataFolder={handleOpenDataFolder} />
+			<AboutStarlightCardContainer githubUrl={GITHUB_URL} onOpenDataFolder={handleOpenDataFolder} />
 		</div>
 	{/if}
 </div>
 
-<EpicLoginDialog
+<EpicLoginDialogContainer
 	bind:open={epicLoginOpen}
-	onChange={() => epicService.isLoggedIn().then((v) => (isLoggedIn = v))}
+	onChange={() => epicAuthService.isLoggedIn().then((v) => (isLoggedIn = v))}
 />
