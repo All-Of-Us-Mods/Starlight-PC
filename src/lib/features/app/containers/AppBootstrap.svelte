@@ -4,13 +4,23 @@
 	import { bootstrapApp } from '../services/bootstrap';
 
 	const queryClient = useQueryClient();
-	const noop = () => {};
 
 	onMount(() => {
-		let cleanup = noop;
-		void bootstrapApp(queryClient).then((teardown) => {
-			cleanup = teardown;
+		let teardown: (() => void) | undefined;
+		let unmounted = false;
+
+		void bootstrapApp(queryClient).then((cleanup) => {
+			if (unmounted) {
+				cleanup();
+				return;
+			}
+
+			teardown = cleanup;
 		});
-		return () => cleanup();
+
+		return () => {
+			unmounted = true;
+			teardown?.();
+		};
 	});
 </script>

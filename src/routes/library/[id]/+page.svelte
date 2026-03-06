@@ -18,6 +18,7 @@
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { profileActions } from '$lib/features/profiles/actions';
+	import { buildCustomIconFilePath } from '$lib/features/profiles/services/profile-files.service';
 	import { modQueries } from '$lib/features/mods/queries';
 	import { gameState } from '$lib/features/profiles/state/game-state.svelte';
 	import { formatPlayTime } from '$lib/utils';
@@ -104,16 +105,6 @@
 	let profileIconSrc = $state<string | null>(null);
 	let profileIconObjectUrl: string | null = null;
 	let customIconPreviewObjectUrl: string | null = null;
-
-	function buildProfileFilePath(profilePath: string, fileName: string): string {
-		const normalized =
-			profilePath.endsWith('/') || profilePath.endsWith('\\') ? profilePath : `${profilePath}/`;
-		return `${normalized}${fileName}`;
-	}
-
-	function buildCustomIconFilePath(profilePath: string, extension: string): string {
-		return buildProfileFilePath(profilePath, `icon${extension}`);
-	}
 
 	function clearObjectUrl(url: string | null) {
 		if (url) {
@@ -346,7 +337,7 @@
 		if (!profile) return;
 
 		if (profile.icon_mode === 'custom' && profile.custom_icon_extension) {
-			const iconPath = buildCustomIconFilePath(profile.path, profile.custom_icon_extension);
+			const iconPath = await buildCustomIconFilePath(profile.path, profile.custom_icon_extension);
 			const blobUrl = await loadLocalImageBlobUrl(iconPath);
 			if (loadVersion !== profileIconLoadVersion) {
 				clearObjectUrl(blobUrl);
@@ -475,7 +466,7 @@
 		customIconBytesDraft = null;
 		customIconExtensionDraft = profile.custom_icon_extension ?? '';
 		customIconDisplayPathDraft = profile.custom_icon_extension
-			? buildCustomIconFilePath(profile.path, profile.custom_icon_extension)
+			? await buildCustomIconFilePath(profile.path, profile.custom_icon_extension)
 			: '';
 		setCustomPreviewObjectUrl(null);
 		iconError = '';
@@ -544,7 +535,7 @@
 
 			customIconBytesDraft = bytes;
 			customIconExtensionDraft = extension;
-			customIconDisplayPathDraft = buildCustomIconFilePath(profile.path, extension);
+			customIconDisplayPathDraft = await buildCustomIconFilePath(profile.path, extension);
 			setCustomPreviewObjectUrl(preview);
 			iconModeDraft = 'custom';
 		} catch (error) {

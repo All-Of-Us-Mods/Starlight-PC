@@ -36,13 +36,11 @@ export async function invalidateProfileAndDiskQueries(
 	}
 }
 
-export function buildProfileFilePath(profilePath: string, fileName: string): string {
-	const normalized =
-		profilePath.endsWith('/') || profilePath.endsWith('\\') ? profilePath : `${profilePath}/`;
-	return `${normalized}${fileName}`;
+export function buildProfileFilePath(profilePath: string, fileName: string): Promise<string> {
+	return join(profilePath, fileName);
 }
 
-export function buildCustomIconFilePath(profilePath: string, extension: string): string {
+export function buildCustomIconFilePath(profilePath: string, extension: string): Promise<string> {
 	return buildProfileFilePath(profilePath, `icon${extension}`);
 }
 

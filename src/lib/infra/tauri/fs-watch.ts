@@ -7,12 +7,14 @@ class FileWatcherManager {
 	#watchers = new Map<string, { unwatch: UnwatchFn; callbacks: Set<WatchCallback> }>();
 
 	async watchPath(path: string, callback: WatchCallback, recursive = true): Promise<UnwatchFn> {
-		info(`Setting up file watcher for: ${path}`);
+		await info(`Setting up file watcher for: ${path}`);
 
 		const existing = this.#watchers.get(path);
 		if (existing) {
 			existing.callbacks.add(callback);
-			info(`Reusing existing watcher for: ${path} (callback count: ${existing.callbacks.size})`);
+			await info(
+				`Reusing existing watcher for: ${path} (callback count: ${existing.callbacks.size})`
+			);
 			return () => this.unwatchPath(path, callback);
 		}
 
@@ -20,11 +22,11 @@ class FileWatcherManager {
 			const unwatch = await watch(
 				path,
 				() => {
-					info(`File change detected in: ${path}`);
+					void info(`File change detected in: ${path}`);
 					const entry = this.#watchers.get(path);
 					entry?.callbacks.forEach((cb) => {
 						void Promise.resolve(cb()).catch((error) => {
-							logError(`Watcher callback failed for ${path}: ${error}`);
+							void logError(`Watcher callback failed for ${path}: ${error}`);
 						});
 					});
 				},
@@ -33,11 +35,11 @@ class FileWatcherManager {
 
 			const callbacks = new Set([callback]);
 			this.#watchers.set(path, { unwatch, callbacks });
-			info(`File watcher started for: ${path}`);
+			await info(`File watcher started for: ${path}`);
 
 			return () => this.unwatchPath(path, callback);
 		} catch (err) {
-			logError(`Failed to setup file watcher for ${path}: ${err}`);
+			await logError(`Failed to setup file watcher for ${path}: ${err}`);
 			throw err;
 		}
 	}
@@ -51,7 +53,7 @@ class FileWatcherManager {
 		if (entry.callbacks.size === 0) {
 			entry.unwatch();
 			this.#watchers.delete(path);
-			info(`Stopped file watcher for: ${path}`);
+			void info(`Stopped file watcher for: ${path}`);
 		}
 	}
 }
