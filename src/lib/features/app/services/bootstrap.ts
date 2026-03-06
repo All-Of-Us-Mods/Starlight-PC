@@ -1,8 +1,6 @@
 import type { QueryClient } from '@tanstack/svelte-query';
 import { startupState } from '../state/startup.svelte';
-import { registerProfilesInvalidateCallback } from '$lib/features/profiles/state/game-state.svelte';
 import { profileQueries } from '$lib/features/profiles/queries';
-import { profilesQueryKey } from '$lib/features/profiles/profile-keys';
 import { settingsQueries } from '$lib/features/settings/queries';
 import { rustInvoke } from '$lib/infra/rust/invoke';
 import { updateState } from '$lib/features/updates/state/update-state.svelte';
@@ -10,10 +8,6 @@ import { watchProfileDirectory } from './profile-directory-watch';
 import { info, warn } from '@tauri-apps/plugin-log';
 
 export async function bootstrapApp(queryClient: QueryClient): Promise<() => void> {
-	registerProfilesInvalidateCallback(() => {
-		void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
-	});
-
 	await info('Starlight frontend initialized');
 
 	void updateState.check();

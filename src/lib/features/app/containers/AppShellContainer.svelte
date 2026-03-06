@@ -3,8 +3,12 @@
 	import { setSidebar } from '$lib/features/app/state/sidebar.svelte';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { profileQueries } from '$lib/features/profiles/queries';
+	import { profilesQueryKey } from '$lib/features/profiles/profile-keys';
 	import type { Profile } from '$lib/features/profiles/schema';
-	import { gameState } from '$lib/features/profiles/state/game-state.svelte';
+	import {
+		gameState,
+		registerProfilesInvalidateCallback
+	} from '$lib/features/profiles/state/game-state.svelte';
 	import { profileActions } from '$lib/features/profiles/actions';
 	import { error as logError } from '@tauri-apps/plugin-log';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
@@ -27,6 +31,11 @@
 	const sidebar = setSidebar();
 	const launchProfile = createMutation(() => profileActions.launchProfile(queryClient));
 	const profilesQuery = createQuery(() => profileQueries.all());
+	const unregisterProfilesInvalidate = browser
+		? registerProfilesInvalidateCallback(() => {
+				void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+			})
+		: () => {};
 	const shellController = createShellController({
 		launchProfile: (profile: Profile) => launchProfile.mutateAsync(profile)
 	});
@@ -52,6 +61,7 @@
 
 	$effect(() => {
 		return () => {
+			unregisterProfilesInvalidate();
 			gameState.destroy();
 		};
 	});

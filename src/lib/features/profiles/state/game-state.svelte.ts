@@ -33,8 +33,14 @@ let onProfilesInvalidate: InvalidateCallback | null = null;
 let unlistenGameState: UnlistenFn | null = null;
 let ticker: ReturnType<typeof setInterval> | null = null;
 
-export function registerProfilesInvalidateCallback(callback: InvalidateCallback) {
+export function registerProfilesInvalidateCallback(callback: InvalidateCallback): () => void {
 	onProfilesInvalidate = callback;
+
+	return () => {
+		if (onProfilesInvalidate === callback) {
+			onProfilesInvalidate = null;
+		}
+	};
 }
 
 function notifyProfilesInvalidated() {
