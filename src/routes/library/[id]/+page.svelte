@@ -17,26 +17,26 @@
 
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { settingsQueries } from '$lib/features/settings/queries';
-	import { profileMutations } from '$lib/features/profiles/mutations';
+	import { profileActions } from '$lib/features/profiles/actions';
 	import { modQueries } from '$lib/features/mods/queries';
-	import { gameState } from '$lib/features/profiles/game-state.svelte';
+	import { gameState } from '$lib/features/profiles/state/game-state.svelte';
 	import { formatPlayTime } from '$lib/utils';
 	import { showError, showSuccess } from '$lib/utils/toast';
 	import type { Profile, ProfileModUpdatesMap, UnifiedMod } from '$lib/features/profiles/schema';
 	import type { Mod } from '$lib/features/mods/schema';
 	import { profileUnifiedModsKey, profilesQueryKey } from '$lib/features/profiles/profile-keys';
 	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
-	import { mapModsById, pickDefaultVersion } from '$lib/components/mods/mod-utils';
+	import { mapModsById, pickDefaultVersion } from '$lib/features/mods/components/mod-utils';
 
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { ArrowLeft, Package } from '@lucide/svelte';
-	import ProfileHeroSection from './_components/ProfileHeroSection.svelte';
-	import ProfileModsToolbar from './_components/ProfileModsToolbar.svelte';
-	import ProfileModsList from './_components/ProfileModsList.svelte';
-	import ProfileDialogs from './_components/ProfileDialogs.svelte';
-	import ProfileLogViewer from './_components/ProfileLogViewer.svelte';
+	import ProfileHeroSection from '$lib/features/profiles/components/detail/ProfileHeroSection.svelte';
+	import ProfileModsToolbar from '$lib/features/profiles/components/detail/ProfileModsToolbar.svelte';
+	import ProfileModsList from '$lib/features/profiles/components/detail/ProfileModsList.svelte';
+	import ProfileDialogs from '$lib/features/profiles/components/detail/ProfileDialogs.svelte';
+	import ProfileLogViewerContainer from '$lib/features/profiles/containers/ProfileLogViewerContainer.svelte';
 
 	const queryClient = useQueryClient();
 	const profileId = $derived(page.params.id ?? '');
@@ -54,14 +54,14 @@
 			null) as Profile | null
 	);
 
-	const launchProfileMutation = createMutation(() => profileMutations.launchProfile(queryClient));
-	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
-	const renameProfile = createMutation(() => profileMutations.rename(queryClient));
-	const updateProfileIcon = createMutation(() => profileMutations.updateIcon(queryClient));
-	const deleteUnifiedMod = createMutation(() => profileMutations.deleteUnifiedMod(queryClient));
-	const cleanupMissingMods = createMutation(() => profileMutations.cleanupMissingMods(queryClient));
-	const installMods = createMutation(() => profileMutations.installMods(queryClient));
-	const exportProfileZip = createMutation(() => profileMutations.exportZip());
+	const launchProfileMutation = createMutation(() => profileActions.launchProfile(queryClient));
+	const deleteProfile = createMutation(() => profileActions.delete(queryClient));
+	const renameProfile = createMutation(() => profileActions.rename(queryClient));
+	const updateProfileIcon = createMutation(() => profileActions.updateIcon(queryClient));
+	const deleteUnifiedMod = createMutation(() => profileActions.deleteUnifiedMod(queryClient));
+	const cleanupMissingMods = createMutation(() => profileActions.cleanupMissingMods(queryClient));
+	const installMods = createMutation(() => profileActions.installMods(queryClient));
+	const exportProfileZip = createMutation(() => profileActions.exportZip());
 	const lastCleanupSignatureByProfile = new SvelteMap<string, string>();
 
 	const modIds = $derived(Array.from(new Set(profile?.mods.map((mod) => mod.mod_id) ?? [])));
@@ -858,7 +858,7 @@
 				onNextPage={() => currentPage++}
 			/>
 		</div>
-		<ProfileLogViewer {profile} {isRunning} />
+		<ProfileLogViewerContainer {profile} {isRunning} />
 	</div>
 
 	<Dialog.Root bind:open={iconDialogOpen}>

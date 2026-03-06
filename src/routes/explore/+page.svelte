@@ -5,8 +5,8 @@
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
 	import { Compass, ChevronLeft, ChevronRight } from '@jis3r/icons';
 	import { Debounced, watch } from 'runed';
-	import ExploreFilters from './_components/ExploreFilters.svelte';
-	import ExploreModsGrid from './_components/ExploreModsGrid.svelte';
+	import ExploreFilters from '$lib/features/mods/components/ExploreFilters.svelte';
+	import ExploreModsGrid from '$lib/features/mods/components/ExploreModsGrid.svelte';
 
 	type SortKey = 'trending' | 'latest';
 	const ITEMS_PER_PAGE = 12;

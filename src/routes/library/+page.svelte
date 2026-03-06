@@ -2,7 +2,6 @@
 	import { Library, Plus } from '@lucide/svelte';
 	import { Upload } from '@jis3r/icons';
 	import PageHeader from '$lib/components/shared/PageHeader.svelte';
-	import CreateProfileDialog from '$lib/components/profiles/CreateProfileDialog.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import {
@@ -18,21 +17,22 @@
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { profileQueries } from '$lib/features/profiles/queries';
-	import { profileMutations } from '$lib/features/profiles/mutations';
+	import { profileActions } from '$lib/features/profiles/actions';
 	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
 	import type { Profile } from '$lib/features/profiles/schema';
 	import { showError, showSuccess } from '$lib/utils/toast';
 	import { profileUnifiedModsKey, profilesQueryKey } from '$lib/features/profiles/profile-keys';
-	import LibraryQuickActions from './_components/LibraryQuickActions.svelte';
-	import LibraryProfilesSection from './_components/LibraryProfilesSection.svelte';
+	import CreateProfileDialogContainer from '$lib/features/profiles/containers/CreateProfileDialogContainer.svelte';
+	import LibraryQuickActions from '$lib/features/profiles/components/library/LibraryQuickActions.svelte';
+	import LibraryProfilesSection from '$lib/features/profiles/components/library/LibraryProfilesSection.svelte';
 
 	const queryClient = useQueryClient();
 	const profilesQuery = createQuery(() => profileQueries.all());
 	const settingsQuery = createQuery(() => settingsQueries.get());
-	const launchProfileMutation = createMutation(() => profileMutations.launchProfile(queryClient));
-	const launchVanillaMutation = createMutation(() => profileMutations.launchVanilla(queryClient));
-	const deleteProfile = createMutation(() => profileMutations.delete(queryClient));
-	const importProfileZip = createMutation(() => profileMutations.importZip(queryClient));
+	const launchProfileMutation = createMutation(() => profileActions.launchProfile(queryClient));
+	const launchVanillaMutation = createMutation(() => profileActions.launchVanilla(queryClient));
+	const deleteProfile = createMutation(() => profileActions.delete(queryClient));
+	const importProfileZip = createMutation(() => profileActions.importZip(queryClient));
 	const profiles = $derived((profilesQuery.data ?? []) as Profile[]);
 	const allowMultiInstanceLaunch = $derived(
 		(settingsQuery.data?.allow_multi_instance_launch ?? false) as boolean
@@ -151,7 +151,7 @@
 			</Button>
 		</div>
 	</PageHeader>
-	<CreateProfileDialog bind:open={createDialogOpen} />
+	<CreateProfileDialogContainer bind:open={createDialogOpen} />
 
 	<LibraryQuickActions {isLaunchingVanilla} onLaunchVanilla={handleLaunchVanilla} />
 	<LibraryProfilesSection

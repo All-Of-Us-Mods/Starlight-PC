@@ -1,7 +1,7 @@
 import { queryOptions } from '@tanstack/svelte-query';
 import { type } from 'arktype';
 import { satisfies, valid } from 'semver';
-import { apiFetch } from '$lib/api/client';
+import { apiFetch } from '$lib/infra/http/starlight-api';
 import {
 	ModResponse,
 	ModInfoResponse,

@@ -37,7 +37,7 @@ export function showError(err: unknown, context?: string): void {
 	const description = getErrorDescription(err);
 
 	const logMessage = context ? `[${context}] ${message}` : message;
-	logError(logMessage);
+	void logError(logMessage);
 
 	toast.error(message, description ? { description } : undefined);
 }

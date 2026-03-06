@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { TauriWindow } from './types';
+	import type { WindowController } from './types';
 
-	let { appWindow, platformName }: { appWindow: TauriWindow | null; platformName: string } =
+	let { appWindow, platformName }: { appWindow: WindowController | null; platformName: string } =
 		$props();
 </script>
 

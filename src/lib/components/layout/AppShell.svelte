@@ -1,102 +1,45 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
-	import { setSidebar } from '$lib/state/sidebar.svelte';
-	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { profileQueries } from '$lib/features/profiles/queries';
-	import type { Profile } from '$lib/features/profiles/schema';
-	import { gameState } from '$lib/features/profiles/game-state.svelte';
-	import { profileMutations } from '$lib/features/profiles/mutations';
-	import { error as logError } from '@tauri-apps/plugin-log';
 	import TopBar from './TopBar.svelte';
 	import SideNav from './SideNav.svelte';
 	import StarBackground from '$lib/components/shared/StarBackground.svelte';
-	import type { TauriWindow, Platform } from './types';
-	import { getTauriWindowContext, hasTauriInternals } from './tauri-window-adapter';
-	import {
-		canLaunchProfile,
-		createShellController,
-		getSidebarWidth,
-		shouldFinalizeSidebarTransition
-	} from './shell-controller';
+	import type { Platform, SidebarController, WindowController } from './types';
+	import type { Profile } from '$lib/features/profiles/schema';
+	import type { Snippet } from 'svelte';
 
-	let { children } = $props();
-
-	const queryClient = useQueryClient();
-	const sidebar = setSidebar();
-	const launchProfile = createMutation(() => profileMutations.launchProfile(queryClient));
-	const profilesQuery = createQuery(() => profileQueries.all());
-	const shellController = createShellController({
-		launchProfile: (profile) => launchProfile.mutateAsync(profile)
-	});
-
-	let platformName = $state<Platform>('other');
-	let appWindow = $state<TauriWindow | null>(null);
-
-	const activeProfile = $derived.by(() => {
-		const profiles = (profilesQuery.data as Profile[] | undefined) ?? [];
-		return (
-			profiles
-				.filter((profile) => profile.last_launched_at != null)
-				.toSorted((a, b) => (b.last_launched_at ?? 0) - (a.last_launched_at ?? 0))[0] ?? null
-		);
-	});
-	const sidebarWidth = $derived(getSidebarWidth(sidebar.isMaximized));
-	const canLaunch = $derived<boolean>(canLaunchProfile(activeProfile));
-
-	if (browser) {
-		gameState.init();
-		initTauri();
-	}
-
-	$effect(() => {
-		return () => {
-			gameState.destroy();
-		};
-	});
-
-	function initTauri() {
-		if (!hasTauriInternals()) return;
-
-		try {
-			const tauriContext = getTauriWindowContext();
-			platformName = tauriContext.platformName;
-			appWindow = tauriContext.appWindow;
-		} catch (e) {
-			logError(`Failed to initialize Tauri APIs: ${e}`);
-		}
-	}
-
-	function handleTransitionEnd(e: TransitionEvent) {
-		if (shouldFinalizeSidebarTransition(e, sidebar.isOpen)) {
-			sidebar.finalizeClose();
-		}
-	}
-
-	async function handleLaunchLastUsed() {
-		await shellController.launchActiveProfile(activeProfile);
-	}
+	let {
+		children,
+		platformName,
+		appWindow,
+		canLaunch,
+		isRunning,
+		activeProfile,
+		sidebar,
+		sidebarWidth,
+		onLaunch,
+		onSidebarTransitionEnd
+	}: {
+		children?: Snippet;
+		platformName: Platform;
+		appWindow: WindowController | null;
+		canLaunch: boolean;
+		isRunning: boolean;
+		activeProfile: Profile | null;
+		sidebar: SidebarController;
+		sidebarWidth: string;
+		onLaunch: () => void | Promise<void>;
+		onSidebarTransitionEnd: (event: TransitionEvent) => void;
+	} = $props();
 </script>
 
 <div class="app-shell">
-	<!-- Star background -->
 	<div class="star-container">
 		<StarBackground />
 	</div>
 
-	<!-- Top Status Bar -->
-	<TopBar
-		{platformName}
-		{appWindow}
-		{canLaunch}
-		isRunning={!!gameState.running}
-		{activeProfile}
-		onLaunch={handleLaunchLastUsed}
-	/>
+	<TopBar {platformName} {appWindow} {canLaunch} {isRunning} {activeProfile} {onLaunch} />
 
-	<!-- Left Navigation Bar -->
 	<SideNav />
 
-	<!-- Main Content Area -->
 	<main class="content-area">
 		<div class="scrollbar-styled content-scroll">
 			<div id="background-teleport-target" class="background-target"></div>
@@ -106,11 +49,10 @@
 			</div>
 		</div>
 
-		<!-- Sidebar -->
 		<aside
 			class="app-sidebar"
 			style:width={sidebar.isOpen ? sidebarWidth : '0px'}
-			ontransitionend={handleTransitionEnd}
+			ontransitionend={onSidebarTransitionEnd}
 		>
 			<div class="scrollbar-styled sidebar-scroll">
 				<div class="sidebar-content" style:width={sidebarWidth} style:min-width={sidebarWidth}>
@@ -126,13 +68,11 @@
 <style lang="postcss">
 	@reference "$lib/../app.css";
 
-	/* CSS Variables */
 	.app-shell {
 		--left-bar-width: 4rem;
 		--top-bar-height: 3rem;
 	}
 
-	/* Shell Layout */
 	.app-shell {
 		@apply relative isolate grid h-screen overflow-hidden bg-card;
 		grid-template-rows: auto 1fr;
@@ -152,7 +92,6 @@
 		}
 	}
 
-	/* Star Background */
 	.star-container {
 		@apply pointer-events-none absolute inset-0 z-5 opacity-80;
 		clip-path: polygon(
@@ -165,7 +104,6 @@
 		);
 	}
 
-	/* Main Content Area */
 	.content-area {
 		@apply absolute inset-0 z-1 overflow-hidden rounded-tl-xl bg-background;
 		top: var(--top-bar-height);
@@ -184,7 +122,6 @@
 		@apply h-full transition-[padding] duration-400 ease-in-out;
 	}
 
-	/* Sidebar */
 	.app-sidebar {
 		@apply absolute top-0 right-0 z-50 flex h-full flex-col items-end overflow-hidden;
 		@apply border-l border-border bg-muted transition-[width] duration-400 ease-in-out;

@@ -1,6 +1,6 @@
 import { queryOptions } from '@tanstack/svelte-query';
 import { type } from 'arktype';
-import { apiFetch } from '$lib/api/client';
+import { apiFetch } from '$lib/infra/http/starlight-api';
 import { Post } from './schema';
 import { newsByIdKey, newsQueryKey } from './news-keys';
 

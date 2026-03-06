@@ -3,11 +3,11 @@
 	import { newsQueries } from '$lib/features/news/queries';
 	import { modQueries } from '$lib/features/mods/queries';
 	import type { Post } from '$lib/features/news/schema';
-	import { getSidebar } from '$lib/state/sidebar.svelte';
+	import { getSidebar } from '$lib/features/app/state/sidebar.svelte';
 
-	import NewsDetail from '$lib/components/news/NewsDetail.svelte';
-	import HomeNewsSection from './_components/HomeNewsSection.svelte';
-	import HomeTrendingModsSection from './_components/HomeTrendingModsSection.svelte';
+	import NewsDetail from '$lib/features/news/components/NewsDetail.svelte';
+	import HomeNewsSection from '$lib/features/home/components/HomeNewsSection.svelte';
+	import HomeTrendingModsSection from '$lib/features/home/components/HomeTrendingModsSection.svelte';
 
 	const newsQuery = createQuery(newsQueries.all);
 	const trendingModsQuery = createQuery(modQueries.trending);

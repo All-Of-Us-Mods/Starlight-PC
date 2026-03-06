@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import { X, Maximize, Minimize } from '@jis3r/icons';
-	import { getSidebar } from '$lib/state/sidebar.svelte';
+	import { getSidebar } from '$lib/features/app/state/sidebar.svelte';
 
 	interface Props {
 		onclose?: () => void;

@@ -5,7 +5,7 @@
 	import { ArrowLeft, ArrowRight, House } from '@jis3r/icons';
 	import { Play } from '@lucide/svelte';
 	import WindowControls from './WindowControls.svelte';
-	import type { TauriWindow, Platform } from './types';
+	import type { Platform, WindowController } from './types';
 	import type { Profile } from '$lib/features/profiles/schema';
 
 	let {
@@ -17,7 +17,7 @@
 		onLaunch
 	}: {
 		platformName: Platform;
-		appWindow: TauriWindow | null;
+		appWindow: WindowController | null;
 		canLaunch: boolean;
 		isRunning: boolean;
 		activeProfile: Profile | null;
