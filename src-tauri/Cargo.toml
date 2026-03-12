@@ -55,4 +55,5 @@ keyring = { version = "3.6.3", features = ["linux-native"] }
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 windows = { version = "0.58", features = ["Win32_System_LibraryLoader"] }
+image = "0.25"
 keyring = { version = "3.6.3", features = ["windows-native"] }

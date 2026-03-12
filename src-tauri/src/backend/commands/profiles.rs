@@ -114,6 +114,8 @@ pub struct ProfilesImportZipArgs {
 #[serde(rename_all = "camelCase")]
 pub struct ProfilesCreateDesktopShortcutArgs {
     pub profile_id: String,
+    #[serde(default)]
+    pub icon_bytes: Option<Vec<u8>>,
 }
 
 fn ensure_profile_path_in_profiles_dir<R: Runtime>(
@@ -348,8 +350,12 @@ pub async fn profiles_create_desktop_shortcut<R: Runtime>(
     args: ProfilesCreateDesktopShortcutArgs,
 ) -> Result<String, String> {
     run_blocking(move || {
-        profile_shortcut_service::create_desktop_shortcut(&app, &args.profile_id)
-            .map_err(|e| e.to_string())
+        profile_shortcut_service::create_desktop_shortcut(
+            &app,
+            &args.profile_id,
+            args.icon_bytes.as_deref(),
+        )
+        .map_err(|e| e.to_string())
     })
     .await
 }

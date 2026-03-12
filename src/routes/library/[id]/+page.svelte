@@ -63,7 +63,9 @@
 	const cleanupMissingMods = createMutation(() => profileActions.cleanupMissingMods(queryClient));
 	const installMods = createMutation(() => profileActions.installMods(queryClient));
 	const exportProfileZip = createMutation(() => profileActions.exportZip());
-	const createDesktopShortcut = createMutation(() => profileActions.createDesktopShortcut());
+	const createDesktopShortcut = createMutation(() =>
+		profileActions.createDesktopShortcut(queryClient)
+	);
 	const lastCleanupSignatureByProfile = new SvelteMap<string, string>();
 
 	const modIds = $derived(Array.from(new Set(profile?.mods.map((mod) => mod.mod_id) ?? [])));
@@ -391,7 +393,7 @@
 		if (!profile) return;
 
 		try {
-			await createDesktopShortcut.mutateAsync({ profileId: profile.id });
+			await createDesktopShortcut.mutateAsync(profile);
 			showSuccess(`Created desktop shortcut for "${profile.name}"`);
 		} catch (error) {
 			showError(error, 'Create desktop shortcut');

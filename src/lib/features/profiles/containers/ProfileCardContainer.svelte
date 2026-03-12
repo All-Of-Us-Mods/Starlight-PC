@@ -44,7 +44,9 @@
 	const deleteMod = createMutation(() => profileActions.deleteUnifiedMod(queryClient));
 	const retryBepInExInstall = createMutation(() => profileActions.retryBepInExInstall(queryClient));
 	const exportZip = createMutation(() => profileActions.exportZip());
-	const createDesktopShortcut = createMutation(() => profileActions.createDesktopShortcut());
+	const createDesktopShortcut = createMutation(() =>
+		profileActions.createDesktopShortcut(queryClient)
+	);
 
 	async function handleRemoveMod(mod: { id: string; source: 'managed' | 'custom' }) {
 		try {
@@ -100,7 +102,7 @@
 
 	async function handleCreateDesktopShortcut() {
 		try {
-			await createDesktopShortcut.mutateAsync({ profileId: profile.id });
+			await createDesktopShortcut.mutateAsync(profile);
 			showSuccess(`Created desktop shortcut for "${profile.name}"`);
 		} catch (error) {
 			showError(error, 'Create desktop shortcut');
