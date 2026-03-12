@@ -92,6 +92,14 @@ export async function launchVanillaGame(settings: AppSettings) {
 	});
 }
 
+export async function stopProfileDesktopInstances(profileId: string) {
+	return await rustInvoke('game_stop_profile_instances', { profileId });
+}
+
+export async function stopAllDesktopInstances() {
+	return await rustInvoke('game_stop_all_instances');
+}
+
 export async function recordLastLaunched(profileId: string) {
 	try {
 		await rustInvoke('profiles_update_last_launched', { profileId });

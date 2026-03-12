@@ -19,7 +19,7 @@
 		hasTauriWindowInternals
 	} from '$lib/infra/tauri/window';
 	import {
-		canLaunchProfile,
+		canControlGame,
 		createShellController,
 		getSidebarWidth,
 		shouldFinalizeSidebarTransition
@@ -30,6 +30,7 @@
 	const queryClient = useQueryClient();
 	const sidebar = setSidebar();
 	const launchProfile = createMutation(() => profileActions.launchProfile(queryClient));
+	const stopAllInstances = createMutation<number>(() => profileActions.stopAllInstances());
 	const profilesQuery = createQuery(() => profileQueries.all());
 	const unregisterProfilesInvalidate = browser
 		? registerProfilesInvalidateCallback(() => {
@@ -37,7 +38,8 @@
 			})
 		: () => {};
 	const shellController = createShellController({
-		launchProfile: (profile: Profile) => launchProfile.mutateAsync(profile)
+		launchProfile: (profile: Profile) => launchProfile.mutateAsync(profile),
+		stopAllInstances: () => stopAllInstances.mutateAsync()
 	});
 
 	let platformName = $state<Platform>('other');
@@ -52,7 +54,9 @@
 		);
 	});
 	const sidebarWidth = $derived(getSidebarWidth(sidebar.isMaximized));
-	const canLaunch = $derived<boolean>(canLaunchProfile(activeProfile));
+	const canControl = $derived<boolean>(
+		canControlGame(activeProfile, gameState.stoppableRunningCount > 0)
+	);
 
 	if (browser) {
 		gameState.init();
@@ -84,6 +88,10 @@
 	}
 
 	async function handleLaunchLastUsed() {
+		if (gameState.stoppableRunningCount > 0) {
+			await shellController.stopRunningInstances();
+			return;
+		}
 		await shellController.launchActiveProfile(activeProfile);
 	}
 </script>
@@ -94,7 +102,7 @@
 	{appWindow}
 	{sidebar}
 	{sidebarWidth}
-	{canLaunch}
+	canLaunch={canControl}
 	isRunning={!!gameState.running}
 	{activeProfile}
 	onLaunch={handleLaunchLastUsed}
