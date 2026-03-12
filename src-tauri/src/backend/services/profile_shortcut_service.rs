@@ -44,9 +44,9 @@ pub fn create_desktop_shortcut<R: Runtime>(
     #[cfg(not(windows))]
     {
         let _ = (app, profile_id);
-        return Err(AppError::platform(
+        Err(AppError::platform(
             "Desktop shortcuts are only supported on Windows",
-        ));
+        ))
     }
 
     #[cfg(windows)]

@@ -17,14 +17,14 @@ async function handleDeepLinkUrls(queryClient: QueryClient, urls: string[]) {
 	const profileId = urls.map(parseProfileIdFromDeepLink).find((value): value is string => !!value);
 	if (!profileId) return;
 
-	const profiles = await queryClient.fetchQuery(profileQueries.all());
-	const profile = (profiles as Profile[]).find((entry) => entry.id === profileId);
-	if (!profile) {
-		showError(`Profile shortcut target '${profileId}' was not found`, 'Profile shortcut');
-		return;
-	}
-
 	try {
+		const profiles = await queryClient.fetchQuery(profileQueries.all());
+		const profile = (profiles as Profile[]).find((entry) => entry.id === profileId);
+		if (!profile) {
+			showError(`Profile shortcut target '${profileId}' was not found`, 'Profile shortcut');
+			return;
+		}
+
 		await profileActions.launchProfile(queryClient).mutationFn(profile);
 	} catch (error) {
 		showError(error, 'Launch profile shortcut');
