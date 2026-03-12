@@ -78,7 +78,7 @@
 			return;
 		}
 
-		const nextUrl = URL.createObjectURL(new Blob([Uint8Array.from(bytes)]));
+		const nextUrl = URL.createObjectURL(new Blob([new Uint8Array(bytes)]));
 		setCustomIconSrc(nextUrl);
 	});
 

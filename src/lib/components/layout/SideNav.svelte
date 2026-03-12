@@ -16,7 +16,7 @@
 	);
 	const MAX_VISIBLE_PROFILES = 3;
 	const visibleProfiles = $derived(sortedProfiles.slice(0, MAX_VISIBLE_PROFILES));
-	const hiddenCount = $derived(Math.max(0, sortedProfiles.length - visibleProfiles.length));
+	const hiddenCount = $derived(Math.max(0, sortedProfiles.length - MAX_VISIBLE_PROFILES));
 </script>
 
 <nav class="side-nav">
@@ -42,7 +42,7 @@
 		</NavButton>
 	</div>
 
-	{#if visibleProfiles.length > 0 || hiddenCount > 0}
+	{#if visibleProfiles.length > 0}
 		<div class="profile-shortcuts" aria-label="Profile Shortcuts">
 			{#each visibleProfiles as profile (profile.id)}
 				<NavButton
