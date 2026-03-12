@@ -18,7 +18,7 @@
 	import { formatPlayTime } from '$lib/utils';
 	import ModDetailsSidebarContainer from '$lib/features/mods/containers/ModDetailsSidebarContainer.svelte';
 	import { getSidebar } from '$lib/features/app/state/sidebar.svelte';
-	import { Package, CircleAlert, Play, FolderOpen, EllipsisVertical } from '@lucide/svelte';
+	import { Package, CircleAlert, Play, FolderOpen, EllipsisVertical, Link2 } from '@lucide/svelte';
 	import { CalendarDays, Clock, RotateCcw, Download, Trash2 } from '@jis3r/icons';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import type { UnifiedMod } from '$lib/features/profiles/schema';
@@ -44,6 +44,9 @@
 	const deleteMod = createMutation(() => profileActions.deleteUnifiedMod(queryClient));
 	const retryBepInExInstall = createMutation(() => profileActions.retryBepInExInstall(queryClient));
 	const exportZip = createMutation(() => profileActions.exportZip());
+	const createDesktopShortcut = createMutation(() =>
+		profileActions.createDesktopShortcut(queryClient)
+	);
 
 	async function handleRemoveMod(mod: { id: string; source: 'managed' | 'custom' }) {
 		try {
@@ -94,6 +97,15 @@
 			showSuccess(`Exported "${profile.name}"`);
 		} catch (error) {
 			showError(error, 'Export profile');
+		}
+	}
+
+	async function handleCreateDesktopShortcut() {
+		try {
+			await createDesktopShortcut.mutateAsync(profile);
+			showSuccess(`Created desktop shortcut for "${profile.name}"`);
+		} catch (error) {
+			showError(error, 'Create desktop shortcut');
 		}
 	}
 
@@ -287,6 +299,10 @@
 							<DropdownMenu.Item onclick={handleExportProfile}>
 								<Download class="size-4" />
 								Export ZIP
+							</DropdownMenu.Item>
+							<DropdownMenu.Item onclick={handleCreateDesktopShortcut}>
+								<Link2 class="size-4" />
+								Create Desktop Shortcut
 							</DropdownMenu.Item>
 						</DropdownMenu.Group>
 

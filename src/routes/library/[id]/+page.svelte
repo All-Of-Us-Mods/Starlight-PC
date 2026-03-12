@@ -63,6 +63,9 @@
 	const cleanupMissingMods = createMutation(() => profileActions.cleanupMissingMods(queryClient));
 	const installMods = createMutation(() => profileActions.installMods(queryClient));
 	const exportProfileZip = createMutation(() => profileActions.exportZip());
+	const createDesktopShortcut = createMutation(() =>
+		profileActions.createDesktopShortcut(queryClient)
+	);
 	const lastCleanupSignatureByProfile = new SvelteMap<string, string>();
 
 	const modIds = $derived(Array.from(new Set(profile?.mods.map((mod) => mod.mod_id) ?? [])));
@@ -383,6 +386,17 @@
 			showSuccess(`Exported "${profile.name}"`);
 		} catch (error) {
 			showError(error, 'Export profile');
+		}
+	}
+
+	async function handleCreateDesktopShortcut() {
+		if (!profile) return;
+
+		try {
+			await createDesktopShortcut.mutateAsync(profile);
+			showSuccess(`Created desktop shortcut for "${profile.name}"`);
+		} catch (error) {
+			showError(error, 'Create desktop shortcut');
 		}
 	}
 
@@ -752,6 +766,7 @@
 			onLaunch={handleLaunch}
 			onOpenFolder={() => openProfileFolder(profile)}
 			onExport={handleExportProfile}
+			onCreateDesktopShortcut={handleCreateDesktopShortcut}
 			onOpenIconEditor={openIconDialog}
 			onOpenRename={openRenameDialog}
 			onOpenDelete={() => (deleteDialogOpen = true)}
