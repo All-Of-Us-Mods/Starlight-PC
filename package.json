@@ -19,6 +19,7 @@
 		"@tanstack/query-async-storage-persister": "^5.90.19",
 		"@tanstack/svelte-query": "^6.0.15",
 		"@tauri-apps/api": "^2.9.1",
+		"@tauri-apps/plugin-deep-link": "^2.4.7",
 		"@tauri-apps/plugin-dialog": "~2.6.0",
 		"@tauri-apps/plugin-fs": "~2.4.5",
 		"@tauri-apps/plugin-http": "~2.5.6",

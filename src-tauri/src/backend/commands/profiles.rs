@@ -1,4 +1,5 @@
 use crate::backend::commands::blocking::run_blocking;
+use crate::backend::services::profile_shortcut_service;
 use crate::backend::services::profile_service::{
     self, ProfileEntry, ProfileIconSelection,
 };
@@ -109,6 +110,12 @@ pub struct ProfilesExportZipArgs {
 #[serde(rename_all = "camelCase")]
 pub struct ProfilesImportZipArgs {
     pub zip_path: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfilesCreateDesktopShortcutArgs {
+    pub profile_id: String,
 }
 
 fn ensure_profile_path_in_profiles_dir<R: Runtime>(
@@ -335,4 +342,16 @@ pub async fn profiles_import_zip<R: Runtime>(
     .map_err(|e| format!("Task failed: {e}"))?;
 
     result.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn profiles_create_desktop_shortcut<R: Runtime>(
+    app: AppHandle<R>,
+    args: ProfilesCreateDesktopShortcutArgs,
+) -> Result<String, String> {
+    run_blocking(move || {
+        profile_shortcut_service::create_desktop_shortcut(&app, &args.profile_id)
+            .map_err(|e| e.to_string())
+    })
+    .await
 }

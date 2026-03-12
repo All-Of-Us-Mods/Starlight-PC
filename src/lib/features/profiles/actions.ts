@@ -150,6 +150,11 @@ export const profileActions = {
 			rustInvoke('profiles_export_zip', args)
 	}),
 
+	createDesktopShortcut: () => ({
+		mutationFn: (args: { profileId: string }) =>
+			rustInvoke('profiles_create_desktop_shortcut', args)
+	}),
+
 	importZip: (queryClient: QueryClient) => ({
 		mutationFn: (zipPath: string) => rustInvoke('profiles_import_zip', { zipPath }),
 		onSuccess: () => {
