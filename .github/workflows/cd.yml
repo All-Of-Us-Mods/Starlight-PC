@@ -14,8 +14,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'ubuntu-22.04' # Linux
-            args: ''
           - platform: 'windows-latest' # Windows
             args: ''
 
@@ -93,7 +91,7 @@ jobs:
           PUBLIC_API_URL: 'https://starlight.allofus.dev'
         with:
           tagName: v__VERSION__
-          releaseName: 'App v__VERSION__'
+          releaseName: 'Starlight PC Beta v__VERSION__'
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
           prerelease: false
