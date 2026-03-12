@@ -102,20 +102,12 @@
 	let isUpdatingAll = $state(false);
 	const updatingModIds = new SvelteSet<string>();
 	let customIconFileInput = $state<HTMLInputElement | null>(null);
-	let profileIconSrc = $state<string | null>(null);
-	let profileIconObjectUrl: string | null = null;
 	let customIconPreviewObjectUrl: string | null = null;
 
 	function clearObjectUrl(url: string | null) {
 		if (url) {
 			URL.revokeObjectURL(url);
 		}
-	}
-
-	function setProfileIconObjectUrl(nextUrl: string | null) {
-		clearObjectUrl(profileIconObjectUrl);
-		profileIconObjectUrl = nextUrl;
-		profileIconSrc = nextUrl;
 	}
 
 	function setCustomPreviewObjectUrl(nextUrl: string | null) {
@@ -326,51 +318,6 @@
 	});
 	const selectedIconMod = $derived(
 		installedModsWithIcons.find((mod) => mod.id === iconModIdDraft) ?? null
-	);
-
-	let profileIconLoadVersion = 0;
-
-	async function refreshProfileIconSource() {
-		const loadVersion = ++profileIconLoadVersion;
-		setProfileIconObjectUrl(null);
-
-		if (!profile) return;
-
-		if (profile.icon_mode === 'custom' && profile.custom_icon_extension) {
-			const iconPath = await buildCustomIconFilePath(profile.path, profile.custom_icon_extension);
-			const blobUrl = await loadLocalImageBlobUrl(iconPath);
-			if (loadVersion !== profileIconLoadVersion) {
-				clearObjectUrl(blobUrl);
-				return;
-			}
-			if (blobUrl) {
-				setProfileIconObjectUrl(blobUrl);
-				return;
-			}
-		}
-
-		if (profile.icon_mode === 'mod' && profile.icon_mod_id) {
-			const iconMod = modsMap.get(profile.icon_mod_id);
-			if (iconMod?._links.thumbnail) {
-				profileIconSrc = iconMod._links.thumbnail;
-				return;
-			}
-		}
-
-		profileIconSrc = null;
-	}
-
-	watch(
-		() => ({
-			profileId: profile?.id ?? '',
-			mode: profile?.icon_mode ?? 'default',
-			customIconExtension: profile?.custom_icon_extension ?? '',
-			iconModId: profile?.icon_mod_id ?? '',
-			availableModIcons: installedModsWithIcons.length
-		}),
-		() => {
-			void refreshProfileIconSource();
-		}
 	);
 
 	watch(
@@ -594,7 +541,6 @@
 				return;
 			}
 
-			await refreshProfileIconSource();
 			iconDialogOpen = false;
 			showSuccess('Profile icon updated');
 		} catch (error) {
@@ -756,8 +702,6 @@
 	}
 
 	onDestroy(() => {
-		profileIconLoadVersion += 1;
-		clearObjectUrl(profileIconObjectUrl);
 		clearObjectUrl(customIconPreviewObjectUrl);
 	});
 </script>
@@ -797,7 +741,6 @@
 
 		<ProfileHeroSection
 			{profile}
-			iconSrc={profileIconSrc}
 			{isRunning}
 			{runningInstanceCount}
 			{allowMultiInstanceLaunch}

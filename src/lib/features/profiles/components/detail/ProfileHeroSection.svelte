@@ -3,7 +3,6 @@
 
 	export interface ProfileHeroSectionProps {
 		profile: Profile;
-		iconSrc: string | null;
 		isRunning: boolean;
 		runningInstanceCount: number;
 		allowMultiInstanceLaunch: boolean;
@@ -23,12 +22,12 @@
 
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { BoxIcon, Calendar, Clock, Download, Folder, PencilLineIcon, Play } from '@lucide/svelte';
+	import { Calendar, Clock, Download, Folder, PencilLineIcon, Play } from '@lucide/svelte';
 	import { Trash2 } from '@jis3r/icons';
+	import ProfileIcon from '$lib/features/profiles/components/ProfileIcon.svelte';
 
 	let {
 		profile,
-		iconSrc,
 		isRunning,
 		runningInstanceCount,
 		allowMultiInstanceLaunch,
@@ -56,11 +55,12 @@
 			? 'ring-2 ring-green-500/50'
 			: ''}"
 	>
-		{#if iconSrc}
-			<img src={iconSrc} alt={`${profile.name} icon`} class="h-full w-full object-cover" />
-		{:else}
-			<BoxIcon class="h-[60%] w-[60%] text-muted-foreground/50" />
-		{/if}
+		<ProfileIcon
+			{profile}
+			alt={`${profile.name} icon`}
+			class="rounded-lg"
+			fallbackClass="h-[60%] w-[60%]"
+		/>
 		<Button
 			variant="secondary"
 			size="icon-sm"
