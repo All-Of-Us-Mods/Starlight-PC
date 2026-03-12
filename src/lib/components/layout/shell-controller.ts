@@ -10,7 +10,10 @@ export function getSidebarWidth(isMaximized: boolean): string {
 	return isMaximized ? '100%' : '400px';
 }
 
-export function canControlGame(activeProfile: Profile | null, hasStoppableRunning: boolean): boolean {
+export function canControlGame(
+	activeProfile: Profile | null,
+	hasStoppableRunning: boolean
+): boolean {
 	return hasStoppableRunning || !!activeProfile;
 }
 
