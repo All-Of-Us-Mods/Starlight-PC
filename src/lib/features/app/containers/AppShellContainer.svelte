@@ -103,7 +103,7 @@
 	{sidebar}
 	{sidebarWidth}
 	canLaunch={canControl}
-	isRunning={!!gameState.running}
+	isRunning={gameState.stoppableRunningCount > 0}
 	{activeProfile}
 	onLaunch={handleLaunchLastUsed}
 	onSidebarTransitionEnd={handleTransitionEnd}

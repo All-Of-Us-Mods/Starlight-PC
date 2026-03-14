@@ -157,6 +157,7 @@ where
     F: Fn(&TrackedGameProcess) -> bool,
 {
     let mut stopped_count = 0;
+    let mut errors = Vec::new();
     let mut i = 0;
 
     while i < state.processes.len() {
@@ -180,14 +181,23 @@ where
             }
         }
 
-        state.processes[i]
-            .child
-            .kill()
-            .map_err(|e| AppError::process(format!("Failed to stop game process: {e}")))?;
+        if let Err(e) = state.processes[i].child.kill() {
+            warn!("Failed to kill game process: {}", e);
+            errors.push(format!(
+                "Failed to stop game process {}: {e}",
+                state.processes[i].child.id()
+            ));
+            i += 1;
+            continue;
+        }
 
         let tracked = state.processes.swap_remove(i);
         reap_process(tracked.child);
         stopped_count += 1;
+    }
+
+    if !errors.is_empty() {
+        return Err(AppError::process(errors.join("; ")));
     }
 
     Ok(stopped_count)
@@ -202,11 +212,11 @@ pub fn stop_profile_instances<R: Runtime>(
         .map_err(|_| AppError::state("Failed to acquire game process lock"))?;
 
     prune_finished_processes(&mut state);
-    let stopped_count = stop_matching_processes(&mut state, |tracked| {
+    let stop_result = stop_matching_processes(&mut state, |tracked| {
         tracked.profile_id.as_deref() == Some(profile_id)
-    })?;
+    });
     emit_state_snapshot(app, &state);
-    Ok(stopped_count)
+    stop_result
 }
 
 pub fn stop_all_tracked_instances<R: Runtime>(app: &AppHandle<R>) -> AppResult<usize> {
@@ -215,9 +225,9 @@ pub fn stop_all_tracked_instances<R: Runtime>(app: &AppHandle<R>) -> AppResult<u
         .map_err(|_| AppError::state("Failed to acquire game process lock"))?;
 
     prune_finished_processes(&mut state);
-    let stopped_count = stop_matching_processes(&mut state, |_| true)?;
+    let stop_result = stop_matching_processes(&mut state, |_| true);
     emit_state_snapshot(app, &state);
-    Ok(stopped_count)
+    stop_result
 }
 
 pub fn register_uwp_instance<R: Runtime>(
