@@ -56,6 +56,7 @@
 	);
 
 	const launchProfileMutation = createMutation(() => profileActions.launchProfile(queryClient));
+	const stopProfileInstancesMutation = createMutation(() => profileActions.stopProfileInstances());
 	const deleteProfile = createMutation(() => profileActions.delete(queryClient));
 	const renameProfile = createMutation(() => profileActions.rename(queryClient));
 	const updateProfileIcon = createMutation(() => profileActions.updateIcon(queryClient));
@@ -337,6 +338,7 @@
 		profile ? gameState.getProfileRunningInstanceCount(profile.id) : 0
 	);
 	const isRunning = $derived(runningInstanceCount > 0);
+	const isStoppable = $derived(profile ? gameState.isProfileStoppable(profile.id) : false);
 	const installState = $derived(profile ? gameState.getBepInExState(profile.id) : null);
 	const allowMultiInstanceLaunch = $derived(
 		(settingsQuery.data?.allow_multi_instance_launch ?? false) as boolean
@@ -365,6 +367,20 @@
 			showError(error);
 		} finally {
 			isLaunching = false;
+		}
+	}
+
+	async function handleStop() {
+		if (!profile || !isStoppable) return;
+		try {
+			const stoppedCount = await stopProfileInstancesMutation.mutateAsync(profile.id);
+			showSuccess(
+				stoppedCount === 1
+					? `Stopped "${profile.name}"`
+					: `Stopped ${stoppedCount} instances for "${profile.name}"`
+			);
+		} catch (error) {
+			showError(error, 'Stop profile');
 		}
 	}
 
@@ -742,6 +758,7 @@
 		<ProfileHeroSection
 			{profile}
 			{isRunning}
+			{isStoppable}
 			{runningInstanceCount}
 			{allowMultiInstanceLaunch}
 			{lastLaunched}
@@ -749,7 +766,9 @@
 			{isDisabled}
 			{isLaunchDisabled}
 			{isLaunching}
+			isStopping={stopProfileInstancesMutation.isPending}
 			onLaunch={handleLaunch}
+			onStop={handleStop}
 			onOpenFolder={() => openProfileFolder(profile)}
 			onExport={handleExportProfile}
 			onOpenIconEditor={openIconDialog}

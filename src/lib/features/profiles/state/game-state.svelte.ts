@@ -8,7 +8,9 @@ type InvalidateCallback = () => void;
 interface GameStatePayload {
 	running: boolean;
 	running_count?: number;
+	stoppable_running_count?: number;
 	profile_instance_counts?: Record<string, number>;
+	stoppable_profile_instance_counts?: Record<string, number>;
 }
 
 type BepInExInstallState =
@@ -22,7 +24,9 @@ type ModDownloadState =
 
 let running = $state(false);
 let runningCount = $state(0);
+let stoppableRunningCount = $state(0);
 let profileInstanceCounts = $state<Record<string, number>>({});
+let stoppableProfileInstanceCounts = $state<Record<string, number>>({});
 let currentTime = $state(Date.now());
 
 const bepinexInstalls = new SvelteMap<string, BepInExInstallState>();
@@ -92,18 +96,28 @@ export const gameState = {
 	get runningCount() {
 		return runningCount;
 	},
+	get stoppableRunningCount() {
+		return stoppableRunningCount;
+	},
 	getSessionDuration,
 	getProfileRunningInstanceCount(profileId: string) {
 		return profileInstanceCounts[profileId] ?? 0;
 	},
+	getProfileStoppableInstanceCount(profileId: string) {
+		return stoppableProfileInstanceCounts[profileId] ?? 0;
+	},
 	isProfileRunning(profileId: string) {
 		return (profileInstanceCounts[profileId] ?? 0) > 0;
+	},
+	isProfileStoppable(profileId: string) {
+		return (stoppableProfileInstanceCounts[profileId] ?? 0) > 0;
 	},
 	init: async () => {
 		if (unlistenGameState) return;
 		unlistenGameState = await listen<GameStatePayload>('game-state-changed', async (event) => {
 			const previousCounts = profileInstanceCounts;
 			const nextCounts = event.payload.profile_instance_counts ?? {};
+			const nextStoppableCounts = event.payload.stoppable_profile_instance_counts ?? {};
 			const touchedProfileIds = new SvelteSet([
 				...Object.keys(previousCounts),
 				...Object.keys(nextCounts)
@@ -111,7 +125,9 @@ export const gameState = {
 
 			running = event.payload.running;
 			runningCount = event.payload.running_count ?? (event.payload.running ? 1 : 0);
+			stoppableRunningCount = event.payload.stoppable_running_count ?? 0;
 			profileInstanceCounts = nextCounts;
+			stoppableProfileInstanceCounts = nextStoppableCounts;
 			currentTime = Date.now();
 
 			const finalizedSessions: Array<Promise<void>> = [];
@@ -141,6 +157,11 @@ export const gameState = {
 	destroy: () => {
 		unlistenGameState?.();
 		unlistenGameState = null;
+		running = false;
+		runningCount = 0;
+		stoppableRunningCount = 0;
+		profileInstanceCounts = {};
+		stoppableProfileInstanceCounts = {};
 		activeProfileSessions.clear();
 		stopTickerIfIdle();
 	},

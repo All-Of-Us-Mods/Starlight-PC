@@ -7,6 +7,7 @@
 		allowMultiInstanceLaunch: boolean;
 		onCreateProfile: () => void;
 		onLaunchProfile: (profile: Profile) => void;
+		onStopProfile: (profile: Profile) => void;
 		onDeleteProfile: (profileId: string) => void;
 	}
 </script>
@@ -23,6 +24,7 @@
 		allowMultiInstanceLaunch,
 		onCreateProfile,
 		onLaunchProfile,
+		onStopProfile,
 		onDeleteProfile
 	}: LibraryProfilesSectionProps = $props();
 </script>
@@ -64,6 +66,7 @@
 					{profile}
 					{allowMultiInstanceLaunch}
 					onlaunch={() => onLaunchProfile(profile)}
+					onstop={() => onStopProfile(profile)}
 					ondelete={() => onDeleteProfile(profile.id)}
 				/>
 			{/each}
