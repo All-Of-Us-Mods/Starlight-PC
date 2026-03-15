@@ -2,6 +2,7 @@ use crate::backend::services::launch_service::{self, LaunchModdedArgs, LaunchVan
 use crate::backend::services::xbox_service::{
     self, XboxCleanupArgs, XboxLaunchArgs, XboxPrepareLaunchArgs,
 };
+use crate::backend::state::game_runtime;
 use tauri::{AppHandle, Runtime};
 
 #[tauri::command]
@@ -22,6 +23,19 @@ pub async fn game_launch_vanilla<R: Runtime>(
     launch_service::launch_vanilla(app, args)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn game_stop_profile_instances<R: Runtime>(
+    app: AppHandle<R>,
+    profile_id: String,
+) -> Result<usize, String> {
+    game_runtime::stop_profile_instances(&app, &profile_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn game_stop_all_instances<R: Runtime>(app: AppHandle<R>) -> Result<usize, String> {
+    game_runtime::stop_all_tracked_instances(&app).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

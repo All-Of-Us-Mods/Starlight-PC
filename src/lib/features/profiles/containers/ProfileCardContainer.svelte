@@ -18,7 +18,7 @@
 	import { formatPlayTime } from '$lib/utils';
 	import ModDetailsSidebarContainer from '$lib/features/mods/containers/ModDetailsSidebarContainer.svelte';
 	import { getSidebar } from '$lib/features/app/state/sidebar.svelte';
-	import { Package, CircleAlert, Play, FolderOpen, EllipsisVertical, Link2 } from '@lucide/svelte';
+	import { Package, CircleAlert, Play, FolderOpen, EllipsisVertical, Link2, Square } from '@lucide/svelte';
 	import { CalendarDays, Clock, RotateCcw, Download, Trash2 } from '@jis3r/icons';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import type { UnifiedMod } from '$lib/features/profiles/schema';
@@ -28,11 +28,13 @@
 	let {
 		profile,
 		onlaunch,
+		onstop,
 		ondelete,
 		allowMultiInstanceLaunch = false
 	}: {
 		profile: Profile;
 		onlaunch?: () => void;
+		onstop?: () => void;
 		ondelete?: () => void;
 		allowMultiInstanceLaunch?: boolean;
 	} = $props();
@@ -114,6 +116,7 @@
 	);
 
 	const isRunning = $derived(gameState.isProfileRunning(profile.id));
+	const isStoppable = $derived(gameState.isProfileStoppable(profile.id));
 	const installState = $derived(gameState.getBepInExState(profile.id));
 	const isInstalling = $derived(
 		profile.bepinex_installed === false || installState?.status === 'installing'
@@ -121,13 +124,32 @@
 	const hasInstallError = $derived(installState?.status === 'error');
 	const isDisabled = $derived(isInstalling || isRunning);
 	const isLaunchDisabled = $derived(isInstalling || (isRunning && !allowMultiInstanceLaunch));
-	const launchLabel = $derived(
-		isRunning ? (allowMultiInstanceLaunch ? 'Launch Another' : 'Running') : 'Launch'
+	const canLaunchAnother = $derived(isRunning && allowMultiInstanceLaunch && !isInstalling);
+	const primaryActionLabel = $derived(
+		isStoppable
+			? 'Stop'
+			: isRunning
+				? allowMultiInstanceLaunch
+					? 'Launch Another'
+					: 'Running'
+				: 'Launch'
+	);
+	const isPrimaryActionDisabled = $derived(
+		isInstalling || (isRunning && !isStoppable && !allowMultiInstanceLaunch)
 	);
 
 	async function handleRetryInstall() {
 		gameState.clearBepInExProgress(profile.id);
 		await retryBepInExInstall.mutateAsync({ profileId: profile.id });
+	}
+
+	function handlePrimaryAction(event?: Event) {
+		event?.stopPropagation();
+		if (isStoppable) {
+			onstop?.();
+			return;
+		}
+		onlaunch?.();
 	}
 
 	const totalPlayTime = $derived(
@@ -265,16 +287,13 @@
 
 			<!-- Actions -->
 			<div class="flex items-center gap-2 @md:shrink-0">
-				<Button
-					size="sm"
-					onclick={(e) => {
-						e.stopPropagation();
-						onlaunch?.();
-					}}
-					disabled={isLaunchDisabled}
-				>
-					<Play class="size-4 fill-current" />
-					<span>{launchLabel}</span>
+				<Button size="sm" onclick={handlePrimaryAction} disabled={isPrimaryActionDisabled}>
+					{#if isStoppable}
+						<Square class="size-4 fill-current" />
+					{:else}
+						<Play class="size-4 fill-current" />
+					{/if}
+					<span>{primaryActionLabel}</span>
 				</Button>
 
 				<DropdownMenu.Root>
@@ -288,10 +307,18 @@
 					</DropdownMenu.Trigger>
 					<DropdownMenu.Content align="end" class="w-48">
 						<DropdownMenu.Group>
-							<DropdownMenu.Item onclick={() => onlaunch?.()} disabled={isLaunchDisabled}>
-								<Play class="size-4" />
-								{launchLabel}
-							</DropdownMenu.Item>
+							{#if isStoppable}
+								<DropdownMenu.Item onclick={() => onstop?.()}>
+									<Square class="size-4" />
+									Stop
+								</DropdownMenu.Item>
+							{/if}
+							{#if !isRunning || canLaunchAnother}
+								<DropdownMenu.Item onclick={() => onlaunch?.()} disabled={isLaunchDisabled}>
+									<Play class="size-4" />
+									{isRunning ? 'Launch Another' : 'Launch'}
+								</DropdownMenu.Item>
+							{/if}
 							<DropdownMenu.Item onclick={handleOpenFolder}>
 								<FolderOpen class="size-4" />
 								Open Folder

@@ -11,6 +11,8 @@ import {
 	launchVanillaGame,
 	launchXboxProfile,
 	launchXboxVanilla,
+	stopAllDesktopInstances,
+	stopProfileDesktopInstances,
 	recordLastLaunched
 } from './services/profile-launch.service';
 import {
@@ -241,6 +243,26 @@ export const profileActions = {
 			} finally {
 				launchInFlight = false;
 			}
+		}
+	}),
+
+	stopProfileInstances: () => ({
+		mutationFn: async (profileId: string) => {
+			const stoppedCount = await stopProfileDesktopInstances(profileId);
+			if (stoppedCount === 0 && gameState.isProfileRunning(profileId)) {
+				throw new Error('No stoppable desktop instances found for this profile');
+			}
+			return stoppedCount;
+		}
+	}),
+
+	stopAllInstances: () => ({
+		mutationFn: async () => {
+			const stoppedCount = await stopAllDesktopInstances();
+			if (stoppedCount === 0 && gameState.running) {
+				throw new Error('No stoppable desktop instances found');
+			}
+			return stoppedCount;
 		}
 	})
 };

@@ -88,6 +88,8 @@ pub fn run() {
             commands::core::core_auto_detect_bepinex_architecture,
             commands::game::game_launch_modded,
             commands::game::game_launch_vanilla,
+            commands::game::game_stop_profile_instances,
+            commands::game::game_stop_all_instances,
             commands::game::game_xbox_get_app_id,
             commands::game::game_xbox_prepare_launch,
             commands::game::game_xbox_launch,
