@@ -59,6 +59,7 @@
 					: 'Running'
 				: 'Launch'
 	);
+	const canLaunchAnother = $derived(isRunning && allowMultiInstanceLaunch);
 </script>
 
 <div class="mb-8 flex flex-col items-start gap-6 md:flex-row md:items-center">
@@ -143,6 +144,26 @@
 					<span>{launchLabel}</span>
 				{/if}
 			</Button>
+
+			{#if canLaunchAnother}
+				<Button
+					size="lg"
+					variant="outline"
+					class="gap-2"
+					onclick={onLaunch}
+					disabled={isLaunchDisabled || isLaunching || isStopping}
+				>
+					{#if isLaunching}
+						<div
+							class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+						></div>
+						Launching...
+					{:else}
+						<Play class="size-5 fill-current" />
+						<span>Launch Another</span>
+					{/if}
+				</Button>
+			{/if}
 
 			<Button size="lg" variant="outline" class="gap-2" onclick={onOpenFolder}>
 				<Folder class="size-5" />
