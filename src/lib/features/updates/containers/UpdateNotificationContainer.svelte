@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
 	import { updateState } from '$lib/features/updates/state/update-state.svelte';
+	import UpdateProgressToast from '$lib/features/updates/components/UpdateProgressToast.svelte';
 
 	const AVAILABLE_TOAST_ID = 'update-available';
 	const PROGRESS_TOAST_ID = 'update-progress';
 	const ERROR_TOAST_ID = 'update-error';
 
 	let lastError = $state<string | null>(null);
+	let progressToastVisible = $state(false);
 
 	$effect(() => {
 		const updateInfo = updateState.updateInfo;
@@ -31,27 +33,21 @@
 
 	$effect(() => {
 		const status = updateState.status;
-		const percent = updateState.progress.percent;
 
-		if (status === 'downloading') {
-			toast.loading(`Downloading update... ${percent}%`, {
-				id: PROGRESS_TOAST_ID,
-				duration: Infinity,
-				dismissable: false
-			});
-			return;
-		}
-
-		if (status === 'installing') {
-			toast.loading('Installing update...', {
-				id: PROGRESS_TOAST_ID,
-				duration: Infinity,
-				dismissable: false
-			});
+		if (status === 'downloading' || status === 'installing') {
+			if (!progressToastVisible) {
+				toast(UpdateProgressToast, {
+					id: PROGRESS_TOAST_ID,
+					duration: Infinity,
+					dismissable: false
+				});
+				progressToastVisible = true;
+			}
 			return;
 		}
 
 		toast.dismiss(PROGRESS_TOAST_ID);
+		progressToastVisible = false;
 	});
 
 	$effect(() => {
