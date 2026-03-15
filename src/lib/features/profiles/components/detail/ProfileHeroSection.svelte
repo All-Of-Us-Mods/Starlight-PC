@@ -104,12 +104,12 @@
 	</div>
 
 	<div class="flex flex-1 flex-col gap-4">
-		<div class="flex items-center gap-2">
+		<div class="group inline-flex items-center gap-2">
 			<h1 class="text-3xl font-extrabold tracking-tight md:text-4xl">{profile.name}</h1>
 			<Button
 				size="icon"
 				variant="ghost"
-				class="size-9 rounded-full"
+				class="pointer-events-none size-9 rounded-full opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
 				onclick={onOpenRename}
 				title="Rename profile"
 			>
