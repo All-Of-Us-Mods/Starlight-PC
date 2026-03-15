@@ -18,7 +18,15 @@
 	import { formatPlayTime } from '$lib/utils';
 	import ModDetailsSidebarContainer from '$lib/features/mods/containers/ModDetailsSidebarContainer.svelte';
 	import { getSidebar } from '$lib/features/app/state/sidebar.svelte';
-	import { Package, CircleAlert, Play, FolderOpen, EllipsisVertical, Link2, Square } from '@lucide/svelte';
+	import {
+		Package,
+		CircleAlert,
+		Play,
+		FolderOpen,
+		EllipsisVertical,
+		Link2,
+		Square
+	} from '@lucide/svelte';
 	import { CalendarDays, Clock, RotateCcw, Download, Trash2 } from '@jis3r/icons';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import type { UnifiedMod } from '$lib/features/profiles/schema';

@@ -26,7 +26,16 @@
 
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { Calendar, Clock, Download, Folder, Link2, PencilLineIcon, Play, Square } from '@lucide/svelte';
+	import {
+		Calendar,
+		Clock,
+		Download,
+		Folder,
+		Link2,
+		PencilLineIcon,
+		Play,
+		Square
+	} from '@lucide/svelte';
 	import { Trash2 } from '@jis3r/icons';
 	import ProfileIcon from '$lib/features/profiles/components/ProfileIcon.svelte';
 

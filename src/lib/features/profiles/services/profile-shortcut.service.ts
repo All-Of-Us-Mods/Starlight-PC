@@ -6,7 +6,10 @@ import type { Profile } from '$lib/features/profiles/schema';
 import { profileQueries } from '$lib/features/profiles/queries';
 import { buildCustomIconFilePath } from './profile-files.service';
 
-async function getCustomIconBytes(queryClient: QueryClient, profile: Profile): Promise<Uint8Array | null> {
+async function getCustomIconBytes(
+	queryClient: QueryClient,
+	profile: Profile
+): Promise<Uint8Array | null> {
 	const extension = profile.custom_icon_extension?.trim();
 	if (!extension) return null;
 
@@ -15,7 +18,10 @@ async function getCustomIconBytes(queryClient: QueryClient, profile: Profile): P
 	return bytes.length > 0 ? Uint8Array.from(bytes) : null;
 }
 
-async function getModIconBytes(queryClient: QueryClient, profile: Profile): Promise<Uint8Array | null> {
+async function getModIconBytes(
+	queryClient: QueryClient,
+	profile: Profile
+): Promise<Uint8Array | null> {
 	const modId = profile.icon_mod_id?.trim();
 	if (!modId) return null;
 
