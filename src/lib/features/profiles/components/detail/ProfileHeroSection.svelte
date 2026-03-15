@@ -17,6 +17,7 @@
 		onStop: () => void | Promise<void>;
 		onOpenFolder: () => void | Promise<void>;
 		onExport: () => void | Promise<void>;
+		onCreateDesktopShortcut: () => void | Promise<void>;
 		onOpenIconEditor: () => void;
 		onOpenRename: () => void;
 		onOpenDelete: () => void;
@@ -25,7 +26,7 @@
 
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { Calendar, Clock, Download, Folder, PencilLineIcon, Play, Square } from '@lucide/svelte';
+	import { Calendar, Clock, Download, Folder, Link2, PencilLineIcon, Play, Square } from '@lucide/svelte';
 	import { Trash2 } from '@jis3r/icons';
 	import ProfileIcon from '$lib/features/profiles/components/ProfileIcon.svelte';
 
@@ -45,6 +46,7 @@
 		onStop,
 		onOpenFolder,
 		onExport,
+		onCreateDesktopShortcut,
 		onOpenIconEditor,
 		onOpenRename,
 		onOpenDelete
@@ -173,6 +175,11 @@
 			<Button size="lg" variant="outline" class="gap-2" onclick={onExport}>
 				<Download class="size-5" />
 				<span>Export ZIP</span>
+			</Button>
+
+			<Button size="lg" variant="outline" class="gap-2" onclick={onCreateDesktopShortcut}>
+				<Link2 class="size-5" />
+				<span>Create Shortcut</span>
 			</Button>
 
 			<Button

@@ -3,7 +3,10 @@ pub mod error;
 pub mod services;
 pub mod state;
 
+use tauri::Manager;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
+#[cfg(all(debug_assertions, windows))]
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_log::{Target, TargetKind};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -22,7 +25,21 @@ pub fn run() {
             .level(log::LevelFilter::Error);
     }
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+
+    builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(
             log_builder
                 .level_for("hyper", log::LevelFilter::Warn)
@@ -39,6 +56,9 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            #[cfg(all(debug_assertions, windows))]
+            app.deep_link().register_all()?;
+
             let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Starlight")
                 .inner_size(800.0, 600.0)
@@ -99,6 +119,7 @@ pub fn run() {
             commands::profiles::profiles_read_binary_file,
             commands::profiles::profiles_export_zip,
             commands::profiles::profiles_import_zip,
+            commands::profiles::profiles_create_desktop_shortcut,
             commands::epic::epic_auth_url,
             commands::epic::epic_login_code,
             commands::epic::epic_login_webview,

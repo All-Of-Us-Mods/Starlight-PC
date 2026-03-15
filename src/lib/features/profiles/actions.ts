@@ -22,6 +22,7 @@ import {
 	installModsForProfile,
 	type InstalledModResult
 } from './services/profile-install.service';
+import { resolveProfileShortcutIconBytes } from './services/profile-shortcut.service';
 
 let launchInFlight = false;
 export const profileActions = {
@@ -150,6 +151,16 @@ export const profileActions = {
 	exportZip: () => ({
 		mutationFn: (args: { profileId: string; destination: string }) =>
 			rustInvoke('profiles_export_zip', args)
+	}),
+
+	createDesktopShortcut: (queryClient: QueryClient) => ({
+		mutationFn: async (profile: Profile) => {
+			const iconBytes = await resolveProfileShortcutIconBytes(queryClient, profile);
+			return rustInvoke('profiles_create_desktop_shortcut', {
+				profileId: profile.id,
+				iconBytes
+			});
+		}
 	}),
 
 	importZip: (queryClient: QueryClient) => ({
