@@ -156,13 +156,15 @@
 	// ============ HANDLERS ============
 
 	async function handleRemoveMod() {
-		if (!profileId || !unifiedMod) return;
+		const modToRemove = unifiedMod;
+		if (!profileId || !modToRemove) return;
+		const removeArgs = { profileId, profilePath: profile?.path, mod: modToRemove };
 
 		isRemoving = true;
 		try {
-			await deleteMod.mutateAsync({ profileId, mod: unifiedMod });
-			showSuccess('Mod removed from profile');
 			onclose?.();
+			await deleteMod.mutateAsync(removeArgs);
+			showSuccess('Mod removed from profile');
 		} catch (error) {
 			showError(error, 'Remove mod');
 		} finally {

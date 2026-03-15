@@ -8,15 +8,21 @@
 	let { mod }: { mod: Mod } = $props();
 
 	const sidebar = getSidebar();
-	const isSelected = $derived(sidebar.contentId === `mod-${mod.id}`);
+	const contentId = $derived(`mod-${mod.id}`);
+	const isSelected = $derived(sidebar.contentId === contentId);
+
+	function closeSidebar() {
+		sidebar.close();
+		sidebar.finalizeClose();
+	}
 
 	function openModDetails() {
-		sidebar.open(sidebarContent, undefined, `mod-${mod.id}`);
+		sidebar.open(sidebarContent, undefined, contentId);
 	}
 </script>
 
 {#snippet sidebarContent()}
-	<ModDetailsSidebarContainer modId={mod.id} onclose={() => sidebar.close()} />
+	<ModDetailsSidebarContainer modId={mod.id} onclose={closeSidebar} />
 {/snippet}
 
 <Card.Root

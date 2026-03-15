@@ -38,6 +38,11 @@
 	const contentId = $derived(`profile-${profileId}-mod-${mod.id}`);
 	const isSelected = $derived(sidebar.contentId === contentId);
 
+	function closeSidebar() {
+		sidebar.close();
+		sidebar.finalizeClose();
+	}
+
 	function openModDetails() {
 		rememberInstallTarget(profileId, 'profile-context');
 		sidebar.open(sidebarContent, undefined, contentId);
@@ -53,7 +58,7 @@
 </script>
 
 {#snippet sidebarContent()}
-	<ModDetailsSidebarContainer modId={mod.id} {profileId} onclose={() => sidebar.close()} />
+	<ModDetailsSidebarContainer modId={mod.id} {profileId} onclose={closeSidebar} />
 {/snippet}
 
 <Card.Root
