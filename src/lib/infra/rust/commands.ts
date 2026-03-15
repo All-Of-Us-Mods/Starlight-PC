@@ -64,6 +64,8 @@ export type RustCommandMap = {
 		result: void;
 	};
 	game_launch_vanilla: { args: { gameExe: string; platform: string }; result: void };
+	game_stop_profile_instances: { args: { profileId: string }; result: number };
+	game_stop_all_instances: { args: void; result: number };
 	game_xbox_get_app_id: { args: void; result: string };
 	game_xbox_prepare_launch: { args: { gameDir: string; profilePath: string }; result: void };
 	game_xbox_launch: { args: { appId: string; profileId: string | null }; result: void };

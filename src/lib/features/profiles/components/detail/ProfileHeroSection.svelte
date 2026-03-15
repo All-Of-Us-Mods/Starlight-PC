@@ -4,6 +4,7 @@
 	export interface ProfileHeroSectionProps {
 		profile: Profile;
 		isRunning: boolean;
+		isStoppable: boolean;
 		runningInstanceCount: number;
 		allowMultiInstanceLaunch: boolean;
 		lastLaunched: string;
@@ -11,7 +12,9 @@
 		isDisabled: boolean;
 		isLaunchDisabled: boolean;
 		isLaunching: boolean;
+		isStopping: boolean;
 		onLaunch: () => void | Promise<void>;
+		onStop: () => void | Promise<void>;
 		onOpenFolder: () => void | Promise<void>;
 		onExport: () => void | Promise<void>;
 		onOpenIconEditor: () => void;
@@ -22,13 +25,14 @@
 
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { Calendar, Clock, Download, Folder, PencilLineIcon, Play } from '@lucide/svelte';
+	import { Calendar, Clock, Download, Folder, PencilLineIcon, Play, Square } from '@lucide/svelte';
 	import { Trash2 } from '@jis3r/icons';
 	import ProfileIcon from '$lib/features/profiles/components/ProfileIcon.svelte';
 
 	let {
 		profile,
 		isRunning,
+		isStoppable,
 		runningInstanceCount,
 		allowMultiInstanceLaunch,
 		lastLaunched,
@@ -36,7 +40,9 @@
 		isDisabled,
 		isLaunchDisabled,
 		isLaunching,
+		isStopping,
 		onLaunch,
+		onStop,
 		onOpenFolder,
 		onExport,
 		onOpenIconEditor,
@@ -45,8 +51,15 @@
 	}: ProfileHeroSectionProps = $props();
 
 	const launchLabel = $derived(
-		isRunning ? (allowMultiInstanceLaunch ? 'Launch Another' : 'Running') : 'Launch'
+		isStoppable
+			? 'Stop'
+			: isRunning
+				? allowMultiInstanceLaunch
+					? 'Launch Another'
+					: 'Running'
+				: 'Launch'
 	);
+	const canLaunchAnother = $derived(isRunning && allowMultiInstanceLaunch);
 </script>
 
 <div class="mb-8 flex flex-col items-start gap-6 md:flex-row md:items-center">
@@ -106,17 +119,51 @@
 		</div>
 
 		<div class="flex flex-wrap items-center gap-3 pt-2">
-			<Button size="lg" class="gap-2" onclick={onLaunch} disabled={isLaunchDisabled || isLaunching}>
-				{#if isLaunching}
+			<Button
+				size="lg"
+				class="gap-2"
+				onclick={isStoppable ? onStop : onLaunch}
+				disabled={(isStoppable ? isStopping : isLaunchDisabled || isLaunching) || false}
+			>
+				{#if isStopping}
+					<div
+						class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+					></div>
+					Stopping...
+				{:else if isLaunching}
 					<div
 						class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
 					></div>
 					Launching...
 				{:else}
-					<Play class="size-5 fill-current" />
+					{#if isStoppable}
+						<Square class="size-5 fill-current" />
+					{:else}
+						<Play class="size-5 fill-current" />
+					{/if}
 					<span>{launchLabel}</span>
 				{/if}
 			</Button>
+
+			{#if canLaunchAnother}
+				<Button
+					size="lg"
+					variant="outline"
+					class="gap-2"
+					onclick={onLaunch}
+					disabled={isLaunchDisabled || isLaunching || isStopping}
+				>
+					{#if isLaunching}
+						<div
+							class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+						></div>
+						Launching...
+					{:else}
+						<Play class="size-5 fill-current" />
+						<span>Launch Another</span>
+					{/if}
+				</Button>
+			{/if}
 
 			<Button size="lg" variant="outline" class="gap-2" onclick={onOpenFolder}>
 				<Folder class="size-5" />

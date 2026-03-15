@@ -1,7 +1,5 @@
 use crate::backend::commands::blocking::run_blocking;
-use crate::backend::services::profile_service::{
-    self, ProfileEntry, ProfileIconSelection,
-};
+use crate::backend::services::profile_service::{self, ProfileEntry, ProfileIconSelection};
 use std::path::PathBuf;
 use tauri::{AppHandle, Runtime};
 

@@ -31,6 +31,9 @@
 	const settingsQuery = createQuery(() => settingsQueries.get());
 	const launchProfileMutation = createMutation(() => profileActions.launchProfile(queryClient));
 	const launchVanillaMutation = createMutation(() => profileActions.launchVanilla(queryClient));
+	const stopProfileInstancesMutation = createMutation<number, Error, string>(() =>
+		profileActions.stopProfileInstances()
+	);
 	const deleteProfile = createMutation(() => profileActions.delete(queryClient));
 	const importProfileZip = createMutation(() => profileActions.importZip(queryClient));
 	const profiles = $derived((profilesQuery.data ?? []) as Profile[]);
@@ -70,6 +73,19 @@
 		} catch (e) {
 			queryClient.setQueryData(profilesQueryKey, previousProfiles);
 			showError(e);
+		}
+	}
+
+	async function handleStopProfile(profile: Profile) {
+		try {
+			const stoppedCount = await stopProfileInstancesMutation.mutateAsync(profile.id);
+			showSuccess(
+				stoppedCount === 1
+					? `Stopped "${profile.name}"`
+					: `Stopped ${stoppedCount} instances for "${profile.name}"`
+			);
+		} catch (error) {
+			showError(error, 'Stop profile');
 		}
 	}
 
@@ -160,6 +176,7 @@
 		{allowMultiInstanceLaunch}
 		onCreateProfile={() => (createDialogOpen = true)}
 		onLaunchProfile={handleLaunchProfile}
+		onStopProfile={handleStopProfile}
 		onDeleteProfile={confirmDeleteProfile}
 	/>
 </div>

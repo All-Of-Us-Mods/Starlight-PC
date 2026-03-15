@@ -24,7 +24,9 @@ static TRACKED_STATE: LazyLock<Mutex<TrackedState>> =
 pub struct GameStatePayload {
     pub running: bool,
     pub running_count: usize,
+    pub stoppable_running_count: usize,
     pub profile_instance_counts: HashMap<String, usize>,
+    pub stoppable_profile_instance_counts: HashMap<String, usize>,
 }
 
 fn reap_process(mut child: Child) {
@@ -35,9 +37,13 @@ fn reap_process(mut child: Child) {
 
 fn build_state_payload(state: &TrackedState) -> GameStatePayload {
     let mut profile_instance_counts = HashMap::new();
+    let mut stoppable_profile_instance_counts = HashMap::new();
     for tracked in &state.processes {
         if let Some(profile_id) = &tracked.profile_id {
             *profile_instance_counts
+                .entry(profile_id.clone())
+                .or_insert(0) += 1;
+            *stoppable_profile_instance_counts
                 .entry(profile_id.clone())
                 .or_insert(0) += 1;
         }
@@ -52,13 +58,33 @@ fn build_state_payload(state: &TrackedState) -> GameStatePayload {
     GameStatePayload {
         running: running_count > 0,
         running_count,
+        stoppable_running_count: state.processes.len(),
         profile_instance_counts,
+        stoppable_profile_instance_counts,
     }
 }
 
 fn emit_state_snapshot<R: Runtime>(app: &AppHandle<R>, state: &TrackedState) {
     let payload = build_state_payload(state);
     let _ = app.emit("game-state-changed", payload);
+}
+
+fn prune_finished_processes(state: &mut TrackedState) {
+    let mut i = 0;
+    while i < state.processes.len() {
+        match state.processes[i].child.try_wait() {
+            Ok(Some(_)) => {
+                let tracked = state.processes.swap_remove(i);
+                reap_process(tracked.child);
+            }
+            Ok(None) => i += 1,
+            Err(e) => {
+                warn!("Failed to check tracked process state: {}", e);
+                let tracked = state.processes.swap_remove(i);
+                reap_process(tracked.child);
+            }
+        }
+    }
 }
 
 fn monitor_game_process<R: Runtime>(app: AppHandle<R>, process_id: u32) {
@@ -113,21 +139,7 @@ pub fn register_launched_process<R: Runtime>(
             .lock()
             .map_err(|_| AppError::state("Failed to acquire game process lock"))?;
 
-        let mut i = 0;
-        while i < state.processes.len() {
-            match state.processes[i].child.try_wait() {
-                Ok(Some(_)) => {
-                    let tracked = state.processes.swap_remove(i);
-                    reap_process(tracked.child);
-                }
-                Ok(None) => i += 1,
-                Err(e) => {
-                    warn!("Failed to check tracked process state: {}", e);
-                    let tracked = state.processes.swap_remove(i);
-                    reap_process(tracked.child);
-                }
-            }
-        }
+        prune_finished_processes(&mut state);
 
         process_id = child.id();
         state
@@ -138,6 +150,84 @@ pub fn register_launched_process<R: Runtime>(
 
     monitor_game_process(app, process_id);
     Ok(())
+}
+
+fn stop_matching_processes<F>(state: &mut TrackedState, predicate: F) -> AppResult<usize>
+where
+    F: Fn(&TrackedGameProcess) -> bool,
+{
+    let mut stopped_count = 0;
+    let mut errors = Vec::new();
+    let mut i = 0;
+
+    while i < state.processes.len() {
+        if !predicate(&state.processes[i]) {
+            i += 1;
+            continue;
+        }
+
+        match state.processes[i].child.try_wait() {
+            Ok(Some(_)) => {
+                let tracked = state.processes.swap_remove(i);
+                reap_process(tracked.child);
+                continue;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                warn!("Failed to check tracked process state before stop: {}", e);
+                let tracked = state.processes.swap_remove(i);
+                reap_process(tracked.child);
+                continue;
+            }
+        }
+
+        if let Err(e) = state.processes[i].child.kill() {
+            warn!("Failed to kill game process: {}", e);
+            errors.push(format!(
+                "Failed to stop game process {}: {e}",
+                state.processes[i].child.id()
+            ));
+            i += 1;
+            continue;
+        }
+
+        let tracked = state.processes.swap_remove(i);
+        reap_process(tracked.child);
+        stopped_count += 1;
+    }
+
+    if !errors.is_empty() {
+        return Err(AppError::process(errors.join("; ")));
+    }
+
+    Ok(stopped_count)
+}
+
+pub fn stop_profile_instances<R: Runtime>(
+    app: &AppHandle<R>,
+    profile_id: &str,
+) -> AppResult<usize> {
+    let mut state = TRACKED_STATE
+        .lock()
+        .map_err(|_| AppError::state("Failed to acquire game process lock"))?;
+
+    prune_finished_processes(&mut state);
+    let stop_result = stop_matching_processes(&mut state, |tracked| {
+        tracked.profile_id.as_deref() == Some(profile_id)
+    });
+    emit_state_snapshot(app, &state);
+    stop_result
+}
+
+pub fn stop_all_tracked_instances<R: Runtime>(app: &AppHandle<R>) -> AppResult<usize> {
+    let mut state = TRACKED_STATE
+        .lock()
+        .map_err(|_| AppError::state("Failed to acquire game process lock"))?;
+
+    prune_finished_processes(&mut state);
+    let stop_result = stop_matching_processes(&mut state, |_| true);
+    emit_state_snapshot(app, &state);
+    stop_result
 }
 
 pub fn register_uwp_instance<R: Runtime>(
@@ -166,7 +256,9 @@ mod tests {
         let payload = build_state_payload(&state);
         assert!(payload.running);
         assert_eq!(payload.running_count, 3);
+        assert_eq!(payload.stoppable_running_count, 0);
         assert_eq!(payload.profile_instance_counts.get("p1"), Some(&2));
         assert_eq!(payload.profile_instance_counts.get("p2"), Some(&1));
+        assert!(payload.stoppable_profile_instance_counts.is_empty());
     }
 }

@@ -3,7 +3,7 @@
 	import { AutoBreadcrumb } from '$lib/components/ui/breadcrumb';
 	import { default as StarlightIcon } from '$lib/assets/starlight.svg?component';
 	import { ArrowLeft, ArrowRight, House } from '@jis3r/icons';
-	import { Play } from '@lucide/svelte';
+	import { Play, Square } from '@lucide/svelte';
 	import WindowControls from './WindowControls.svelte';
 	import type { Platform, WindowController } from './types';
 	import type { Profile } from '$lib/features/profiles/schema';
@@ -70,7 +70,11 @@
 			</span>
 
 			{#if canLaunch}
-				<Play class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+				{#if isRunning}
+					<Square class="h-3.5 w-3.5 shrink-0 fill-current text-muted-foreground" />
+				{:else}
+					<Play class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+				{/if}
 			{/if}
 		</Button>
 
