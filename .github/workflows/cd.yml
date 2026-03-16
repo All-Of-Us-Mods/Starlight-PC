@@ -1,10 +1,10 @@
-name: "publish"
+name: 'publish'
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - "v*" # Triggers whenever you push a tag starting with 'v'
+      - 'v*' # Triggers whenever you push a tag starting with 'v'
 
 jobs:
   publish-tauri:
@@ -14,8 +14,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: "windows-latest" # Windows
-            args: ""
+          - platform: 'windows-latest' # Windows
+            args: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -88,11 +88,11 @@ jobs:
           # The updater needs these signature keys to work:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          PUBLIC_API_URL: "https://starlight.allofus.dev"
+          PUBLIC_API_URL: 'https://starlight.allofus.dev'
         with:
           tagName: v__VERSION__
-          releaseName: "Starlight PC Beta v__VERSION__"
-          releaseBody: "See the assets to download this version and install."
+          releaseName: 'Starlight PC Beta v__VERSION__'
+          releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

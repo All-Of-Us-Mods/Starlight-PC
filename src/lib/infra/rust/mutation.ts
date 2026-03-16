@@ -1,25 +1,25 @@
-import type { MutationOptions } from "@tanstack/svelte-query";
-import type { RustCommandArgsInput, RustCommandName, RustCommandResult } from "./commands";
-import { type AppInvokeError, rustInvoke } from "./invoke";
+import type { MutationOptions } from '@tanstack/svelte-query';
+import type { RustCommandArgsInput, RustCommandName, RustCommandResult } from './commands';
+import { type AppInvokeError, rustInvoke } from './invoke';
 
 type RustMutationConfig<TCommand extends RustCommandName> = Omit<
-  MutationOptions<
-    RustCommandResult<TCommand>,
-    AppInvokeError,
-    RustCommandArgsInput<TCommand>,
-    unknown
-  >,
-  "mutationFn"
+	MutationOptions<
+		RustCommandResult<TCommand>,
+		AppInvokeError,
+		RustCommandArgsInput<TCommand>,
+		unknown
+	>,
+	'mutationFn'
 > & {
-  command: TCommand;
+	command: TCommand;
 };
 
 export function rustMutationOptions<TCommand extends RustCommandName>(
-  config: RustMutationConfig<TCommand>,
+	config: RustMutationConfig<TCommand>
 ) {
-  const { command, ...options } = config;
-  return {
-    ...options,
-    mutationFn: (args: RustCommandArgsInput<TCommand>) => rustInvoke(command, args),
-  };
+	const { command, ...options } = config;
+	return {
+		...options,
+		mutationFn: (args: RustCommandArgsInput<TCommand>) => rustInvoke(command, args)
+	};
 }
