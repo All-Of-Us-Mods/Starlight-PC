@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - 'src-tauri/**'
-      - 'README.md'
+      - "src-tauri/**"
+      - "README.md"
   pull_request:
     branches: [main]
     paths-ignore:
-      - 'src-tauri/**'
-      - 'README.md'
+      - "src-tauri/**"
+      - "README.md"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref_name }}
@@ -38,5 +38,5 @@ jobs:
       - name: Run Check
         env:
           # Provide a dummy value so SvelteKit sync doesn't fail
-          PUBLIC_API_URL: 'https://api.example.com'
+          PUBLIC_API_URL: "https://api.example.com"
         run: bun run check

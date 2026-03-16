@@ -1,64 +1,66 @@
 {
-	"$schema": "../gen/schemas/desktop-schema.json",
-	"identifier": "default",
-	"description": "enables the default permissions",
-	"windows": ["main"],
-	"permissions": [
-		"core:default",
-		"core:path:default",
-		"core:event:default",
-		"core:window:default",
-		"core:app:default",
-		"core:resources:default",
-		"core:menu:default",
-		"core:tray:default",
-		"core:window:allow-create",
-		"core:window:allow-maximize",
-		"core:window:allow-toggle-maximize",
-		"core:window:allow-unmaximize",
-		"core:window:allow-minimize",
-		"core:window:allow-unminimize",
-		"core:window:allow-show",
-		"core:window:allow-hide",
-		"core:window:allow-close",
-		"core:window:allow-set-decorations",
-		"core:window:allow-start-dragging",
-		"core:webview:allow-set-webview-zoom",
-		"store:default",
-		"fs:default",
-		"os:default",
-		"log:default",
-		"fs:allow-mkdir",
-		"fs:allow-remove",
-		"fs:allow-write",
-		"fs:allow-appdata-write-recursive",
-		"fs:allow-watch",
-		{
-			"identifier": "fs:scope",
-			"allow": [
-				{
-					"path": "$APPDATA/**"
-				}
-			]
-		},
-		{
-			"identifier": "fs:allow-exists",
-			"allow": [
-				{
-					"path": "**/**"
-				}
-			]
-		},
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:path:default",
+    "core:event:default",
+    "core:window:default",
+    "core:app:default",
+    "core:resources:default",
+    "core:menu:default",
+    "core:tray:default",
+    "core:window:allow-create",
+    "core:window:allow-maximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-set-decorations",
+    "core:window:allow-start-dragging",
+    "core:webview:allow-set-webview-zoom",
+    "store:default",
+    "fs:default",
+    "os:default",
+    "log:default",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    "fs:allow-write",
+    "fs:allow-appdata-write-recursive",
+    "fs:allow-watch",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        {
+          "path": "$APPDATA/**"
+        }
+      ]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [
+        {
+          "path": "**/**"
+        }
+      ]
+    },
     {
       "identifier": "http:default",
-      "allow": [{
+      "allow": [
+        {
           "url": "https://*"
-      }]
+        }
+      ]
     },
     "opener:default",
-		"updater:default",
-		"dialog:default",
-		"process:default",
-		"deep-link:default"
-	]
+    "updater:default",
+    "dialog:default",
+    "process:default",
+    "deep-link:default"
+  ]
 }
