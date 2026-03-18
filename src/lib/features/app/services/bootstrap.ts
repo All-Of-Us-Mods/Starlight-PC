@@ -1,6 +1,5 @@
 import type { QueryClient } from '@tanstack/svelte-query';
 import { startupState } from '../state/startup.svelte';
-import type { Profile } from '$lib/features/profiles/schema';
 import { profileActions } from '$lib/features/profiles/actions';
 import { profileQueries } from '$lib/features/profiles/queries';
 import { settingsQueries } from '$lib/features/settings/queries';
@@ -56,7 +55,8 @@ export async function bootstrapApp(queryClient: QueryClient): Promise<() => void
 		const profilesDir = await queryClient.fetchQuery(profileQueries.dir());
 		cleanups.push(await watchProfileDirectory(queryClient, profilesDir));
 	} catch (error) {
-		await warn(`Failed to initialize bootstrap state: ${error}`);
+		const message = error instanceof Error ? error.message : String(error);
+		await warn(`Failed to initialize bootstrap state: ${message}`);
 	}
 
 	if (hasTauriWindowInternals()) {
@@ -71,7 +71,8 @@ export async function bootstrapApp(queryClient: QueryClient): Promise<() => void
 				void handleDeepLinkUrls(queryClient, startUrls);
 			}
 		} catch (error) {
-			await warn(`Failed to initialize deep-link handling: ${error}`);
+			const message = error instanceof Error ? error.message : String(error);
+			await warn(`Failed to initialize deep-link handling: ${message}`);
 		}
 	}
 

@@ -18,5 +18,5 @@
 		"typeAware": true,
 		"typeCheck": true
 	},
-	"ignorePatterns": ["src-tauri/", ".svelte-kit/", "build/", "static/"]
+	"ignorePatterns": ["src-tauri/", ".svelte-kit/", "build/", "static/", "src/lib/components/ui"]
 }

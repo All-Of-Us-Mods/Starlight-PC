@@ -51,16 +51,16 @@ export const profileActions = {
 
 	delete: (queryClient: QueryClient) => ({
 		mutationFn: (profileId: string) => rustInvoke('profiles_delete', { profileId }),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	rename: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; newName: string }) =>
 			rustInvoke('profiles_rename', args),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
@@ -129,22 +129,22 @@ export const profileActions = {
 			);
 		},
 		onSuccess: async () => {
-			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	updatePlayTime: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; durationMs: number }) =>
 			rustInvoke('profiles_add_play_time', args),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	retryBepInExInstall: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string }) => installBepInExForProfile(args.profileId),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
@@ -165,15 +165,15 @@ export const profileActions = {
 
 	importZip: (queryClient: QueryClient) => ({
 		mutationFn: (zipPath: string) => rustInvoke('profiles_import_zip', { zipPath }),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	updateLastLaunched: (queryClient: QueryClient) => ({
 		mutationFn: (profileId: string) => rustInvoke('profiles_update_last_launched', { profileId }),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 

@@ -38,9 +38,10 @@ class FileWatcherManager {
 			await info(`File watcher started for: ${path}`);
 
 			return () => this.unwatchPath(path, callback);
-		} catch (err) {
-			await logError(`Failed to setup file watcher for ${path}: ${err}`);
-			throw err;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			await logError(`Failed to setup file watcher for ${path}: ${message}`);
+			return () => {};
 		}
 	}
 

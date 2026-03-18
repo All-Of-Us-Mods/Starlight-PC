@@ -51,7 +51,8 @@ export async function resolveProfileShortcutIconBytes(
 				return null;
 		}
 	} catch (error) {
-		await warn(`Failed to resolve shortcut icon for profile '${profile.id}': ${error}`);
+		const message = error instanceof Error ? error.message : String(error);
+		await warn(`Failed to resolve shortcut icon for profile '${profile.id}': ${message}`);
 		return null;
 	}
 }

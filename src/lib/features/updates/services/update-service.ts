@@ -16,11 +16,11 @@ class UpdateService {
 	 */
 	async checkForUpdate(): Promise<UpdateInfo | null> {
 		try {
-			info('Checking for updates...');
+			await info('Checking for updates...');
 			const update = await check();
 
 			if (update) {
-				info(`Update available: ${update.version}`);
+				await info(`Update available: ${update.version}`);
 				this.pendingUpdate = update;
 
 				return {
@@ -31,12 +31,13 @@ class UpdateService {
 				};
 			}
 
-			info('No updates available');
+			await info('No updates available');
 			return null;
-		} catch (err) {
-			logError(`Failed to check for updates: ${err}`);
-			throw err;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			await logError(`Failed to check for updates: ${message}`);
 		}
+		return null;
 	}
 
 	/**
@@ -50,15 +51,15 @@ class UpdateService {
 		}
 
 		try {
-			info('Starting update download...');
+			await info('Starting update download...');
 			let downloaded = 0;
 			let contentLength: number | undefined;
 
-			await this.pendingUpdate.downloadAndInstall((event: DownloadEvent) => {
+			await this.pendingUpdate.downloadAndInstall(async (event: DownloadEvent) => {
 				switch (event.event) {
 					case 'Started':
 						contentLength = event.data.contentLength ?? undefined;
-						info(`Download started, total size: ${contentLength ?? 'unknown'}`);
+						await info(`Download started, total size: ${contentLength ?? 'unknown'}`);
 						break;
 					case 'Progress': {
 						downloaded += event.data.chunkLength;
@@ -71,19 +72,19 @@ class UpdateService {
 						break;
 					}
 					case 'Finished':
-						info('Download finished, installing...');
+						await info('Download finished, installing...');
 						break;
 				}
 			});
 
-			info('Update installed, relaunching...');
+			await info('Update installed, relaunching...');
 			this.pendingUpdate = null;
 
 			// Relaunch the app (on Windows, the installer handles this automatically)
 			await relaunch();
-		} catch (err) {
-			logError(`Failed to install update: ${err}`);
-			throw err;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			await logError(`Failed to install update: ${message}`);
 		}
 	}
 
