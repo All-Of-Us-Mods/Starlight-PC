@@ -18,7 +18,7 @@ export const queryClient = new QueryClient({
 
 export function initQueryPersistence() {
 	return persistQueryClient({
-		queryClient: queryClient as any,
+		queryClient: queryClient,
 		persister: tauriStorePersister,
 		maxAge: 1000 * 60 * 60 * 24 * 7, // 1 week
 		dehydrateOptions: {

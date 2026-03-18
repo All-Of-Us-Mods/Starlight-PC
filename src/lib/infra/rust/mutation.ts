@@ -6,8 +6,7 @@ type RustMutationConfig<TCommand extends RustCommandName> = Omit<
 	MutationOptions<
 		RustCommandResult<TCommand>,
 		AppInvokeError,
-		RustCommandArgsInput<TCommand>,
-		unknown
+		RustCommandArgsInput<TCommand>
 	>,
 	'mutationFn'
 > & {

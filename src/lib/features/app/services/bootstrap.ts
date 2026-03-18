@@ -20,7 +20,7 @@ async function handleDeepLinkUrls(queryClient: QueryClient, urls: string[]) {
 
 	try {
 		const profiles = await queryClient.fetchQuery(profileQueries.all());
-		const profile = (profiles as Profile[]).find((entry) => entry.id === profileId);
+		const profile = profiles.find((entry) => entry.id === profileId);
 		if (!profile) {
 			showError(`Profile shortcut target '${profileId}' was not found`, 'Profile shortcut');
 			return;
