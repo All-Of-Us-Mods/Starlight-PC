@@ -25,7 +25,10 @@ export function initQueryPersistence() {
 			shouldDehydrateQuery: (query) => {
 				const key = query.queryKey[0];
 				return (
-					typeof key === 'string' && (key === 'mods' || key === 'news' || key === 'resolved-deps')
+					typeof key === 'string' &&
+					(key === 'news' ||
+						key === 'resolved-deps' ||
+						(key === 'mods' && (query.queryKey[1] === 'list' || query.queryKey[1] === 'trending')))
 				);
 			}
 		}

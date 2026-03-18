@@ -35,8 +35,9 @@ export async function bootstrapApp(queryClient: QueryClient): Promise<() => void
 	await info('Starlight frontend initialized');
 	const cleanups: Array<() => void> = [];
 
-	const [unpersist] = initQueryPersistence();
+	const [unpersist, restored] = initQueryPersistence();
 	cleanups.push(unpersist);
+	await restored;
 
 	void updateState.check();
 

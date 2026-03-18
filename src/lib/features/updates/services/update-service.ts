@@ -85,6 +85,7 @@ class UpdateService {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			await logError(`Failed to install update: ${message}`);
+			throw error;
 		}
 	}
 
