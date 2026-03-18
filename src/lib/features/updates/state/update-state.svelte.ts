@@ -56,7 +56,7 @@ function createUpdateState() {
 			} catch (err) {
 				status = 'error';
 				errorMessage = err instanceof Error ? err.message : 'Failed to check for updates';
-				logError(`Update check failed: ${errorMessage}`);
+				await logError(`Update check failed: ${errorMessage}`);
 			}
 		},
 
@@ -78,7 +78,7 @@ function createUpdateState() {
 			} catch (err) {
 				status = 'error';
 				errorMessage = err instanceof Error ? err.message : 'Failed to install update';
-				logError(`Update install failed: ${errorMessage}`);
+				await logError(`Update install failed: ${errorMessage}`);
 			}
 		},
 

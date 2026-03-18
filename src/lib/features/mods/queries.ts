@@ -49,7 +49,8 @@ export const modQueries = {
 	latest: (limit = 20, offset = 0) =>
 		queryOptions({
 			queryKey: modsListKey(limit, offset),
-			queryFn: () => apiFetch(`/api/v2/mods?limit=${limit}&offset=${offset}`, ModArrayValidator)
+			queryFn: () => apiFetch(`/api/v2/mods?limit=${limit}&offset=${offset}`, ModArrayValidator),
+			networkMode: 'offlineFirst'
 		}),
 
 	explore: (search: string, limit: number, offset: number, sort: string = 'trending') => {
@@ -71,47 +72,54 @@ export const modQueries = {
 					default:
 						return apiFetch(`/api/v2/mods?${params}`, ModArrayValidator);
 				}
-			}
+			},
+			networkMode: 'offlineFirst'
 		});
 	},
 
 	total: () =>
 		queryOptions({
 			queryKey: modsTotalKey(),
-			queryFn: () => apiFetch('/api/v2/mods/total', type('number'))
+			queryFn: () => apiFetch('/api/v2/mods/total', type('number')),
+			networkMode: 'offlineFirst'
 		}),
 
 	trending: () =>
 		queryOptions({
 			queryKey: modsTrendingKey(),
-			queryFn: () => apiFetch('/api/v2/mods/trending', ModArrayValidator)
+			queryFn: () => apiFetch('/api/v2/mods/trending', ModArrayValidator),
+			networkMode: 'offlineFirst'
 		}),
 
 	info: (id: string) =>
 		queryOptions({
 			queryKey: modsInfoKey(id),
 			queryFn: () => apiFetch(`/api/v2/mods/${id}/info`, ModInfoResponse),
-			enabled: !!id
+			enabled: !!id,
+			networkMode: 'offlineFirst'
 		}),
 
 	byId: (id: string) =>
 		queryOptions({
 			queryKey: modsByIdKey(id),
 			queryFn: () => apiFetch(`/api/v2/mods/${id}`, ModResponse),
-			enabled: !!id
+			enabled: !!id,
+			networkMode: 'offlineFirst'
 		}),
 
 	versions: (modId: string) =>
 		queryOptions({
 			queryKey: modsVersionsKey(modId),
-			queryFn: () => apiFetch(`/api/v2/mods/${modId}/versions`, type(ModVersion.array()))
+			queryFn: () => apiFetch(`/api/v2/mods/${modId}/versions`, type(ModVersion.array())),
+			networkMode: 'offlineFirst'
 		}),
 
 	versionInfo: (modId: string, version: string) =>
 		queryOptions({
 			queryKey: modsVersionInfoKey(modId, version),
 			queryFn: () => apiFetch(`/api/v2/mods/${modId}/versions/${version}/info`, ModVersionInfo),
-			enabled: !!modId && !!version
+			enabled: !!modId && !!version,
+			networkMode: 'offlineFirst'
 		}),
 
 	resolvedDependencies: (dependencies: ModDependency[]) => {
@@ -151,7 +159,8 @@ export const modQueries = {
 					} => item !== null
 				);
 			},
-			enabled: dependencies.length > 0
+			enabled: dependencies.length > 0,
+			networkMode: 'offlineFirst'
 		});
 	}
 };

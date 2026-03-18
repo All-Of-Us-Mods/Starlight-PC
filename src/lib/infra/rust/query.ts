@@ -23,6 +23,7 @@ export function rustQueryOptions<TCommand extends RustCommandName, TQueryKey ext
 	const { command, args, ...options } = config;
 	return queryOptions({
 		...options,
-		queryFn: () => rustInvoke(command, args)
+		queryFn: () => rustInvoke(command, args),
+		networkMode: 'always'
 	});
 }

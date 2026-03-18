@@ -1,6 +1,5 @@
 import type { QueryClient } from '@tanstack/svelte-query';
 import { startupState } from '../state/startup.svelte';
-import type { Profile } from '$lib/features/profiles/schema';
 import { profileActions } from '$lib/features/profiles/actions';
 import { profileQueries } from '$lib/features/profiles/queries';
 import { settingsQueries } from '$lib/features/settings/queries';
@@ -12,6 +11,7 @@ import { watchProfileDirectory } from './profile-directory-watch';
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { info, warn } from '@tauri-apps/plugin-log';
 import { showError } from '$lib/utils/toast';
+import { initQueryPersistence } from '$lib/infra/query/client';
 
 async function handleDeepLinkUrls(queryClient: QueryClient, urls: string[]) {
 	const profileId = urls.map(parseProfileIdFromDeepLink).find((value): value is string => !!value);
@@ -19,7 +19,7 @@ async function handleDeepLinkUrls(queryClient: QueryClient, urls: string[]) {
 
 	try {
 		const profiles = await queryClient.fetchQuery(profileQueries.all());
-		const profile = (profiles as Profile[]).find((entry) => entry.id === profileId);
+		const profile = profiles.find((entry) => entry.id === profileId);
 		if (!profile) {
 			showError(`Profile shortcut target '${profileId}' was not found`, 'Profile shortcut');
 			return;
@@ -34,6 +34,10 @@ async function handleDeepLinkUrls(queryClient: QueryClient, urls: string[]) {
 export async function bootstrapApp(queryClient: QueryClient): Promise<() => void> {
 	await info('Starlight frontend initialized');
 	const cleanups: Array<() => void> = [];
+
+	const [unpersist, restored] = initQueryPersistence();
+	cleanups.push(unpersist);
+	await restored;
 
 	void updateState.check();
 
@@ -52,7 +56,8 @@ export async function bootstrapApp(queryClient: QueryClient): Promise<() => void
 		const profilesDir = await queryClient.fetchQuery(profileQueries.dir());
 		cleanups.push(await watchProfileDirectory(queryClient, profilesDir));
 	} catch (error) {
-		await warn(`Failed to initialize bootstrap state: ${error}`);
+		const message = error instanceof Error ? error.message : String(error);
+		await warn(`Failed to initialize bootstrap state: ${message}`);
 	}
 
 	if (hasTauriWindowInternals()) {
@@ -67,7 +72,8 @@ export async function bootstrapApp(queryClient: QueryClient): Promise<() => void
 				void handleDeepLinkUrls(queryClient, startUrls);
 			}
 		} catch (error) {
-			await warn(`Failed to initialize deep-link handling: ${error}`);
+			const message = error instanceof Error ? error.message : String(error);
+			await warn(`Failed to initialize deep-link handling: ${message}`);
 		}
 	}
 

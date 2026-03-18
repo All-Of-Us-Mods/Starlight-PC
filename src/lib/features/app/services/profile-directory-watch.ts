@@ -29,7 +29,8 @@ export async function watchProfileDirectory(
 						]);
 						await info('Profiles, unified-mods, disk-files, and profile-logs queries invalidated');
 					} catch (error) {
-						await warn(`Failed to invalidate profile-related queries: ${error}`);
+						const message = error instanceof Error ? error.message : String(error);
+						await warn(`Failed to invalidate profile-related queries: ${message}`);
 					}
 				})();
 			}, 300);
@@ -41,7 +42,8 @@ export async function watchProfileDirectory(
 			unwatchProfiles();
 		};
 	} catch (error) {
-		await warn(`Failed to set up profiles directory watcher: ${error}`);
+		const message = error instanceof Error ? error.message : String(error);
+		await warn(`Failed to set up profiles directory watcher: ${message}`);
 		return () => {
 			clearTimeout(debounceTimer);
 		};

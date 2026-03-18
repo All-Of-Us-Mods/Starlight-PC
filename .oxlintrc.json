@@ -14,5 +14,9 @@
 	"rules": {
 		"no-undef": "off"
 	},
-	"ignorePatterns": ["src-tauri/", ".svelte-kit/", "build/", "static/"]
+	"options": {
+		"typeAware": true,
+		"typeCheck": true
+	},
+	"ignorePatterns": ["src-tauri/", ".svelte-kit/", "build/", "static/", "src/lib/components/ui"]
 }
