@@ -12,6 +12,7 @@ import { watchProfileDirectory } from './profile-directory-watch';
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { info, warn } from '@tauri-apps/plugin-log';
 import { showError } from '$lib/utils/toast';
+import { initQueryPersistence } from '$lib/infra/query/client';
 
 async function handleDeepLinkUrls(queryClient: QueryClient, urls: string[]) {
 	const profileId = urls.map(parseProfileIdFromDeepLink).find((value): value is string => !!value);
@@ -34,6 +35,9 @@ async function handleDeepLinkUrls(queryClient: QueryClient, urls: string[]) {
 export async function bootstrapApp(queryClient: QueryClient): Promise<() => void> {
 	await info('Starlight frontend initialized');
 	const cleanups: Array<() => void> = [];
+
+	const [unpersist] = initQueryPersistence();
+	cleanups.push(unpersist);
 
 	void updateState.check();
 
