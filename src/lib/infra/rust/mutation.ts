@@ -3,11 +3,7 @@ import type { RustCommandArgsInput, RustCommandName, RustCommandResult } from '.
 import { type AppInvokeError, rustInvoke } from './invoke';
 
 type RustMutationConfig<TCommand extends RustCommandName> = Omit<
-	MutationOptions<
-		RustCommandResult<TCommand>,
-		AppInvokeError,
-		RustCommandArgsInput<TCommand>
-	>,
+	MutationOptions<RustCommandResult<TCommand>, AppInvokeError, RustCommandArgsInput<TCommand>>,
 	'mutationFn'
 > & {
 	command: TCommand;
