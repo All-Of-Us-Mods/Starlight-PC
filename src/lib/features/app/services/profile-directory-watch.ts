@@ -23,6 +23,8 @@ export async function watchProfileDirectory(
 
 			clearTimeout(debounceTimer);
 			debounceTimer = setTimeout(() => {
+				if (isProfileMutationInFlight()) return;
+
 				void (async () => {
 					try {
 						await info('Profiles directory changed, invalidating queries');

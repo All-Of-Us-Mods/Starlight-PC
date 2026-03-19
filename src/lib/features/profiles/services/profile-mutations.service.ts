@@ -1,4 +1,8 @@
-export let activeMutationsCount = 0;
+let activeMutationsCount = 0;
+
+export function getActiveMutationsCount() {
+	return activeMutationsCount;
+}
 
 export function isProfileMutationInFlight() {
 	return activeMutationsCount > 0;

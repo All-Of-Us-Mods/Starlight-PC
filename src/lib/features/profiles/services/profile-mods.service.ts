@@ -31,9 +31,15 @@ export async function removeMissingMods(profileId: string): Promise<number> {
 		return 0;
 	}
 
-	await Promise.allSettled(
+	const results = await Promise.allSettled(
 		missingMods.map((mod) => rustInvoke('profiles_remove_mod', { profileId, modId: mod.mod_id }))
 	);
+
+	for (const result of results) {
+		if (result.status === 'rejected') {
+			console.error('[profiles] Failed to remove missing mod', result.reason);
+		}
+	}
 
 	return missingMods.length;
 }
