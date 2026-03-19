@@ -19,8 +19,7 @@ import {
 	installBepInExForProfile,
 	type InstallArgs,
 	invalidateAfterModInstall,
-	installModsForProfile,
-	type InstalledModResult
+	installModsForProfile
 } from './services/profile-install.service';
 import { removeMissingMods, removeUnifiedMod } from './services/profile-mods.service';
 import { withProfileMutationTracking } from './services/profile-mutations.service';
