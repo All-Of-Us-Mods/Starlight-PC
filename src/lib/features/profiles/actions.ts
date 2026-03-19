@@ -3,7 +3,7 @@ import { gameState } from './state/game-state.svelte';
 import type { Profile, ProfileIconSelection, UnifiedMod } from './schema';
 import { profilesQueryKey } from './profile-keys';
 import { rustInvoke } from '$lib/infra/rust/invoke';
-import { getProfileById, invalidateProfileAndDiskQueries } from './services/profile-files.service';
+import { invalidateProfileAndDiskQueries } from './services/profile-files.service';
 import {
 	closeWindowAfterLaunch,
 	ensureEpicLogin,
@@ -22,52 +22,52 @@ import {
 	installModsForProfile,
 	type InstalledModResult
 } from './services/profile-install.service';
+import { removeMissingMods, removeUnifiedMod } from './services/profile-mods.service';
+import { withProfileMutationTracking } from './services/profile-mutations.service';
 import { resolveProfileShortcutIconBytes } from './services/profile-shortcut.service';
 
 let launchInFlight = false;
+
 export const profileActions = {
 	create: (queryClient: QueryClient) => ({
-		mutationFn: async (name: string) => {
-			const profile = await rustInvoke('profiles_create', { name });
-			void installBepInExForProfile(profile.id)
-				.catch((error) => {
-					console.error('[profiles] Background BepInEx install failed', error);
-				})
-				.finally(() => {
-					void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
-				});
-			return profile;
-		},
-		onSuccess: (created: Profile) => {
-			queryClient.setQueryData<Profile[] | undefined>(profilesQueryKey, (current) => {
-				if (!current) return [created];
-				const hasProfile = current.some((profile) => profile.id === created.id);
-				return hasProfile
-					? current.map((profile) => (profile.id === created.id ? created : profile))
-					: [...current, created];
-			});
+		mutationFn: (name: string) =>
+			withProfileMutationTracking(async () => {
+				const profile = await rustInvoke('profiles_create', { name });
+				// Track the background install so the watcher stays paused
+				void withProfileMutationTracking(() => installBepInExForProfile(profile.id))
+					.catch((error) => {
+						console.error('[profiles] Background BepInEx install failed', error);
+					})
+					.finally(() => {
+						void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
+					});
+				return profile;
+			}),
+		onSettled: () => {
+			void queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	delete: (queryClient: QueryClient) => ({
-		mutationFn: (profileId: string) => rustInvoke('profiles_delete', { profileId }),
-		onSuccess: async () => {
+		mutationFn: (profileId: string) =>
+			withProfileMutationTracking(() => rustInvoke('profiles_delete', { profileId })),
+		onSettled: async () => {
 			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	rename: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; newName: string }) =>
-			rustInvoke('profiles_rename', args),
-		onSuccess: async () => {
+			withProfileMutationTracking(() => rustInvoke('profiles_rename', args)),
+		onSettled: async () => {
 			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	updateIcon: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; selection: ProfileIconSelection }) =>
-			rustInvoke('profiles_update_icon', args),
-		onSuccess: async (_data: void, args: { profileId: string }) => {
+			withProfileMutationTracking(() => rustInvoke('profiles_update_icon', args)),
+		onSettled: async (_data: unknown, _error: unknown, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
 			await queryClient.invalidateQueries({
 				predicate: (query) =>
@@ -78,108 +78,88 @@ export const profileActions = {
 
 	addMod: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; modId: string; version: string; file: string }) =>
-			rustInvoke('profiles_add_mod', args),
-		onSuccess: async (_data: void, args: { profileId: string }) => {
+			withProfileMutationTracking(() => rustInvoke('profiles_add_mod', args)),
+		onSettled: async (_data: unknown, _error: unknown, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
 		}
 	}),
 
 	removeMod: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; modId: string }) =>
-			rustInvoke('profiles_remove_mod', args),
-		onSuccess: async (_data: void, args: { profileId: string }) => {
+			withProfileMutationTracking(() => rustInvoke('profiles_remove_mod', args)),
+		onSettled: async (_data: unknown, _error: unknown, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
 		}
 	}),
 
 	deleteUnifiedMod: (queryClient: QueryClient) => ({
-		mutationFn: async (args: { profileId: string; mod: UnifiedMod }) => {
-			const profile = await getProfileById(args.profileId);
-			if (!profile) {
-				throw new Error(`Profile '${args.profileId}' not found`);
-			}
-
-			await rustInvoke('profiles_delete_mod_file', {
-				profilePath: profile.path,
-				fileName: args.mod.file
-			});
-			if (args.mod.source === 'managed') {
-				await rustInvoke('profiles_remove_mod', {
-					profileId: args.profileId,
-					modId: args.mod.mod_id
-				});
-			}
-		},
-		onSuccess: async (_data: void, args: { profileId: string }) => {
+		mutationFn: (args: { profileId: string; mod: UnifiedMod }) =>
+			withProfileMutationTracking(() => removeUnifiedMod(args.profileId, args.mod)),
+		onSettled: async (_data: unknown, _error: unknown, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
 		}
 	}),
 
 	cleanupMissingMods: (queryClient: QueryClient) => ({
-		mutationFn: async (profileId: string) => {
-			const profile = await getProfileById(profileId);
-			if (!profile) return;
-			const diskFiles = await rustInvoke('profiles_get_mod_files', { profilePath: profile.path });
-			const diskSet = new Set(diskFiles);
-			const missingMods = profile.mods.filter((mod) => mod.file && !diskSet.has(mod.file));
-			await Promise.allSettled(
-				missingMods.map((mod) =>
-					rustInvoke('profiles_remove_mod', { profileId, modId: mod.mod_id })
-				)
-			);
-		},
-		onSuccess: async () => {
+		mutationFn: (profileId: string) =>
+			withProfileMutationTracking(() => removeMissingMods(profileId)),
+		onSettled: async () => {
 			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	updatePlayTime: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; durationMs: number }) =>
-			rustInvoke('profiles_add_play_time', args),
-		onSuccess: async () => {
+			withProfileMutationTracking(() => rustInvoke('profiles_add_play_time', args)),
+		onSettled: async () => {
 			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	retryBepInExInstall: (queryClient: QueryClient) => ({
-		mutationFn: (args: { profileId: string }) => installBepInExForProfile(args.profileId),
-		onSuccess: async () => {
+		mutationFn: (args: { profileId: string }) =>
+			withProfileMutationTracking(() => installBepInExForProfile(args.profileId)),
+		onSettled: async () => {
 			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	exportZip: () => ({
 		mutationFn: (args: { profileId: string; destination: string }) =>
-			rustInvoke('profiles_export_zip', args)
+			withProfileMutationTracking(() => rustInvoke('profiles_export_zip', args))
 	}),
 
 	createDesktopShortcut: (queryClient: QueryClient) => ({
-		mutationFn: async (profile: Profile) => {
-			const iconBytes = await resolveProfileShortcutIconBytes(queryClient, profile);
-			return rustInvoke('profiles_create_desktop_shortcut', {
-				profileId: profile.id,
-				iconBytes
-			});
-		}
+		mutationFn: (profile: Profile) =>
+			withProfileMutationTracking(async () => {
+				const iconBytes = await resolveProfileShortcutIconBytes(queryClient, profile);
+				return rustInvoke('profiles_create_desktop_shortcut', {
+					profileId: profile.id,
+					iconBytes
+				});
+			})
 	}),
 
 	importZip: (queryClient: QueryClient) => ({
-		mutationFn: (zipPath: string) => rustInvoke('profiles_import_zip', { zipPath }),
-		onSuccess: async () => {
+		mutationFn: (zipPath: string) =>
+			withProfileMutationTracking(() => rustInvoke('profiles_import_zip', { zipPath })),
+		onSettled: async () => {
 			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	updateLastLaunched: (queryClient: QueryClient) => ({
-		mutationFn: (profileId: string) => rustInvoke('profiles_update_last_launched', { profileId }),
-		onSuccess: async () => {
+		mutationFn: (profileId: string) =>
+			withProfileMutationTracking(() => rustInvoke('profiles_update_last_launched', { profileId })),
+		onSettled: async () => {
 			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
 	}),
 
 	installMods: (queryClient: QueryClient) => ({
-		mutationFn: (args: InstallArgs) => installModsForProfile(queryClient, args),
-		onSuccess: (_data: InstalledModResult[], args: InstallArgs) => {
+		mutationFn: (args: InstallArgs) =>
+			withProfileMutationTracking(() => installModsForProfile(queryClient, args)),
+		onSettled: (_data: unknown, _error: unknown, args: InstallArgs) => {
 			void invalidateAfterModInstall(queryClient, args);
 		}
 	}),

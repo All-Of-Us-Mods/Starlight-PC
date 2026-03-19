@@ -7,6 +7,9 @@ import {
 	profilesQueryKey,
 	unifiedModsQueryKey
 } from '$lib/features/profiles/profile-keys';
+import { isProfileMutationInFlight } from '$lib/features/profiles/services/profile-mutations.service';
+
+const PROFILE_DIR_CHANGE_DEBOUNCE_MS = 500;
 
 export async function watchProfileDirectory(
 	queryClient: QueryClient,
@@ -16,6 +19,8 @@ export async function watchProfileDirectory(
 
 	try {
 		const unwatchProfiles = await watchDirectory(profilesDir, () => {
+			if (isProfileMutationInFlight()) return;
+
 			clearTimeout(debounceTimer);
 			debounceTimer = setTimeout(() => {
 				void (async () => {
@@ -33,7 +38,7 @@ export async function watchProfileDirectory(
 						await warn(`Failed to invalidate profile-related queries: ${message}`);
 					}
 				})();
-			}, 300);
+			}, PROFILE_DIR_CHANGE_DEBOUNCE_MS);
 		});
 
 		await info(`Watching profiles directory: ${profilesDir}`);
