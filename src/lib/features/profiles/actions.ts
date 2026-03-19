@@ -141,7 +141,38 @@ export const profileActions = {
 
 	importZip: (queryClient: QueryClient) => ({
 		mutationFn: (zipPath: string) =>
-			withProfileMutationTracking(() => rustInvoke('profiles_import_zip', { zipPath })),
+			withProfileMutationTracking(async () => {
+				const profiles = await rustInvoke('profiles_import_zip', { zipPath });
+
+				// Run installations in background
+				await withProfileMutationTracking(async () => {
+					for (const profile of profiles) {
+						try {
+							if (!profile.bepinex_installed) {
+								await installBepInExForProfile(profile.id);
+							}
+							if (profile.mods && profile.mods.length > 0) {
+								try {
+									const installArgs = {
+										profileId: profile.id,
+										mods: profile.mods.map((m) => ({ modId: m.mod_id, version: m.version }))
+									};
+									await installModsForProfile(queryClient, installArgs);
+									void invalidateProfileAndDiskQueries(queryClient, installArgs);
+								} catch (e) {
+									console.error(`[profiles] Failed to install imported mods for ${profile.id}`, e);
+								}
+							}
+						} catch (error) {
+							console.error(`[profiles] Post-import installation failed for ${profile.id}`, error);
+						} finally {
+							void invalidateProfileAndDiskQueries(queryClient, { profileId: profile.id });
+						}
+					}
+				});
+
+				return profiles;
+			}),
 		onSettled: async () => {
 			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}

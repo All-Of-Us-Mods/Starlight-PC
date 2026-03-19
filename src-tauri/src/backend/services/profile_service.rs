@@ -726,85 +726,148 @@ fn make_unique_profile_name(requested: &str, profiles: &[ProfileEntry]) -> Strin
 struct ImportedMetadata {
     name: Option<String>,
     last_launched_at: Option<i64>,
+    bepinex_installed: Option<bool>,
     icon_mode: Option<String>,
     custom_icon_extension: Option<String>,
     icon_mod_id: Option<String>,
-    mods: Option<Vec<ProfileModEntry>>,
+    mods: Option<serde_json::Value>,
 }
 
 pub fn import_profile_zip<R: Runtime>(
     app: &AppHandle<R>,
     zip_path: &str,
-) -> AppResult<ProfileEntry> {
-    let profiles = get_profiles(app)?;
+) -> AppResult<Vec<ProfileEntry>> {
+    let mut profiles = get_profiles(app)?;
     let zip_name = derive_name_from_zip_path(zip_path);
-    let timestamp = now_millis();
-    let profile_id = build_profile_id(&zip_name, timestamp);
-    let profile_path = PathBuf::from(get_profiles_dir(app)?).join(&profile_id);
-    fs::create_dir_all(&profile_path)?;
 
-    let import_result = profile_zip_service::import_profile_zip(
-        zip_path.to_string(),
-        profile_path.to_string_lossy().to_string(),
-    );
-
-    if let Err(error) = import_result {
-        let _ = fs::remove_dir_all(&profile_path);
-        return Err(error);
+    let zip_infos = profile_zip_service::analyze_profile_zip(zip_path)?;
+    if zip_infos.is_empty() {
+        return Err(crate::backend::error::AppError::validation(
+            "Zip file contains no valid profiles.",
+        ));
     }
-    let import_result = import_result?;
 
-    let metadata_path = metadata_path(&profile_path);
-    let imported = fs::read_to_string(&metadata_path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<ImportedMetadata>(&raw).ok());
+    let mut imported_profiles = Vec::new();
+    let zip_count = zip_infos.len();
 
-    let requested_name = import_result
-        .metadata_name
-        .or_else(|| imported.as_ref().and_then(|item| item.name.clone()))
-        .unwrap_or(zip_name);
-    let unique_name = make_unique_profile_name(&requested_name, &profiles);
+    for (index, info) in zip_infos.into_iter().enumerate() {
+        let timestamp = now_millis() + index as i64;
+        let base_name = info
+            .metadata_name
+            .clone()
+            .or_else(|| info.root_prefix.clone())
+            .unwrap_or_else(|| {
+                if zip_count > 1 {
+                    format!("{} ({})", zip_name, index + 1)
+                } else {
+                    zip_name.clone()
+                }
+            });
 
-    let mut profile = ProfileEntry {
-        id: profile_id,
-        name: unique_name,
-        path: profile_path.to_string_lossy().to_string(),
-        created_at: timestamp,
-        last_launched_at: imported.as_ref().and_then(|item| item.last_launched_at),
-        bepinex_installed: Some(true),
-        total_play_time: Some(0),
-        icon_mode: imported.as_ref().and_then(|item| item.icon_mode.clone()),
-        custom_icon_extension: imported
-            .as_ref()
-            .and_then(|item| item.custom_icon_extension.clone())
-            .and_then(|ext| normalize_custom_icon_extension(&ext)),
-        icon_mod_id: imported.as_ref().and_then(|item| item.icon_mod_id.clone()),
-        mods: imported
-            .and_then(|item| item.mods)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|mut mod_entry| {
-                mod_entry.file = mod_entry.file.and_then(|file_name| {
-                    Path::new(&file_name)
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .filter(|name| {
-                            *name == file_name
-                                && !file_name.contains('/')
-                                && !file_name.contains('\\')
-                        })
-                        .map(|name| name.to_string())
-                });
-                mod_entry
-            })
-            .collect(),
-    };
-    normalize_icon_selection(&mut profile);
-    if let Err(error) = write_profile(&profile) {
-        let _ = fs::remove_dir_all(&profile_path);
-        return Err(error);
+        let profile_id = build_profile_id(&base_name, timestamp);
+        let profile_path = PathBuf::from(get_profiles_dir(app)?).join(&profile_id);
+        fs::create_dir_all(&profile_path)?;
+
+        let extract_result = profile_zip_service::extract_profile_from_zip(
+            zip_path,
+            &profile_path.to_string_lossy(),
+            info.root_prefix.as_deref(),
+        );
+
+        if let Err(error) = extract_result {
+            let _ = fs::remove_dir_all(&profile_path);
+            return Err(error);
+        }
+
+        let metadata_path = metadata_path(&profile_path);
+        if !metadata_path.exists()
+            && let Some(bytes) = info.metadata_bytes
+        {
+            let _ = fs::write(&metadata_path, &bytes);
+        }
+
+        let imported = fs::read_to_string(&metadata_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<ImportedMetadata>(&raw).ok());
+
+        let requested_name = info
+            .metadata_name
+            .or_else(|| imported.as_ref().and_then(|item| item.name.clone()))
+            .unwrap_or(base_name);
+
+        let unique_name = make_unique_profile_name(&requested_name, &profiles);
+
+        let mut profile = ProfileEntry {
+            id: profile_id,
+            name: unique_name.clone(),
+            path: profile_path.to_string_lossy().to_string(),
+            created_at: timestamp,
+            last_launched_at: imported.as_ref().and_then(|item| item.last_launched_at),
+            bepinex_installed: Some(
+                imported
+                    .as_ref()
+                    .and_then(|item| item.bepinex_installed)
+                    .unwrap_or(false),
+            ),
+            total_play_time: Some(0),
+            icon_mode: imported.as_ref().and_then(|item| item.icon_mode.clone()),
+            custom_icon_extension: imported
+                .as_ref()
+                .and_then(|item| item.custom_icon_extension.clone())
+                .and_then(|ext| normalize_custom_icon_extension(&ext)),
+            icon_mod_id: imported.as_ref().and_then(|item| item.icon_mod_id.clone()),
+            mods: imported
+                .and_then(|item| item.mods)
+                .map(|mods_value| {
+                    let mut entries = Vec::new();
+                    if let Some(mods_map) = mods_value.as_object() {
+                        for (mod_id, version_val) in mods_map {
+                            let version = version_val.as_str().unwrap_or("").to_string();
+                            entries.push(ProfileModEntry {
+                                mod_id: mod_id.clone(),
+                                version,
+                                file: None,
+                            });
+                        }
+                    } else if let Some(mods_array) = mods_value.as_array() {
+                        for mod_entry in mods_array {
+                            if let Ok(entry) =
+                                serde_json::from_value::<ProfileModEntry>(mod_entry.clone())
+                            {
+                                entries.push(entry);
+                            }
+                        }
+                    }
+                    entries
+                })
+                .unwrap_or_default()
+                .into_iter()
+                .map(|mut mod_entry| {
+                    mod_entry.file = mod_entry.file.and_then(|file_name| {
+                        Path::new(&file_name)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .filter(|name| {
+                                *name == file_name
+                                    && !file_name.contains('/')
+                                    && !file_name.contains('\\')
+                            })
+                            .map(|name| name.to_string())
+                    });
+                    mod_entry
+                })
+                .collect(),
+        };
+        normalize_icon_selection(&mut profile);
+        if let Err(error) = write_profile(&profile) {
+            let _ = fs::remove_dir_all(&profile_path);
+            return Err(error);
+        }
+
+        profiles.push(profile.clone());
+        imported_profiles.push(profile);
     }
-    Ok(profile)
+    Ok(imported_profiles)
 }
 
 pub fn export_profile_zip<R: Runtime>(
