@@ -237,12 +237,14 @@ fn add_directory_to_zip(
             continue;
         }
 
-        if is_metadata_file(relative) {
+        let is_root_metadata = is_metadata_file(relative) && relative.components().count() == 1;
+
+        if is_root_metadata {
             zip_path = "profile.json".to_string();
         }
 
         zip.start_file(zip_path, ctx.options)?;
-        if is_metadata_file(relative) {
+        if is_root_metadata {
             *metadata_written = true;
             zip.write_all(ctx.sanitized_metadata.as_bytes())?;
         } else {

@@ -748,6 +748,7 @@ pub fn import_profile_zip<R: Runtime>(
     }
 
     let mut imported_profiles = Vec::new();
+    let mut created_paths = Vec::new();
     let zip_count = zip_infos.len();
 
     for (index, info) in zip_infos.into_iter().enumerate() {
@@ -767,6 +768,7 @@ pub fn import_profile_zip<R: Runtime>(
         let profile_id = build_profile_id(&base_name, timestamp);
         let profile_path = PathBuf::from(get_profiles_dir(app)?).join(&profile_id);
         fs::create_dir_all(&profile_path)?;
+        created_paths.push(profile_path.clone());
 
         let extract_result = profile_zip_service::extract_profile_from_zip(
             zip_path,
@@ -775,7 +777,9 @@ pub fn import_profile_zip<R: Runtime>(
         );
 
         if let Err(error) = extract_result {
-            let _ = fs::remove_dir_all(&profile_path);
+            for path in &created_paths {
+                let _ = fs::remove_dir_all(path);
+            }
             return Err(error);
         }
 
@@ -860,7 +864,9 @@ pub fn import_profile_zip<R: Runtime>(
         };
         normalize_icon_selection(&mut profile);
         if let Err(error) = write_profile(&profile) {
-            let _ = fs::remove_dir_all(&profile_path);
+            for path in &created_paths {
+                let _ = fs::remove_dir_all(path);
+            }
             return Err(error);
         }
 

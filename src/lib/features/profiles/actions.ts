@@ -24,6 +24,7 @@ import {
 import { removeMissingMods, removeUnifiedMod } from './services/profile-mods.service';
 import { withProfileMutationTracking } from './services/profile-mutations.service';
 import { resolveProfileShortcutIconBytes } from './services/profile-shortcut.service';
+import { showError } from '$lib/utils/toast';
 
 let launchInFlight = false;
 
@@ -165,6 +166,7 @@ export const profileActions = {
 											`[profiles] Failed to install imported mods for ${profile.id}`,
 											e
 										);
+										showError(e, `Failed to install mods for imported profile "${profile.name}"`);
 									}
 								}
 							} catch (error) {
@@ -172,6 +174,7 @@ export const profileActions = {
 									`[profiles] Post-import installation failed for ${profile.id}`,
 									error
 								);
+								showError(error, `Post-import setup failed for "${profile.name}"`);
 							} finally {
 								void invalidateProfileAndDiskQueries(queryClient, { profileId: profile.id });
 							}
