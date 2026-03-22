@@ -806,8 +806,8 @@ pub fn import_profile_zip<R: Runtime>(
             bepinex_installed: Some(
                 imported
                     .as_ref()
-                    .and_then(|item| item.bepinex_installed)
-                    .unwrap_or(false),
+                    .map(|item| item.bepinex_installed.unwrap_or(false))
+                    .unwrap_or(true),
             ),
             total_play_time: Some(0),
             icon_mode: imported.as_ref().and_then(|item| item.icon_mode.clone()),
