@@ -101,7 +101,11 @@
 			if (!selected) return;
 
 			const imported = await importProfileZip.mutateAsync(selected);
-			showSuccess(`Profile "${imported.name}" imported`);
+			if (imported.length === 1) {
+				showSuccess(`Profile "${imported[0].name}" imported`);
+			} else {
+				showSuccess(`${imported.length} profiles imported`);
+			}
 		} catch (e) {
 			showError(e, 'Import profile');
 		} finally {

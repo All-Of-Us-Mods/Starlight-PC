@@ -334,7 +334,7 @@ pub async fn profiles_export_zip<R: Runtime>(
 pub async fn profiles_import_zip<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesImportZipArgs,
-) -> Result<ProfileEntry, String> {
+) -> Result<Vec<ProfileEntry>, String> {
     let result = tauri::async_runtime::spawn_blocking(move || {
         profile_service::import_profile_zip(&app, &args.zip_path)
     })

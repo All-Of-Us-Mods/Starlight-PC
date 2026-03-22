@@ -24,6 +24,7 @@ import {
 import { removeMissingMods, removeUnifiedMod } from './services/profile-mods.service';
 import { withProfileMutationTracking } from './services/profile-mutations.service';
 import { resolveProfileShortcutIconBytes } from './services/profile-shortcut.service';
+import { showError } from '$lib/utils/toast';
 
 let launchInFlight = false;
 
@@ -141,7 +142,48 @@ export const profileActions = {
 
 	importZip: (queryClient: QueryClient) => ({
 		mutationFn: (zipPath: string) =>
-			withProfileMutationTracking(() => rustInvoke('profiles_import_zip', { zipPath })),
+			withProfileMutationTracking(async () => {
+				const profiles = await rustInvoke('profiles_import_zip', { zipPath });
+
+				// Run installations in background
+				void withProfileMutationTracking(async () => {
+					await Promise.all(
+						profiles.map(async (profile) => {
+							try {
+								if (!profile.bepinex_installed) {
+									await installBepInExForProfile(profile.id);
+								}
+								if (profile.mods && profile.mods.length > 0) {
+									try {
+										const installArgs = {
+											profileId: profile.id,
+											mods: profile.mods.map((m) => ({ modId: m.mod_id, version: m.version }))
+										};
+										await installModsForProfile(queryClient, installArgs);
+										void invalidateProfileAndDiskQueries(queryClient, installArgs);
+									} catch (e) {
+										console.error(
+											`[profiles] Failed to install imported mods for ${profile.id}`,
+											e
+										);
+										showError(e, `Failed to install mods for imported profile "${profile.name}"`);
+									}
+								}
+							} catch (error) {
+								console.error(
+									`[profiles] Post-import installation failed for ${profile.id}`,
+									error
+								);
+								showError(error, `Post-import setup failed for "${profile.name}"`);
+							} finally {
+								void invalidateProfileAndDiskQueries(queryClient, { profileId: profile.id });
+							}
+						})
+					);
+				});
+
+				return profiles;
+			}),
 		onSettled: async () => {
 			await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
 		}
