@@ -5,7 +5,6 @@
 		profile: Profile | null;
 		deleteDialogOpen: boolean;
 		renameDialogOpen: boolean;
-		deleteModDialogOpen: boolean;
 		newProfileName: string;
 		renameError: string;
 		renamePending: boolean;
@@ -14,8 +13,6 @@
 		onConfirmDeleteProfile: () => void;
 		onCancelRename: () => void;
 		onConfirmRename: () => void;
-		onCancelDeleteMod: () => void;
-		onConfirmDeleteMod: () => void;
 	}
 </script>
 
@@ -38,7 +35,6 @@
 		profile,
 		deleteDialogOpen = $bindable(),
 		renameDialogOpen = $bindable(),
-		deleteModDialogOpen = $bindable(),
 		newProfileName = $bindable(),
 		renameError,
 		renamePending,
@@ -46,9 +42,7 @@
 		onCancelDeleteProfile,
 		onConfirmDeleteProfile,
 		onCancelRename,
-		onConfirmRename,
-		onCancelDeleteMod,
-		onConfirmDeleteMod
+		onConfirmRename
 	}: ProfileDialogsProps = $props();
 </script>
 
@@ -107,23 +101,3 @@
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
-
-<AlertDialog bind:open={deleteModDialogOpen}>
-	<AlertDialogContent>
-		<AlertDialogHeader>
-			<AlertDialogTitle>Remove Mod?</AlertDialogTitle>
-			<AlertDialogDescription>
-				Are you sure you want to remove this mod from the profile? The mod file will be deleted.
-			</AlertDialogDescription>
-		</AlertDialogHeader>
-		<AlertDialogFooter>
-			<AlertDialogCancel onclick={onCancelDeleteMod}>Cancel</AlertDialogCancel>
-			<AlertDialogAction
-				onclick={onConfirmDeleteMod}
-				class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-			>
-				Remove Mod
-			</AlertDialogAction>
-		</AlertDialogFooter>
-	</AlertDialogContent>
-</AlertDialog>
