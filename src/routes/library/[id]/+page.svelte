@@ -5,7 +5,7 @@
 	import { onDestroy } from 'svelte';
 	import { join } from '@tauri-apps/api/path';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
-	import { save as saveDialog } from '@tauri-apps/plugin-dialog';
+	import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 	import {
 		createMutation,
 		createQuery,
@@ -64,6 +64,7 @@
 	const cleanupMissingMods = createMutation(() => profileActions.cleanupMissingMods(queryClient));
 	const installMods = createMutation(() => profileActions.installMods(queryClient));
 	const exportProfileZip = createMutation(() => profileActions.exportZip());
+	const importProfileMod = createMutation(() => profileActions.importMod(queryClient));
 	const createDesktopShortcut = createMutation(() =>
 		profileActions.createDesktopShortcut(queryClient)
 	);
@@ -402,6 +403,29 @@
 			showSuccess(`Exported "${profile.name}"`);
 		} catch (error) {
 			showError(error, 'Export profile');
+		}
+	}
+
+	async function handleImportMod() {
+		if (!profile) return;
+
+		try {
+			const selected = (await openDialog({
+				title: 'Import Profile Mod',
+				multiple: false,
+				directory: false,
+				filters: [{ name: 'DLL files', extensions: ['dll'] }]
+			})) as string | string[] | null;
+
+			const sourcePath = Array.isArray(selected) ? selected[0] : selected;
+
+			if (!sourcePath || typeof sourcePath !== 'string') return;
+
+			await importProfileMod.mutateAsync({ profileId: profile.id, sourcePath });
+			const importedFileName = sourcePath.split(/[/\\]/).pop() || sourcePath;
+			showSuccess(`Imported mod "${importedFileName}"`);
+		} catch (error) {
+			showError(error, 'Import mod');
 		}
 	}
 
@@ -784,6 +808,7 @@
 			onLaunch={handleLaunch}
 			onStop={handleStop}
 			onOpenFolder={() => openProfileFolder(profile)}
+			onImportMod={handleImportMod}
 			onExport={handleExportProfile}
 			onCreateDesktopShortcut={handleCreateDesktopShortcut}
 			onOpenIconEditor={openIconDialog}

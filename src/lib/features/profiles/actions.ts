@@ -1,9 +1,12 @@
 import type { QueryClient } from '@tanstack/svelte-query';
 import { gameState } from './state/game-state.svelte';
 import type { Profile, ProfileIconSelection, UnifiedMod } from './schema';
-import { profilesQueryKey } from './profile-keys';
+import { profileDiskFilesKey, profileUnifiedModsKey, profilesQueryKey } from './profile-keys';
 import { rustInvoke } from '$lib/infra/rust/invoke';
-import { invalidateProfileAndDiskQueries } from './services/profile-files.service';
+import {
+	invalidateProfileAndDiskQueries,
+	getProfilePathFromCache
+} from './services/profile-files.service';
 import {
 	closeWindowAfterLaunch,
 	ensureEpicLogin,
@@ -95,6 +98,62 @@ export const profileActions = {
 	deleteUnifiedMod: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; mod: UnifiedMod }) =>
 			withProfileMutationTracking(() => removeUnifiedMod(args.profileId, args.mod)),
+		onMutate: async (args: { profileId: string; mod: UnifiedMod }) => {
+			const unifiedKey = profileUnifiedModsKey(args.profileId);
+			const profilePath = getProfilePathFromCache(queryClient, args.profileId);
+			const diskKey = profilePath ? profileDiskFilesKey(profilePath) : null;
+			const targetMod = args.mod;
+
+			await queryClient.cancelQueries({ queryKey: unifiedKey });
+			if (diskKey) {
+				await queryClient.cancelQueries({ queryKey: diskKey });
+			}
+
+			const previousUnified = queryClient.getQueryData<UnifiedMod[]>(unifiedKey);
+			const previousDiskFiles = diskKey ? queryClient.getQueryData<string[]>(diskKey) : undefined;
+
+			queryClient.setQueryData<UnifiedMod[]>(unifiedKey, (current) => {
+				if (!current) return current;
+				if (targetMod.source === 'managed') {
+					return current.filter(
+						(item) => !(item.source === 'managed' && item.mod_id === targetMod.mod_id)
+					);
+				}
+				return current.filter((item) => !(item.source === 'custom' && item.file === targetMod.file));
+			});
+
+			if (diskKey) {
+				queryClient.setQueryData<string[]>(diskKey, (current) => {
+					if (!current) return current;
+					return current.filter((file) => file !== targetMod.file);
+				});
+			}
+
+			return {
+				unifiedKey,
+				diskKey,
+				previousUnified,
+				previousDiskFiles
+			};
+		},
+		onError: (
+			_error: unknown,
+			_args: { profileId: string; mod: UnifiedMod },
+			context:
+				| {
+						unifiedKey: readonly unknown[];
+						diskKey: readonly unknown[] | null;
+						previousUnified: UnifiedMod[] | undefined;
+						previousDiskFiles: string[] | undefined;
+				  }
+				| undefined
+		) => {
+			if (!context) return;
+			queryClient.setQueryData(context.unifiedKey, context.previousUnified);
+			if (context.diskKey) {
+				queryClient.setQueryData(context.diskKey, context.previousDiskFiles);
+			}
+		},
 		onSettled: async (_data: unknown, _error: unknown, args: { profileId: string }) => {
 			await invalidateProfileAndDiskQueries(queryClient, args);
 		}
@@ -138,6 +197,68 @@ export const profileActions = {
 					iconBytes
 				});
 			})
+	}),
+
+	importMod: (queryClient: QueryClient) => ({
+		mutationFn: (args: { profileId: string; sourcePath: string }) =>
+			withProfileMutationTracking(() => rustInvoke('profiles_import_mod', args)),
+		onMutate: async (args: { profileId: string; sourcePath: string }) => {
+			const unifiedKey = profileUnifiedModsKey(args.profileId);
+			const profilePath = getProfilePathFromCache(queryClient, args.profileId);
+			const diskKey = profilePath ? profileDiskFilesKey(profilePath) : null;
+			const importedFile = args.sourcePath.split(/[/\\]/).pop() ?? args.sourcePath;
+
+			await queryClient.cancelQueries({ queryKey: unifiedKey });
+			if (diskKey) {
+				await queryClient.cancelQueries({ queryKey: diskKey });
+			}
+
+			const previousUnified = queryClient.getQueryData<UnifiedMod[]>(unifiedKey);
+			const previousDiskFiles = diskKey ? queryClient.getQueryData<string[]>(diskKey) : undefined;
+
+			queryClient.setQueryData<UnifiedMod[]>(unifiedKey, (current) => {
+				if (!current) return current;
+				const alreadyListed = current.some((item) => item.file === importedFile);
+				if (alreadyListed) return current;
+				return [...current, { source: 'custom', file: importedFile }];
+			});
+
+			if (diskKey) {
+				queryClient.setQueryData<string[]>(diskKey, (current) => {
+					if (!current) return current;
+					if (current.includes(importedFile)) return current;
+					return [...current, importedFile];
+				});
+			}
+
+			return {
+				unifiedKey,
+				diskKey,
+				previousUnified,
+				previousDiskFiles
+			};
+		},
+		onError: (
+			_error: unknown,
+			_args: { profileId: string; sourcePath: string },
+			context:
+				| {
+						unifiedKey: readonly unknown[];
+						diskKey: readonly unknown[] | null;
+						previousUnified: UnifiedMod[] | undefined;
+						previousDiskFiles: string[] | undefined;
+				  }
+				| undefined
+		) => {
+			if (!context) return;
+			queryClient.setQueryData(context.unifiedKey, context.previousUnified);
+			if (context.diskKey) {
+				queryClient.setQueryData(context.diskKey, context.previousDiskFiles);
+			}
+		},
+		onSettled: async (_data: unknown, _error: unknown, args: { profileId: string }) => {
+			await invalidateProfileAndDiskQueries(queryClient, args);
+		}
 	}),
 
 	importZip: (queryClient: QueryClient) => ({
