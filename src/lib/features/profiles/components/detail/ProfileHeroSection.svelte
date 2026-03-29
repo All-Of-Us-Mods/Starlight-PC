@@ -16,11 +16,9 @@
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { Button } from '$lib/components/ui/button';
 	import { profileActions } from '$lib/features/profiles/actions';
-	import { invalidateProfileAndDiskQueries } from '$lib/features/profiles/services/profile-files.service';
 	import { gameState } from '$lib/features/profiles/state/game-state.svelte';
 	import { settingsQueries } from '$lib/features/settings/queries';
 	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
-	import { rustInvoke } from '$lib/infra/rust/invoke';
 	import { formatPlayTime } from '$lib/utils';
 	import { showError, showSuccess } from '$lib/utils/toast';
 	import {
@@ -50,17 +48,7 @@
 	const launchProfileMutation = createMutation(() => profileActions.launchProfile(queryClient));
 	const stopProfileInstancesMutation = createMutation(() => profileActions.stopProfileInstances());
 	const exportProfileZip = createMutation(() => profileActions.exportZip());
-	const importProfileMod = createMutation(() => ({
-		mutationFn: (args: { profileId: string; sourcePath: string }) =>
-			rustInvoke('profiles_import_mod' as never, args as never),
-		onSettled: async (
-			_data: unknown,
-			_error: unknown,
-			args: { profileId: string; sourcePath: string }
-		) => {
-			await invalidateProfileAndDiskQueries(queryClient, args);
-		}
-	}));
+	const importProfileMod = createMutation(() => profileActions.importMod(queryClient));
 	const createDesktopShortcut = createMutation(() =>
 		profileActions.createDesktopShortcut(queryClient)
 	);
