@@ -119,7 +119,9 @@ export const profileActions = {
 						(item) => !(item.source === 'managed' && item.mod_id === targetMod.mod_id)
 					);
 				}
-				return current.filter((item) => !(item.source === 'custom' && item.file === targetMod.file));
+				return current.filter(
+					(item) => !(item.source === 'custom' && item.file === targetMod.file)
+				);
 			});
 
 			if (diskKey) {

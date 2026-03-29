@@ -59,7 +59,11 @@ export async function fetchProfileModUpdates(
 	return updatesByModId;
 }
 
-export function filterProfileMods(unified: UnifiedMod[], modsById: Map<string, Mod>, search: string) {
+export function filterProfileMods(
+	unified: UnifiedMod[],
+	modsById: Map<string, Mod>,
+	search: string
+) {
 	const searchLower = search.trim().toLowerCase();
 	return unified.filter((mod) => {
 		if (!searchLower) return true;
