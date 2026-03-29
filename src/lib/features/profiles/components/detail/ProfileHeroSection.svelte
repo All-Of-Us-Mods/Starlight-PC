@@ -3,22 +3,6 @@
 
 	export interface ProfileHeroSectionProps {
 		profile: Profile;
-		isRunning: boolean;
-		isStoppable: boolean;
-		runningInstanceCount: number;
-		allowMultiInstanceLaunch: boolean;
-		lastLaunched: string;
-		totalPlayTimeLabel: string;
-		isDisabled: boolean;
-		isLaunchDisabled: boolean;
-		isLaunching: boolean;
-		isStopping: boolean;
-		onLaunch: () => void | Promise<void>;
-		onStop: () => void | Promise<void>;
-		onOpenFolder: () => void | Promise<void>;
-		onImportMod: () => void | Promise<void>;
-		onExport: () => void | Promise<void>;
-		onCreateDesktopShortcut: () => void | Promise<void>;
 		onOpenIconEditor: () => void;
 		onOpenRename: () => void;
 		onOpenDelete: () => void;
@@ -26,7 +10,17 @@
 </script>
 
 <script lang="ts">
+	import { join } from '@tauri-apps/api/path';
+	import { revealItemInDir } from '@tauri-apps/plugin-opener';
+	import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { Button } from '$lib/components/ui/button';
+	import { profileActions } from '$lib/features/profiles/actions';
+	import { gameState } from '$lib/features/profiles/state/game-state.svelte';
+	import { settingsQueries } from '$lib/features/settings/queries';
+	import { rememberInstallTarget } from '$lib/features/mods/state/install-target.svelte';
+	import { formatPlayTime } from '$lib/utils';
+	import { showError, showSuccess } from '$lib/utils/toast';
 	import {
 		Calendar,
 		Clock,
@@ -43,26 +37,45 @@
 
 	let {
 		profile,
-		isRunning,
-		isStoppable,
-		runningInstanceCount,
-		allowMultiInstanceLaunch,
-		lastLaunched,
-		totalPlayTimeLabel,
-		isDisabled,
-		isLaunchDisabled,
-		isLaunching,
-		isStopping,
-		onLaunch,
-		onStop,
-		onOpenFolder,
-		onImportMod,
-		onExport,
-		onCreateDesktopShortcut,
 		onOpenIconEditor,
 		onOpenRename,
 		onOpenDelete
 	}: ProfileHeroSectionProps = $props();
+
+	const queryClient = useQueryClient();
+	const settingsQuery = createQuery(() => settingsQueries.get());
+
+	const launchProfileMutation = createMutation(() => profileActions.launchProfile(queryClient));
+	const stopProfileInstancesMutation = createMutation(() => profileActions.stopProfileInstances());
+	const exportProfileZip = createMutation(() => profileActions.exportZip());
+	const importProfileMod = createMutation(() => profileActions.importMod(queryClient));
+	const createDesktopShortcut = createMutation(() =>
+		profileActions.createDesktopShortcut(queryClient)
+	);
+
+	let isLaunching = $state(false);
+
+	const runningInstanceCount = $derived(gameState.getProfileRunningInstanceCount(profile.id));
+	const isRunning = $derived(runningInstanceCount > 0);
+	const isStoppable = $derived(gameState.isProfileStoppable(profile.id));
+	const installState = $derived(gameState.getBepInExState(profile.id));
+	const allowMultiInstanceLaunch = $derived(
+		(settingsQuery.data?.allow_multi_instance_launch ?? false) as boolean
+	);
+	const isInstalling = $derived(
+		profile.bepinex_installed === false || installState?.status === 'installing'
+	);
+	const isDisabled = $derived(isInstalling || isRunning);
+	const isLaunchDisabled = $derived(isInstalling || (isRunning && !allowMultiInstanceLaunch));
+	const isStopping = $derived(stopProfileInstancesMutation.isPending);
+
+	const totalPlayTime = $derived(
+		(profile.total_play_time ?? 0) + (isRunning ? gameState.getSessionDuration(profile.id) : 0)
+	);
+	const totalPlayTimeLabel = $derived(formatPlayTime(totalPlayTime));
+	const lastLaunched = $derived(
+		profile.last_launched_at ? new Date(profile.last_launched_at).toLocaleDateString() : 'Never'
+	);
 
 	const launchLabel = $derived(
 		isStoppable
@@ -74,6 +87,87 @@
 				: 'Launch'
 	);
 	const canLaunchAnother = $derived(isRunning && allowMultiInstanceLaunch);
+
+	async function handleLaunch() {
+		if (isLaunchDisabled) return;
+		isLaunching = true;
+		try {
+			await launchProfileMutation.mutateAsync(profile);
+			rememberInstallTarget(profile.id, 'launch');
+		} catch (error) {
+			showError(error);
+		} finally {
+			isLaunching = false;
+		}
+	}
+
+	async function handleStop() {
+		if (!isStoppable) return;
+		try {
+			const stoppedCount = await stopProfileInstancesMutation.mutateAsync(profile.id);
+			showSuccess(
+				stoppedCount === 1
+					? `Stopped "${profile.name}"`
+					: `Stopped ${stoppedCount} instances for "${profile.name}"`
+			);
+		} catch (error) {
+			showError(error, 'Stop profile');
+		}
+	}
+
+	async function handleOpenFolder() {
+		try {
+			await revealItemInDir(await join(profile.path, 'BepInEx'));
+		} catch (error) {
+			showError(error, 'Open folder');
+		}
+	}
+
+	async function handleImportMod() {
+		try {
+			const selected = (await openDialog({
+				title: 'Import Profile Mod',
+				multiple: false,
+				directory: false,
+				filters: [{ name: 'DLL files', extensions: ['dll'] }]
+			})) as string | string[] | null;
+
+			const sourcePath = Array.isArray(selected) ? selected[0] : selected;
+
+			if (!sourcePath || typeof sourcePath !== 'string') return;
+
+			await importProfileMod.mutateAsync({ profileId: profile.id, sourcePath });
+			const importedFileName = sourcePath.split(/[/\\]/).pop() || sourcePath;
+			showSuccess(`Imported mod "${importedFileName}"`);
+		} catch (error) {
+			showError(error, 'Import mod');
+		}
+	}
+
+	async function handleExportProfile() {
+		try {
+			const destination = await saveDialog({
+				title: 'Export Profile ZIP',
+				defaultPath: `${profile.name}.zip`,
+				filters: [{ name: 'ZIP Archive', extensions: ['zip'] }]
+			});
+			if (!destination) return;
+
+			await exportProfileZip.mutateAsync({ profileId: profile.id, destination });
+			showSuccess(`Exported "${profile.name}"`);
+		} catch (error) {
+			showError(error, 'Export profile');
+		}
+	}
+
+	async function handleCreateDesktopShortcut() {
+		try {
+			await createDesktopShortcut.mutateAsync(profile);
+			showSuccess(`Created desktop shortcut for "${profile.name}"`);
+		} catch (error) {
+			showError(error, 'Create desktop shortcut');
+		}
+	}
 </script>
 
 <div class="mb-8 flex flex-col items-start gap-6 md:flex-row md:items-center">
@@ -136,7 +230,7 @@
 			<Button
 				size="lg"
 				class="gap-2"
-				onclick={isStoppable ? onStop : onLaunch}
+				onclick={isStoppable ? handleStop : handleLaunch}
 				disabled={(isStoppable ? isStopping : isLaunchDisabled || isLaunching) || false}
 			>
 				{#if isStopping}
@@ -164,7 +258,7 @@
 					size="lg"
 					variant="outline"
 					class="gap-2"
-					onclick={onLaunch}
+					onclick={handleLaunch}
 					disabled={isLaunchDisabled || isLaunching || isStopping}
 				>
 					{#if isLaunching}
@@ -179,17 +273,17 @@
 				</Button>
 			{/if}
 
-			<Button size="default" variant="outline" class="gap-1.5" onclick={onOpenFolder}>
+			<Button size="default" variant="outline" class="gap-1.5" onclick={handleOpenFolder}>
 				<Folder class="size-4" />
 				<span>Open Folder</span>
 			</Button>
 
-			<Button size="default" variant="outline" class="gap-1.5" onclick={onImportMod}>
+			<Button size="default" variant="outline" class="gap-1.5" onclick={handleImportMod}>
 				<Upload class="size-4" />
 				<span>Import Mod</span>
 			</Button>
 
-			<Button size="default" variant="outline" class="gap-1.5" onclick={onExport}>
+			<Button size="default" variant="outline" class="gap-1.5" onclick={handleExportProfile}>
 				<Download class="size-4" />
 				<span>Export ZIP</span>
 			</Button>
@@ -198,7 +292,7 @@
 				size="default"
 				variant="outline"
 				class="gap-1.5"
-				onclick={onCreateDesktopShortcut}
+				onclick={handleCreateDesktopShortcut}
 			>
 				<Link2 class="size-4" />
 				<span>Create Shortcut</span>
