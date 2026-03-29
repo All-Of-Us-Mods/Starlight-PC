@@ -119,6 +119,7 @@ pub fn run() {
             commands::profiles::profiles_read_binary_file,
             commands::profiles::profiles_export_zip,
             commands::profiles::profiles_import_zip,
+            commands::profiles::profiles_import_dll,
             commands::profiles::profiles_create_desktop_shortcut,
             commands::epic::epic_auth_url,
             commands::epic::epic_login_code,

@@ -16,6 +16,7 @@
 		onLaunch: () => void | Promise<void>;
 		onStop: () => void | Promise<void>;
 		onOpenFolder: () => void | Promise<void>;
+		onImportDll: () => void | Promise<void>;
 		onExport: () => void | Promise<void>;
 		onCreateDesktopShortcut: () => void | Promise<void>;
 		onOpenIconEditor: () => void;
@@ -34,7 +35,8 @@
 		Link2,
 		PencilLineIcon,
 		Play,
-		Square
+		Square,
+		Upload
 	} from '@lucide/svelte';
 	import { Trash2 } from '@jis3r/icons';
 	import ProfileIcon from '$lib/features/profiles/components/ProfileIcon.svelte';
@@ -54,6 +56,7 @@
 		onLaunch,
 		onStop,
 		onOpenFolder,
+		onImportDll,
 		onExport,
 		onCreateDesktopShortcut,
 		onOpenIconEditor,
@@ -129,7 +132,7 @@
 			</div>
 		</div>
 
-		<div class="flex flex-wrap items-center gap-3 pt-2">
+		<div class="flex flex-wrap items-center gap-2.5 pt-2 sm:gap-3">
 			<Button
 				size="lg"
 				class="gap-2"
@@ -176,18 +179,28 @@
 				</Button>
 			{/if}
 
-			<Button size="lg" variant="outline" class="gap-2" onclick={onOpenFolder}>
-				<Folder class="size-5" />
+			<Button size="default" variant="outline" class="gap-1.5" onclick={onOpenFolder}>
+				<Folder class="size-4" />
 				<span>Open Folder</span>
 			</Button>
 
-			<Button size="lg" variant="outline" class="gap-2" onclick={onExport}>
-				<Download class="size-5" />
+			<Button size="default" variant="outline" class="gap-1.5" onclick={onImportDll}>
+				<Upload class="size-4" />
+				<span>Import DLL</span>
+			</Button>
+
+			<Button size="default" variant="outline" class="gap-1.5" onclick={onExport}>
+				<Download class="size-4" />
 				<span>Export ZIP</span>
 			</Button>
 
-			<Button size="lg" variant="outline" class="gap-2" onclick={onCreateDesktopShortcut}>
-				<Link2 class="size-5" />
+			<Button
+				size="default"
+				variant="outline"
+				class="gap-1.5"
+				onclick={onCreateDesktopShortcut}
+			>
+				<Link2 class="size-4" />
 				<span>Create Shortcut</span>
 			</Button>
 

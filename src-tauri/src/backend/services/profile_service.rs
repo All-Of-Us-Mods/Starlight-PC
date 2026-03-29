@@ -600,6 +600,48 @@ pub fn remove_mod_from_profile<R: Runtime>(
     write_profile(&profile)
 }
 
+pub fn import_dll_to_profile<R: Runtime>(
+    app: &AppHandle<R>,
+    profile_id: &str,
+    source_path: &str,
+) -> AppResult<String> {
+    let source = PathBuf::from(source_path);
+    if !source.exists() {
+        return Err(AppError::validation("Selected DLL does not exist"));
+    }
+
+    let source_name = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| AppError::validation("Invalid DLL file name"))?;
+
+    if !source_name.to_ascii_lowercase().ends_with(".dll") {
+        return Err(AppError::validation("Selected file must be a .dll"));
+    }
+
+    if source_name.contains('/') || source_name.contains('\\') {
+        return Err(AppError::validation("Invalid DLL file name"));
+    }
+
+    let Some(profile) = get_profile_by_id(app, profile_id)? else {
+        return Err(AppError::validation(format!(
+            "Profile '{profile_id}' not found"
+        )));
+    };
+
+    let destination = PathBuf::from(&profile.path)
+        .join("BepInEx")
+        .join("plugins")
+        .join(source_name);
+
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    fs::copy(&source, &destination)?;
+    Ok(source_name.to_string())
+}
+
 pub fn get_mod_files(profile_path: &str) -> Vec<String> {
     let plugins_dir = PathBuf::from(profile_path).join("BepInEx").join("plugins");
     let Ok(entries) = fs::read_dir(plugins_dir) else {

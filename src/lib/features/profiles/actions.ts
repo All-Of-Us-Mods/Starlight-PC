@@ -140,6 +140,14 @@ export const profileActions = {
 			})
 	}),
 
+	importDll: (queryClient: QueryClient) => ({
+		mutationFn: (args: { profileId: string; sourcePath: string }) =>
+			withProfileMutationTracking(() => rustInvoke('profiles_import_dll', args)),
+		onSettled: async (_data: unknown, _error: unknown, args: { profileId: string }) => {
+			await invalidateProfileAndDiskQueries(queryClient, args);
+		}
+	}),
+
 	importZip: (queryClient: QueryClient) => ({
 		mutationFn: (zipPath: string) =>
 			withProfileMutationTracking(async () => {

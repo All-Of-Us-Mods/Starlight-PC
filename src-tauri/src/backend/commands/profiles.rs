@@ -112,6 +112,13 @@ pub struct ProfilesImportZipArgs {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProfilesImportDllArgs {
+    pub profile_id: String,
+    pub source_path: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProfilesCreateDesktopShortcutArgs {
     pub profile_id: String,
     #[serde(default)]
@@ -342,6 +349,18 @@ pub async fn profiles_import_zip<R: Runtime>(
     .map_err(|e| format!("Task failed: {e}"))?;
 
     result.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn profiles_import_dll<R: Runtime>(
+    app: AppHandle<R>,
+    args: ProfilesImportDllArgs,
+) -> Result<String, String> {
+    run_blocking(move || {
+        profile_service::import_dll_to_profile(&app, &args.profile_id, &args.source_path)
+            .map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
