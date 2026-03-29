@@ -64,7 +64,7 @@
 	const cleanupMissingMods = createMutation(() => profileActions.cleanupMissingMods(queryClient));
 	const installMods = createMutation(() => profileActions.installMods(queryClient));
 	const exportProfileZip = createMutation(() => profileActions.exportZip());
-	const importProfileDll = createMutation(() => profileActions.importDll(queryClient));
+	const importProfileMod = createMutation(() => profileActions.importMod(queryClient));
 	const createDesktopShortcut = createMutation(() =>
 		profileActions.createDesktopShortcut(queryClient)
 	);
@@ -406,12 +406,12 @@
 		}
 	}
 
-	async function handleImportDll() {
+	async function handleImportMod() {
 		if (!profile) return;
 
 		try {
 			const selected = (await openDialog({
-				title: 'Import Profile DLL',
+				title: 'Import Profile Mod',
 				multiple: false,
 				directory: false,
 				filters: [{ name: 'DLL files', extensions: ['dll'] }]
@@ -421,11 +421,11 @@
 
 			if (!sourcePath || typeof sourcePath !== 'string') return;
 
-			await importProfileDll.mutateAsync({ profileId: profile.id, sourcePath });
+			await importProfileMod.mutateAsync({ profileId: profile.id, sourcePath });
 			const importedFileName = sourcePath.split(/[/\\]/).pop() || sourcePath;
-			showSuccess(`Imported DLL "${importedFileName}"`);
+			showSuccess(`Imported mod "${importedFileName}"`);
 		} catch (error) {
-			showError(error, 'Import DLL');
+			showError(error, 'Import mod');
 		}
 	}
 
@@ -808,7 +808,7 @@
 			onLaunch={handleLaunch}
 			onStop={handleStop}
 			onOpenFolder={() => openProfileFolder(profile)}
-			onImportDll={handleImportDll}
+			onImportMod={handleImportMod}
 			onExport={handleExportProfile}
 			onCreateDesktopShortcut={handleCreateDesktopShortcut}
 			onOpenIconEditor={openIconDialog}

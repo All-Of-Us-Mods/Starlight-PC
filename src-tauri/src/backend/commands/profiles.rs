@@ -352,12 +352,12 @@ pub async fn profiles_import_zip<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn profiles_import_dll<R: Runtime>(
+pub async fn profiles_import_mod<R: Runtime>(
     app: AppHandle<R>,
     args: ProfilesImportDllArgs,
 ) -> Result<String, String> {
     run_blocking(move || {
-        profile_service::import_dll_to_profile(&app, &args.profile_id, &args.source_path)
+        profile_service::import_mod_to_profile(&app, &args.profile_id, &args.source_path)
             .map_err(|e| e.to_string())
     })
     .await

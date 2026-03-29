@@ -199,9 +199,9 @@ export const profileActions = {
 			})
 	}),
 
-	importDll: (queryClient: QueryClient) => ({
+	importMod: (queryClient: QueryClient) => ({
 		mutationFn: (args: { profileId: string; sourcePath: string }) =>
-			withProfileMutationTracking(() => rustInvoke('profiles_import_dll', args)),
+			withProfileMutationTracking(() => rustInvoke('profiles_import_mod', args)),
 		onMutate: async (args: { profileId: string; sourcePath: string }) => {
 			const unifiedKey = profileUnifiedModsKey(args.profileId);
 			const profilePath = getProfilePathFromCache(queryClient, args.profileId);

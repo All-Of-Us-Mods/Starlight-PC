@@ -16,7 +16,7 @@
 		onLaunch: () => void | Promise<void>;
 		onStop: () => void | Promise<void>;
 		onOpenFolder: () => void | Promise<void>;
-		onImportDll: () => void | Promise<void>;
+		onImportMod: () => void | Promise<void>;
 		onExport: () => void | Promise<void>;
 		onCreateDesktopShortcut: () => void | Promise<void>;
 		onOpenIconEditor: () => void;
@@ -56,7 +56,7 @@
 		onLaunch,
 		onStop,
 		onOpenFolder,
-		onImportDll,
+		onImportMod,
 		onExport,
 		onCreateDesktopShortcut,
 		onOpenIconEditor,
@@ -184,9 +184,9 @@
 				<span>Open Folder</span>
 			</Button>
 
-			<Button size="default" variant="outline" class="gap-1.5" onclick={onImportDll}>
+			<Button size="default" variant="outline" class="gap-1.5" onclick={onImportMod}>
 				<Upload class="size-4" />
-				<span>Import DLL</span>
+				<span>Import Mod</span>
 			</Button>
 
 			<Button size="default" variant="outline" class="gap-1.5" onclick={onExport}>

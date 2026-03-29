@@ -600,7 +600,7 @@ pub fn remove_mod_from_profile<R: Runtime>(
     write_profile(&profile)
 }
 
-pub fn import_dll_to_profile<R: Runtime>(
+pub fn import_mod_to_profile<R: Runtime>(
     app: &AppHandle<R>,
     profile_id: &str,
     source_path: &str,
