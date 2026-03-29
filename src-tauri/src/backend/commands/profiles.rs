@@ -112,7 +112,7 @@ pub struct ProfilesImportZipArgs {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProfilesImportDllArgs {
+pub struct ProfilesImportModArgs {
     pub profile_id: String,
     pub source_path: String,
 }
@@ -354,7 +354,7 @@ pub async fn profiles_import_zip<R: Runtime>(
 #[tauri::command]
 pub async fn profiles_import_mod<R: Runtime>(
     app: AppHandle<R>,
-    args: ProfilesImportDllArgs,
+    args: ProfilesImportModArgs,
 ) -> Result<String, String> {
     run_blocking(move || {
         profile_service::import_mod_to_profile(&app, &args.profile_id, &args.source_path)

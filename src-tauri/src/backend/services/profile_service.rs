@@ -607,20 +607,20 @@ pub fn import_mod_to_profile<R: Runtime>(
 ) -> AppResult<String> {
     let source = PathBuf::from(source_path);
     if !source.exists() {
-        return Err(AppError::validation("Selected DLL does not exist"));
+        return Err(AppError::validation("Selected mod file does not exist"));
     }
 
     let source_name = source
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| AppError::validation("Invalid DLL file name"))?;
+        .ok_or_else(|| AppError::validation("Invalid mod file name"))?;
 
     if !source_name.to_ascii_lowercase().ends_with(".dll") {
         return Err(AppError::validation("Selected file must be a .dll"));
     }
 
     if source_name.contains('/') || source_name.contains('\\') {
-        return Err(AppError::validation("Invalid DLL file name"));
+        return Err(AppError::validation("Invalid mod file name"));
     }
 
     let Some(profile) = get_profile_by_id(app, profile_id)? else {
