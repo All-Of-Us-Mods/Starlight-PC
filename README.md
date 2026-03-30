@@ -6,7 +6,7 @@
 
 Get the latest release here:
 
-https://github.com/All-Of-Us-Mods/starlight-pc/releases/latest
+https://github.com/All-Of-Us-Mods/Starlight-PC/releases/latest
 
 ## Screenshots
 
