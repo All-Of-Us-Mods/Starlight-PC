@@ -2,6 +2,22 @@
 
 ![Downloads](https://img.shields.io/github/downloads/All-Of-Us-Mods/Starlight-PC/total?label=Downloads)
 
+## Download
+
+Get the latest release here:
+
+https://github.com/All-Of-Us-Mods/starlight-pc/releases/latest
+
+## Screenshots
+
+### Explore
+<img src="screenshots/explore.png" alt="Explore Screenshot" width="800" />
+
+### Profile
+<img src="screenshots/profile.png" alt="Profile Screenshot" width="800" />
+
+---
+
 ## Development
 
 ```bash
