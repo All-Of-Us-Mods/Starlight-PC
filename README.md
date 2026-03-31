@@ -11,20 +11,27 @@ https://github.com/All-Of-Us-Mods/Starlight-PC/releases/latest
 ## Screenshots
 
 ### Explore
+
 <img src="screenshots/explore.png" alt="Explore Screenshot" width="800" />
 
 ### Profile
+
 <img src="screenshots/profile.png" alt="Profile Screenshot" width="800" />
 
 ---
 
+## Development Prerequisites
+
+- Install VitePlus: https://viteplus.dev/guide/
+- Install Rust: https://www.rust-lang.org/tools/install
+- Install dev dependencies: `vp install`
+
 ## Development
 
 ```bash
-bun install        # Install dependencies
-bun dev            # Start in development mode (browser only)
-bun tauri dev      # Start in development mode
-bun tauri build    # Build for production
+vp install        # Install dependencies
+vpr tauri dev      # Start in development mode
+vpr tauri build    # Build for production
 ```
 
 ## Tech Stack

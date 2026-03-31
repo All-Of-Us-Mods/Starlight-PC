@@ -16,9 +16,11 @@
 
 ```bash
 # Quality
-bun lint                   # oxlint (JS/TS/Svelte) + ESLint (Svelte-specific rules only)
-bun format                 # oxfmt (JS/TS/JSON/CSS/etc.) + Prettier (.svelte files only)
-bun check                  # svelte-check (type checking)
+vp lint                    # oxlint (JS/TS/Svelte) + ESLint (Svelte-specific rules only)
+vp lint --fix              # Auto-fix lint issues
+vp fmt                     # oxfmt (JS/TS/JSON/CSS/etc.) + Prettier (.svelte files only)
+vp check                   # Run lint + format check
+vpr svelte-check           # svelte-check (type checking)
 
 # Rust (run from src-tauri/)
 cargo check                # Check Rust code
