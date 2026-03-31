@@ -1,70 +1,70 @@
-import { type } from 'arktype';
+import { type } from "arktype";
 
 export const ExternalLink = type({
-	type: 'string',
-	url: 'string'
+  type: "string",
+  url: "string",
 });
 
 export const ModResponseLinks = type({
-	self: 'string',
-	info: 'string',
-	thumbnail: 'string',
-	versions: 'string'
+  self: "string",
+  info: "string",
+  thumbnail: "string",
+  versions: "string",
 });
 
 export const ModResponse = type({
-	'status?': 'string', // Maps to db.PublicationStatus
-	id: 'string <= 100',
-	name: 'string <= 100',
-	author: 'string <= 100',
-	description: 'string <= 500',
-	created_at: 'number',
-	updated_at: 'number',
-	downloads: 'number',
-	_links: ModResponseLinks
+  "status?": "string", // Maps to db.PublicationStatus
+  id: "string <= 100",
+  name: "string <= 100",
+  author: "string <= 100",
+  description: "string <= 500",
+  created_at: "number",
+  updated_at: "number",
+  downloads: "number",
+  _links: ModResponseLinks,
 });
 
 export const ModInfoResponse = type({
-	long_description: 'string <= 20000',
-	license: 'string <= 100',
-	links: type(ExternalLink.array()),
-	tags: 'string[]'
+  long_description: "string <= 20000",
+  license: "string <= 100",
+  links: type(ExternalLink.array()),
+  tags: "string[]",
 });
 
 export const ModDependency = type({
-	mod_id: 'string',
-	version_constraint: 'string',
-	type: "'required' | 'optional' | 'conflict'"
+  mod_id: "string",
+  version_constraint: "string",
+  type: "'required' | 'optional' | 'conflict'",
 });
 
 export const ModVersionInfo = type({
-	file_name: 'string',
-	changelog: 'string',
-	checksum: 'string',
-	'download_url?': 'string',
-	'platforms?': type(
-		type({
-			platform: 'string',
-			architecture: 'string',
-			'file_name?': 'string',
-			'file_size?': 'number',
-			'checksum?': 'string',
-			'download_url?': 'string'
-		}).array()
-	),
-	dependencies: type(ModDependency.array())
+  file_name: "string",
+  changelog: "string",
+  checksum: "string",
+  "download_url?": "string",
+  "platforms?": type(
+    type({
+      platform: "string",
+      architecture: "string",
+      "file_name?": "string",
+      "file_size?": "number",
+      "checksum?": "string",
+      "download_url?": "string",
+    }).array(),
+  ),
+  dependencies: type(ModDependency.array()),
 });
 
 export const ModVersion = type({
-	name: 'string',
-	version: 'string',
-	platform: 'string',
-	downloads: 'number',
-	created_at: 'number',
-	_links: {
-		self: 'string',
-		info: 'string'
-	}
+  name: "string",
+  version: "string",
+  platform: "string",
+  downloads: "number",
+  created_at: "number",
+  _links: {
+    self: "string",
+    info: "string",
+  },
 });
 
 // TypeScript Types
