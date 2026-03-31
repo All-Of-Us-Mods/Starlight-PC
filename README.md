@@ -11,9 +11,11 @@ https://github.com/All-Of-Us-Mods/Starlight-PC/releases/latest
 ## Screenshots
 
 ### Explore
+
 <img src="screenshots/explore.png" alt="Explore Screenshot" width="800" />
 
 ### Profile
+
 <img src="screenshots/profile.png" alt="Profile Screenshot" width="800" />
 
 ---
