@@ -17,30 +17,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint-and-check:
+  quality:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
         with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: SvelteKit sync
-        env:
-          PUBLIC_API_URL: "https://starlight.allofus.dev"
-        run: bunx svelte-kit sync
-
-      - name: Run Lint
-        run: bun run lint
-
-      - name: Run Check
-        env:
-          PUBLIC_API_URL: "https://starlight.allofus.dev"
-        run: bun run check
+          cache: true
+          run-install: true
+      - run: echo "PUBLIC_API_URL=https://starlight.allofus.dev" > .env
+      - run: vp check
+      - run: vpr svelte-check
+      - run: vp build

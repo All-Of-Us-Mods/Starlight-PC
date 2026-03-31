@@ -8,13 +8,16 @@
     "dev": "vp dev",
     "build": "vp build",
     "preview": "vp preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "svelte-check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "svelte-check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "lint": "vp lint",
     "lint:fix": "vp lint --fix",
-    "format": "vp fmt --ignore-path=.gitignore .",
-    "format:check": "vp fmt --ignore-path=.gitignore --check .",
-    "prepare": "vp config"
+    "format": "vp fmt",
+    "format:check": "vp fmt --check",
+    "prepare": "vp config",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@tanstack/query-async-storage-persister": "^5.90.25",
