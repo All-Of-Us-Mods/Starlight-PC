@@ -1,5 +1,6 @@
 import { marked } from "marked";
-import { Globe, MessageCircle, Github } from "@lucide/svelte";
+import { Globe, MessageCircle } from "@lucide/svelte";
+import { default as Github } from "$lib/assets/GitHub_Invertocat_White.svg?component";
 import type { Component } from "svelte";
 import type { Mod } from "$lib/features/mods/schema";
 
@@ -21,7 +22,7 @@ export function pickDefaultVersion(
 
 export function getLinkIcon(type: string): Component {
   switch (type.toLowerCase()) {
-    case "github":
+    case "source":
       return Github;
     case "discord":
       return MessageCircle;
