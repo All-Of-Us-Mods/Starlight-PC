@@ -24,8 +24,20 @@ export type InstalledModResult = { mod_id: string; version: string; file_name: s
 type DownloadTarget = {
   url: string;
   fileName: string;
-  checksum: string;
+  checksum?: string;
 };
+
+function inferFileNameFromUrl(url: string, fallback: string): string {
+  try {
+    const parsed = new URL(url);
+    const segment = parsed.pathname.split("/").filter(Boolean).at(-1);
+    if (segment) return decodeURIComponent(segment);
+  } catch {
+    // Best-effort fallback for non-absolute paths.
+  }
+
+  return fallback;
+}
 
 const bepinexInstallInFlight = new Set<string>();
 const modsInstallInFlight = new Set<string>();
@@ -36,32 +48,47 @@ function resolveDownloadTarget(
   versionInfo: ModVersionInfo,
   platform: AppSettings["game_platform"],
 ): DownloadTarget {
-  const legacyPath = `/api/v2/mods/${modId}/versions/${version}/file`;
-  const defaultUrl = versionInfo.download_url ?? legacyPath;
-  const fallback: DownloadTarget = {
-    url: resolveApiUrl(defaultUrl),
-    fileName: versionInfo.file_name,
-    checksum: versionInfo.checksum,
-  };
+  const architectureFallbacks = platform === "epic" ? ["x64", "x86"] : ["x86", "x64"];
 
   const platforms = versionInfo.platforms ?? [];
-  if (platforms.length === 0) return fallback;
+  const toTarget = (entry: (typeof platforms)[number]): DownloadTarget => {
+    if (!entry.download_url) {
+      throw new Error(
+        `No download_url for mod '${modId}' version '${version}' platform '${entry.platform}' architecture '${entry.architecture}'`,
+      );
+    }
 
-  const architectureFallbacks = platform === "epic" ? ["x64", "x86"] : ["x86"];
+    const resolvedUrl = resolveApiUrl(entry.download_url);
+    return {
+      url: resolvedUrl,
+      fileName: entry.file_name ?? inferFileNameFromUrl(resolvedUrl, `${modId}-${version}.dll`),
+      checksum: entry.checksum,
+    };
+  };
+
   for (const arch of architectureFallbacks) {
     const entry = platforms.find(
-      (candidate) => candidate.platform === "windows" && candidate.architecture === arch,
+      (candidate) =>
+        candidate.platform === "windows" &&
+        candidate.architecture === arch &&
+        !!candidate.download_url,
     );
-    if (!entry) continue;
-    const downloadUrl = entry.download_url ?? `${legacyPath}?platform=windows&arch=${arch}`;
-    return {
-      url: resolveApiUrl(downloadUrl),
-      fileName: entry.file_name ?? versionInfo.file_name,
-      checksum: entry.checksum ?? versionInfo.checksum,
-    };
+    if (entry) return toTarget(entry);
   }
 
-  return fallback;
+  const windowsEntry = platforms.find(
+    (candidate) => candidate.platform === "windows" && !!candidate.download_url,
+  );
+  if (windowsEntry) return toTarget(windowsEntry);
+
+  const androidEntry = platforms.find(
+    (candidate) => candidate.platform === "android" && !!candidate.download_url,
+  );
+  if (androidEntry) return toTarget(androidEntry);
+
+  throw new Error(
+    `No downloadable platform entry for mod '${modId}' version '${version}' in API response`,
+  );
 }
 
 async function rollbackInstalledMods(
@@ -177,7 +204,6 @@ export async function installModsForProfile(
     const persisted: InstalledModResult[] = [];
     const replacedFilesToDelete = new Set<string>();
 
-    /* eslint-disable no-await-in-loop */
     for (const item of args.mods) {
       try {
         const versionInfo = await queryClient.fetchQuery(
@@ -195,7 +221,7 @@ export async function installModsForProfile(
           modId: item.modId,
           url: target.url,
           destination,
-          expectedChecksum: target.checksum,
+          ...(target.checksum ? { expectedChecksum: target.checksum } : {}),
         });
 
         installed.push({
@@ -232,7 +258,6 @@ export async function installModsForProfile(
         throw error;
       }
     }
-    /* eslint-enable no-await-in-loop */
 
     await Promise.all(
       Array.from(replacedFilesToDelete).map((fileName) =>

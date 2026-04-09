@@ -35,7 +35,7 @@ pub struct ModdingModDownloadArgs {
     pub mod_id: String,
     pub url: String,
     pub destination: String,
-    pub expected_checksum: String,
+    pub expected_checksum: Option<String>,
 }
 
 #[tauri::command]

@@ -25,7 +25,7 @@ async function getModIconBytes(
   const modId = profile.icon_mod_id?.trim();
   if (!modId) return null;
 
-  const mod = await queryClient.fetchQuery(modQueries.byId(modId));
+  const mod = await queryClient.fetchQuery(modQueries.info(modId));
   const thumbnailUrl = mod._links.thumbnail;
   if (!thumbnailUrl) return null;
 

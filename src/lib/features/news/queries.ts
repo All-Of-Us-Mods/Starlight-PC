@@ -10,13 +10,13 @@ export const newsQueries = {
   all: () =>
     queryOptions({
       queryKey: newsQueryKey,
-      queryFn: () => apiFetch("/api/v2/news/posts", PostsArray),
+      queryFn: () => apiFetch("/api/v3/news/posts", PostsArray),
       networkMode: "offlineFirst",
     }),
   byId: (id: string | number) =>
     queryOptions({
       queryKey: newsByIdKey(id),
-      queryFn: () => apiFetch(`/api/v2/news/posts/${id}`, Post),
+      queryFn: () => apiFetch(`/api/v3/news/posts/${id}`, Post),
       networkMode: "offlineFirst",
     }),
 };

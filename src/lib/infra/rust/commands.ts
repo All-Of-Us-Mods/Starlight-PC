@@ -52,7 +52,7 @@ export type RustCommandMap = {
   modding_bepinex_cache_clear: { args: { cachePath: string }; result: void };
   modding_bepinex_cache_exists: { args: { cachePath: string }; result: boolean };
   modding_mod_download: {
-    args: { modId: string; url: string; destination: string; expectedChecksum: string };
+    args: { modId: string; url: string; destination: string; expectedChecksum?: string };
     result: void;
   };
 

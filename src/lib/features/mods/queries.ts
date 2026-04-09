@@ -2,17 +2,10 @@ import { queryOptions } from "@tanstack/svelte-query";
 import { type } from "arktype";
 import { satisfies, valid } from "semver";
 import { apiFetch } from "$lib/infra/http/starlight-api";
-import {
-  ModResponse,
-  ModInfoResponse,
-  ModVersion,
-  ModVersionInfo,
-  type ModDependency,
-} from "./schema";
+import { ModResponse, ModVersion, ModVersionInfo, type ModDependency } from "./schema";
 import {
   modsByIdKey,
   modsExploreKey,
-  modsInfoKey,
   modsListKey,
   modsTotalKey,
   modsTrendingKey,
@@ -49,7 +42,7 @@ export const modQueries = {
   latest: (limit = 20, offset = 0) =>
     queryOptions({
       queryKey: modsListKey(limit, offset),
-      queryFn: () => apiFetch(`/api/v2/mods?limit=${limit}&offset=${offset}`, ModArrayValidator),
+      queryFn: () => apiFetch(`/api/v3/mods?limit=${limit}&offset=${offset}`, ModArrayValidator),
       networkMode: "offlineFirst",
     }),
 
@@ -62,15 +55,15 @@ export const modQueries = {
       queryFn: () => {
         if (q) {
           return apiFetch(
-            `/api/v2/mods/search?q=${encodeURIComponent(q)}&${params}`,
+            `/api/v3/mods/search?q=${encodeURIComponent(q)}&${params}`,
             ModArrayValidator,
           );
         }
         switch (sort) {
           case "trending":
-            return apiFetch(`/api/v2/mods/trending?${params}`, ModArrayValidator);
+            return apiFetch(`/api/v3/mods/trending?${params}`, ModArrayValidator);
           default:
-            return apiFetch(`/api/v2/mods?${params}`, ModArrayValidator);
+            return apiFetch(`/api/v3/mods?${params}`, ModArrayValidator);
         }
       },
       networkMode: "offlineFirst",
@@ -80,29 +73,21 @@ export const modQueries = {
   total: () =>
     queryOptions({
       queryKey: modsTotalKey(),
-      queryFn: () => apiFetch("/api/v2/mods/total", type("number")),
+      queryFn: () => apiFetch("/api/v3/mods/total", type("number")),
       networkMode: "offlineFirst",
     }),
 
   trending: () =>
     queryOptions({
       queryKey: modsTrendingKey(),
-      queryFn: () => apiFetch("/api/v2/mods/trending", ModArrayValidator),
+      queryFn: () => apiFetch("/api/v3/mods/trending", ModArrayValidator),
       networkMode: "offlineFirst",
     }),
 
   info: (id: string) =>
     queryOptions({
-      queryKey: modsInfoKey(id),
-      queryFn: () => apiFetch(`/api/v2/mods/${id}/info`, ModInfoResponse),
-      enabled: !!id,
-      networkMode: "offlineFirst",
-    }),
-
-  byId: (id: string) =>
-    queryOptions({
       queryKey: modsByIdKey(id),
-      queryFn: () => apiFetch(`/api/v2/mods/${id}`, ModResponse),
+      queryFn: () => apiFetch(`/api/v3/mods/${id}`, ModResponse),
       enabled: !!id,
       networkMode: "offlineFirst",
     }),
@@ -110,14 +95,14 @@ export const modQueries = {
   versions: (modId: string) =>
     queryOptions({
       queryKey: modsVersionsKey(modId),
-      queryFn: () => apiFetch(`/api/v2/mods/${modId}/versions`, type(ModVersion.array())),
+      queryFn: () => apiFetch(`/api/v3/mods/${modId}/versions`, type(ModVersion.array())),
       networkMode: "offlineFirst",
     }),
 
   versionInfo: (modId: string, version: string) =>
     queryOptions({
       queryKey: modsVersionInfoKey(modId, version),
-      queryFn: () => apiFetch(`/api/v2/mods/${modId}/versions/${version}/info`, ModVersionInfo),
+      queryFn: () => apiFetch(`/api/v3/mods/${modId}/versions/${version}`, ModVersionInfo),
       enabled: !!modId && !!version,
       networkMode: "offlineFirst",
     }),
@@ -134,8 +119,8 @@ export const modQueries = {
         const resolved = await Promise.all(
           dependencies.map(async (dependency) => {
             const [mod, versions] = await Promise.all([
-              apiFetch(`/api/v2/mods/${dependency.mod_id}`, ModResponse),
-              apiFetch(`/api/v2/mods/${dependency.mod_id}/versions`, ModVersionsValidator),
+              apiFetch(`/api/v3/mods/${dependency.mod_id}`, ModResponse),
+              apiFetch(`/api/v3/mods/${dependency.mod_id}/versions`, ModVersionsValidator),
             ]);
             const sorted = [...versions].toSorted((a, b) => b.created_at - a.created_at);
             const resolvedVersion = resolveDependencyVersion(dependency.version_constraint, sorted);
