@@ -2,17 +2,10 @@ import { queryOptions } from "@tanstack/svelte-query";
 import { type } from "arktype";
 import { satisfies, valid } from "semver";
 import { apiFetch } from "$lib/infra/http/starlight-api";
-import {
-  ModResponse,
-  ModInfoResponse,
-  ModVersion,
-  ModVersionInfo,
-  type ModDependency,
-} from "./schema";
+import { ModResponse, ModVersion, ModVersionInfo, type ModDependency } from "./schema";
 import {
   modsByIdKey,
   modsExploreKey,
-  modsInfoKey,
   modsListKey,
   modsTotalKey,
   modsTrendingKey,
@@ -92,14 +85,6 @@ export const modQueries = {
     }),
 
   info: (id: string) =>
-    queryOptions({
-      queryKey: modsInfoKey(id),
-      queryFn: () => apiFetch(`/api/v3/mods/${id}`, ModInfoResponse),
-      enabled: !!id,
-      networkMode: "offlineFirst",
-    }),
-
-  byId: (id: string) =>
     queryOptions({
       queryKey: modsByIdKey(id),
       queryFn: () => apiFetch(`/api/v3/mods/${id}`, ModResponse),

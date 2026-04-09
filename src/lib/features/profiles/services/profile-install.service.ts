@@ -56,12 +56,18 @@ function resolveDownloadTarget(
     const entry = platforms.find(
       (candidate) => candidate.platform === "windows" && candidate.architecture === arch,
     );
-    const downloadUrl = entry?.download_url ?? `${legacyPath}?platform=windows&arch=${arch}`;
-    const resolvedUrl = resolveApiUrl(downloadUrl);
+    if (!entry) continue;
+
+    const downloadUrl = entry.download_url;
+    const resolvedUrl = resolveApiUrl(downloadUrl ?? `${legacyPath}?platform=windows&arch=${arch}`);
     return {
       url: resolvedUrl,
-      fileName: entry?.file_name ?? inferFileNameFromUrl(resolvedUrl, `${modId}-${version}.dll`),
-      checksum: entry?.checksum,
+      fileName:
+        entry.file_name ??
+        (downloadUrl
+          ? inferFileNameFromUrl(resolvedUrl, `${modId}-${version}.dll`)
+          : `${modId}-${version}.dll`),
+      checksum: entry.checksum,
     };
   }
 
@@ -75,14 +81,14 @@ function resolveDownloadTarget(
     const resolvedUrl = resolveApiUrl(downloadUrl);
     return {
       url: resolvedUrl,
-      fileName: inferFileNameFromUrl(resolvedUrl, `${modId}-${version}.dll`),
+      fileName: `${modId}-${version}.dll`,
     };
   }
 
   const fallbackUrl = resolveApiUrl(`${legacyPath}?platform=windows&arch=x86`);
   return {
     url: fallbackUrl,
-    fileName: inferFileNameFromUrl(fallbackUrl, `${modId}-${version}.dll`),
+    fileName: `${modId}-${version}.dll`,
   };
 }
 
