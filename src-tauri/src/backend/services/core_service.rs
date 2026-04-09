@@ -209,20 +209,3 @@ pub fn get_bepinex_cache_path<R: Runtime>(
 pub fn get_app_data_dir<R: Runtime>(app: &AppHandle<R>) -> AppResult<String> {
     Ok(app_data_dir(app)?.to_string_lossy().to_string())
 }
-
-pub fn auto_detect_bepinex_architecture<R: Runtime>(
-    app: &AppHandle<R>,
-    game_path: &str,
-) -> AppResult<Option<String>> {
-    let settings = get_settings(app)?;
-    let crash_handler_path = PathBuf::from(game_path).join("UnityCrashHandler64.exe");
-    let is_64_bit = crash_handler_path.exists();
-
-    let selected_url = if is_64_bit {
-        settings.bepinex_url_x64
-    } else {
-        settings.bepinex_url_x86
-    };
-
-    Ok(Some(selected_url))
-}

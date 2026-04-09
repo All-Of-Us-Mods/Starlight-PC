@@ -27,9 +27,6 @@
 	const settingsQuery = createQuery(() => settingsQueries.get());
 	const settings = $derived(settingsQuery.data as AppSettings | undefined);
 	const updateMutation = createMutation(() => settingsActions.update(queryClient));
-	const detectBepInExMutation = createMutation(() =>
-		settingsActions.autoDetectBepInExArchitecture(queryClient)
-	);
 	const downloadCacheMutation = createMutation(() => settingsActions.downloadBepInExToCache());
 	const clearCacheMutation = createMutation(() => settingsActions.clearBepInExCache());
 	const openDataFolderMutation = createMutation(() => settingsActions.openDataFolder());
@@ -78,7 +75,6 @@
 
 		try {
 			await updateMutation.mutateAsync({ among_us_path: path, game_platform: platform });
-			await detectBepInExMutation.mutateAsync(path);
 		} catch (e) {
 			showError(e);
 		}

@@ -11,10 +11,6 @@ export async function clearBepInExCache(architecture: "x86" | "x64") {
   await rustInvoke("modding_bepinex_cache_clear", { cachePath });
 }
 
-export function autoDetectBepInExArchitecture(gamePath: string) {
-  return rustInvoke("core_auto_detect_bepinex_architecture", { gamePath });
-}
-
 export function detectAmongUsPath() {
   return rustInvoke("platform_detect_among_us");
 }

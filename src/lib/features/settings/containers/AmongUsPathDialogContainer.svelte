@@ -10,9 +10,6 @@
 
 	const queryClient = useQueryClient();
 	const updateSettingsMutation = createMutation(() => settingsActions.update(queryClient));
-	const detectBepInExMutation = createMutation(() =>
-		settingsActions.autoDetectBepInExArchitecture(queryClient)
-	);
 	const detectAmongUsPathMutation = createMutation(() => settingsActions.detectAmongUsPath());
 	const detectGameStoreMutation = createMutation(() => settingsActions.detectGameStore());
 
@@ -60,10 +57,6 @@
 		}
 	}
 
-	async function handleAutoSetBepinex() {
-		await detectBepInExMutation.mutateAsync(selectedPath);
-	}
-
 	async function handleBrowse() {
 		try {
 			const selected = await openDialog({
@@ -94,7 +87,6 @@
 
 			await updateSettingsMutation.mutateAsync({ among_us_path: selectedPath });
 			await detectAndSetPlatform(selectedPath);
-			await handleAutoSetBepinex();
 			startupState.hideAmongUsPathDialog();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to save path';
