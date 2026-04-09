@@ -1,7 +1,8 @@
 import { type } from "arktype";
 
 export const Settings = type({
-  bepinex_url: "string",
+  bepinex_url_x86: "string",
+  bepinex_url_x64: "string",
   among_us_path: "string",
   close_on_launch: "boolean",
   allow_multi_instance_launch: "boolean",

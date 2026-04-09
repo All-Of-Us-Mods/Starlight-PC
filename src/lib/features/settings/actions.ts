@@ -34,24 +34,36 @@ export const settingsActions = {
     },
   }),
   downloadBepInExToCache: () => ({
-    mutationFn: (url: string) => downloadBepInExToCache(url),
+    mutationFn: (args: { url: string; architecture: "x86" | "x64" }) =>
+      downloadBepInExToCache(args.url, args.architecture),
   }),
   clearBepInExCache: () => ({
-    mutationFn: () => clearBepInExCache(),
+    mutationFn: (architecture: "x86" | "x64") => clearBepInExCache(architecture),
   }),
   autoDetectBepInExArchitecture: (queryClient: QueryClient) => ({
     mutationFn: async (gamePath: string) => {
       const updatedUrl = await autoDetectBepInExArchitecture(gamePath);
       if (!updatedUrl) return null;
+      const updates = updatedUrl.includes("win-x64-")
+        ? { bepinex_url_x64: updatedUrl }
+        : { bepinex_url_x86: updatedUrl };
       await rustInvoke("core_update_settings", {
-        updates: { bepinex_url: updatedUrl },
+        updates,
       });
       return updatedUrl;
     },
     onSuccess: (updatedUrl: string | null) => {
       if (!updatedUrl) return;
+      const updates = updatedUrl.includes("win-x64-")
+        ? { bepinex_url_x64: updatedUrl }
+        : { bepinex_url_x86: updatedUrl };
       queryClient.setQueryData<AppSettings | undefined>(settingsQueryKey, (current) =>
-        current ? { ...current, bepinex_url: updatedUrl } : current,
+        current
+          ? {
+              ...current,
+              ...updates,
+            }
+          : current,
       );
     },
   }),

@@ -397,15 +397,26 @@ pub async fn install_bepinex_for_profile<R: Runtime>(
     })
     .await
     .map_err(|error| AppError::state(format!("Task failed: {error}")))??;
+    let install_arch = match settings.game_platform {
+        core_service::GamePlatform::Epic | core_service::GamePlatform::Xbox => "x64",
+        core_service::GamePlatform::Steam => "x86",
+    };
+
+    let bepinex_url = if install_arch == "x64" {
+        settings.bepinex_url_x64.clone()
+    } else {
+        settings.bepinex_url_x86.clone()
+    };
+
     let cache_path = if settings.cache_bepinex {
-        Some(core_service::get_bepinex_cache_path(&app)?)
+        Some(core_service::get_bepinex_cache_path(&app, install_arch)?)
     } else {
         None
     };
 
     bepinex_service::install_bepinex(
         app.clone(),
-        settings.bepinex_url,
+        bepinex_url,
         profile.path.clone(),
         cache_path,
     )
