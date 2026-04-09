@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_store::StoreExt;
 
-const DEFAULT_BEPINEX_URL: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x86-6.0.0-be.752%2Bdd0655f.zip";
+const DEFAULT_BEPINEX_URL_X86: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x86-6.0.0-be.752%2Bdd0655f.zip";
+const DEFAULT_BEPINEX_URL_X64: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.752%2Bdd0655f.zip";
 const SETTINGS_FILE_NAME: &str = "settings.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,7 +19,8 @@ pub enum GamePlatform {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
-    pub bepinex_url: String,
+    pub bepinex_url_x86: String,
+    pub bepinex_url_x64: String,
     pub among_us_path: String,
     pub close_on_launch: bool,
     pub allow_multi_instance_launch: bool,
@@ -30,7 +32,8 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            bepinex_url: DEFAULT_BEPINEX_URL.to_string(),
+            bepinex_url_x86: DEFAULT_BEPINEX_URL_X86.to_string(),
+            bepinex_url_x64: DEFAULT_BEPINEX_URL_X64.to_string(),
             among_us_path: String::new(),
             close_on_launch: false,
             allow_multi_instance_launch: false,
@@ -43,7 +46,8 @@ impl Default for AppSettings {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppSettingsPatch {
-    pub bepinex_url: Option<String>,
+    pub bepinex_url_x86: Option<String>,
+    pub bepinex_url_x64: Option<String>,
     pub among_us_path: Option<String>,
     pub close_on_launch: Option<bool>,
     pub allow_multi_instance_launch: Option<bool>,
@@ -80,6 +84,8 @@ fn read_legacy_settings<R: Runtime>(app: &AppHandle<R>) -> AppResult<Option<AppS
     #[derive(Deserialize)]
     struct LegacySettingsPatch {
         bepinex_url: Option<String>,
+        bepinex_url_x86: Option<String>,
+        bepinex_url_x64: Option<String>,
         among_us_path: Option<String>,
         close_on_launch: Option<bool>,
         allow_multi_instance_launch: Option<bool>,
@@ -93,8 +99,15 @@ fn read_legacy_settings<R: Runtime>(app: &AppHandle<R>) -> AppResult<Option<AppS
         return Ok(None);
     };
 
+    if let Some(value) = patch.bepinex_url_x86 {
+        settings.bepinex_url_x86 = value;
+    }
+    if let Some(value) = patch.bepinex_url_x64 {
+        settings.bepinex_url_x64 = value;
+    }
     if let Some(value) = patch.bepinex_url {
-        settings.bepinex_url = value;
+        settings.bepinex_url_x86 = value.clone();
+        settings.bepinex_url_x64 = value.replace("win-x86-", "win-x64-");
     }
     if let Some(value) = patch.among_us_path {
         settings.among_us_path = value;
@@ -118,10 +131,10 @@ fn read_legacy_settings<R: Runtime>(app: &AppHandle<R>) -> AppResult<Option<AppS
     Ok(Some(settings))
 }
 
-fn bepinex_cache_path<R: Runtime>(app: &AppHandle<R>) -> AppResult<String> {
+fn bepinex_cache_path<R: Runtime>(app: &AppHandle<R>, architecture: &str) -> AppResult<String> {
     Ok(app_data_dir(app)?
         .join("cache")
-        .join("bepinex.zip")
+        .join(format!("bepinex-{architecture}.zip"))
         .to_string_lossy()
         .to_string())
 }
@@ -155,8 +168,11 @@ pub fn update_settings<R: Runtime>(
 ) -> AppResult<AppSettings> {
     let mut settings = get_settings(app)?;
 
-    if let Some(value) = patch.bepinex_url {
-        settings.bepinex_url = value;
+    if let Some(value) = patch.bepinex_url_x86 {
+        settings.bepinex_url_x86 = value;
+    }
+    if let Some(value) = patch.bepinex_url_x64 {
+        settings.bepinex_url_x64 = value;
     }
     if let Some(value) = patch.among_us_path {
         settings.among_us_path = value;
@@ -183,31 +199,13 @@ pub fn update_settings<R: Runtime>(
     Ok(settings)
 }
 
-pub fn get_bepinex_cache_path<R: Runtime>(app: &AppHandle<R>) -> AppResult<String> {
-    bepinex_cache_path(app)
+pub fn get_bepinex_cache_path<R: Runtime>(
+    app: &AppHandle<R>,
+    architecture: &str,
+) -> AppResult<String> {
+    bepinex_cache_path(app, architecture)
 }
 
 pub fn get_app_data_dir<R: Runtime>(app: &AppHandle<R>) -> AppResult<String> {
     Ok(app_data_dir(app)?.to_string_lossy().to_string())
-}
-
-pub fn auto_detect_bepinex_architecture<R: Runtime>(
-    app: &AppHandle<R>,
-    game_path: &str,
-) -> AppResult<Option<String>> {
-    let settings = get_settings(app)?;
-    let crash_handler_path = PathBuf::from(game_path).join("UnityCrashHandler64.exe");
-    let is_64_bit = crash_handler_path.exists();
-
-    let updated_url = if is_64_bit {
-        settings.bepinex_url.replace("win-x86-", "win-x64-")
-    } else {
-        settings.bepinex_url.replace("win-x64-", "win-x86-")
-    };
-
-    if updated_url == settings.bepinex_url {
-        return Ok(None);
-    }
-
-    Ok(Some(updated_url))
 }

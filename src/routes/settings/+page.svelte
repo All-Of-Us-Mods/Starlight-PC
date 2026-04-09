@@ -25,12 +25,8 @@
 
 	const queryClient = useQueryClient();
 	const settingsQuery = createQuery(() => settingsQueries.get());
-	const cacheExistsQuery = createQuery(() => settingsQueries.cacheExists());
 	const settings = $derived(settingsQuery.data as AppSettings | undefined);
 	const updateMutation = createMutation(() => settingsActions.update(queryClient));
-	const detectBepInExMutation = createMutation(() =>
-		settingsActions.autoDetectBepInExArchitecture(queryClient)
-	);
 	const downloadCacheMutation = createMutation(() => settingsActions.downloadBepInExToCache());
 	const clearCacheMutation = createMutation(() => settingsActions.clearBepInExCache());
 	const openDataFolderMutation = createMutation(() => settingsActions.openDataFolder());
@@ -39,11 +35,16 @@
 
 	// Form state
 	let localPath = $state('');
-	let localUrl = $state('');
+	let localUrlX86 = $state('');
+	let localUrlX64 = $state('');
 	let localPlatform = $state<GamePlatform>('steam');
 	let localCacheBepInEx = $state(false);
 	let localCloseOnLaunch = $state(false);
 	let localAllowMultiInstanceLaunch = $state(false);
+	const activeBepInExArch = $derived(
+		localPlatform === 'epic' || localPlatform === 'xbox' ? 'x64' : 'x86'
+	);
+	const cacheExistsQuery = createQuery(() => settingsQueries.cacheExists(activeBepInExArch));
 
 	// UI state
 	let initialized = $state(false);
@@ -56,7 +57,8 @@
 	let isCacheDownloading = $state(false);
 	let cacheDownloadProgress = $state(0);
 	const debouncedPath = new Debounced(() => localPath, 500);
-	const debouncedUrl = new Debounced(() => localUrl, 500);
+	const debouncedUrlX86 = new Debounced(() => localUrlX86, 500);
+	const debouncedUrlX64 = new Debounced(() => localUrlX64, 500);
 
 	async function validatePath(path: string): Promise<boolean> {
 		if (!path) return ((pathError = ''), true);
@@ -73,8 +75,6 @@
 
 		try {
 			await updateMutation.mutateAsync({ among_us_path: path, game_platform: platform });
-			const newUrl = await detectBepInExMutation.mutateAsync(path);
-			if (newUrl) localUrl = newUrl;
 		} catch (e) {
 			showError(e);
 		}
@@ -131,7 +131,8 @@
 	}
 
 	async function handleDownloadToCache() {
-		if (!localUrl) return showError('BepInEx URL is required');
+		const url = activeBepInExArch === 'x64' ? localUrlX64 : localUrlX86;
+		if (!url) return showError('BepInEx URL is required');
 		isCacheDownloading = true;
 		cacheDownloadProgress = 0;
 		let unlisten: (() => void) | undefined;
@@ -139,8 +140,8 @@
 			unlisten = await listen<BepInExProgress>('bepinex-progress', (event) => {
 				cacheDownloadProgress = event.payload.progress;
 			});
-			await downloadCacheMutation.mutateAsync(localUrl);
-			queryClient.setQueryData(settingsCacheExistsQueryKey, true);
+			await downloadCacheMutation.mutateAsync({ url, architecture: activeBepInExArch });
+			queryClient.setQueryData(settingsCacheExistsQueryKey(activeBepInExArch), true);
 			showSuccess('BepInEx downloaded to cache');
 		} catch (e) {
 			showError(e);
@@ -153,8 +154,8 @@
 
 	async function handleClearCache() {
 		try {
-			await clearCacheMutation.mutateAsync();
-			queryClient.setQueryData(settingsCacheExistsQueryKey, false);
+			await clearCacheMutation.mutateAsync(activeBepInExArch);
+			queryClient.setQueryData(settingsCacheExistsQueryKey(activeBepInExArch), false);
 			showSuccess('Cache cleared');
 		} catch (e) {
 			showError(e);
@@ -173,7 +174,8 @@
 	$effect(() => {
 		if (settings && !initialized) {
 			localPath = settings.among_us_path ?? '';
-			localUrl = settings.bepinex_url ?? '';
+			localUrlX86 = settings.bepinex_url_x86 ?? '';
+			localUrlX64 = settings.bepinex_url_x64 ?? '';
 			localCloseOnLaunch = settings.close_on_launch ?? false;
 			localAllowMultiInstanceLaunch = settings.allow_multi_instance_launch ?? false;
 			localPlatform = settings.game_platform ?? 'steam';
@@ -215,10 +217,19 @@
 
 	// Debounced URL save to avoid writing on every keystroke.
 	watch(
-		() => debouncedUrl.current,
+		() => debouncedUrlX86.current,
 		() => {
 			if (isHydrating) return;
-			void updateMutation.mutateAsync({ bepinex_url: localUrl });
+			void updateMutation.mutateAsync({ bepinex_url_x86: localUrlX86 });
+		},
+		{ lazy: true }
+	);
+
+	watch(
+		() => debouncedUrlX64.current,
+		() => {
+			if (isHydrating) return;
+			void updateMutation.mutateAsync({ bepinex_url_x64: localUrlX64 });
 		},
 		{ lazy: true }
 	);
@@ -289,7 +300,9 @@
 				onPathBlur={() => validatePath(localPath)}
 			/>
 			<BepInExSettingsSection
-				bind:localUrl
+				bind:localUrlX86
+				bind:localUrlX64
+				activeArchitecture={activeBepInExArch}
 				bind:localCacheBepInEx
 				{isCacheDownloading}
 				{cacheDownloadProgress}

@@ -1,6 +1,8 @@
 <script lang="ts" module>
 	export interface BepInExSettingsSectionProps {
-		localUrl: string;
+		localUrlX86: string;
+		localUrlX64: string;
+		activeArchitecture: 'x86' | 'x64';
 		localCacheBepInEx: boolean;
 		isCacheDownloading: boolean;
 		cacheDownloadProgress: number;
@@ -19,7 +21,9 @@
 	import SettingsSection from './SettingsSection.svelte';
 
 	let {
-		localUrl = $bindable(),
+		localUrlX86 = $bindable(),
+		localUrlX64 = $bindable(),
+		activeArchitecture,
 		localCacheBepInEx = $bindable(),
 		isCacheDownloading,
 		cacheDownloadProgress,
@@ -27,14 +31,30 @@
 		onDownloadToCache,
 		onClearCache
 	}: BepInExSettingsSectionProps = $props();
+
 </script>
 
 <SettingsSection title="BepInEx Configuration">
 	<div class="space-y-4">
-		<div class="space-y-2">
-			<Label for="bepinex-url">BepInEx Download URL</Label>
-			<Input id="bepinex-url" bind:value={localUrl} placeholder="https://builds.bepinex.dev/..." />
-		</div>
+		{#if activeArchitecture === 'x64'}
+			<div class="space-y-2">
+				<Label for="bepinex-url-x64">BepInEx x64 Download URL</Label>
+				<Input
+					id="bepinex-url-x64"
+					bind:value={localUrlX64}
+					placeholder="https://builds.bepinex.dev/...win-x64..."
+				/>
+			</div>
+		{:else}
+			<div class="space-y-2">
+				<Label for="bepinex-url-x86">BepInEx x86 Download URL</Label>
+				<Input
+					id="bepinex-url-x86"
+					bind:value={localUrlX86}
+					placeholder="https://builds.bepinex.dev/...win-x86..."
+				/>
+			</div>
+		{/if}
 
 		<div class="flex items-center justify-between">
 			<div class="space-y-0.5">

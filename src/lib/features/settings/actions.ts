@@ -3,7 +3,6 @@ import type { AppSettings } from "./schema";
 import { settingsQueryKey } from "./settings-keys";
 import { rustInvoke } from "$lib/infra/rust/invoke";
 import {
-  autoDetectBepInExArchitecture,
   clearBepInExCache,
   detectAmongUsPath,
   detectGameStore,
@@ -34,26 +33,11 @@ export const settingsActions = {
     },
   }),
   downloadBepInExToCache: () => ({
-    mutationFn: (url: string) => downloadBepInExToCache(url),
+    mutationFn: (args: { url: string; architecture: "x86" | "x64" }) =>
+      downloadBepInExToCache(args.url, args.architecture),
   }),
   clearBepInExCache: () => ({
-    mutationFn: () => clearBepInExCache(),
-  }),
-  autoDetectBepInExArchitecture: (queryClient: QueryClient) => ({
-    mutationFn: async (gamePath: string) => {
-      const updatedUrl = await autoDetectBepInExArchitecture(gamePath);
-      if (!updatedUrl) return null;
-      await rustInvoke("core_update_settings", {
-        updates: { bepinex_url: updatedUrl },
-      });
-      return updatedUrl;
-    },
-    onSuccess: (updatedUrl: string | null) => {
-      if (!updatedUrl) return;
-      queryClient.setQueryData<AppSettings | undefined>(settingsQueryKey, (current) =>
-        current ? { ...current, bepinex_url: updatedUrl } : current,
-      );
-    },
+    mutationFn: (architecture: "x86" | "x64") => clearBepInExCache(architecture),
   }),
   detectAmongUsPath: () => ({
     mutationFn: () => detectAmongUsPath(),

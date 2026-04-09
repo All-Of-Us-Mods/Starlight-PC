@@ -9,11 +9,13 @@ export const settingsQueries = {
       queryKey: settingsQueryKey,
       command: "core_get_settings",
     }),
-  cacheExists: () =>
+  cacheExists: (architecture: "x86" | "x64") =>
     queryOptions({
-      queryKey: settingsCacheExistsQueryKey,
+      queryKey: settingsCacheExistsQueryKey(architecture),
       queryFn: async () => {
-        const cachePath = await rustInvoke("core_get_bepinex_cache_path");
+        const cachePath = await rustInvoke("core_get_bepinex_cache_path_for_arch", {
+          architecture,
+        });
         return rustInvoke("modding_bepinex_cache_exists", { cachePath });
       },
     }),
