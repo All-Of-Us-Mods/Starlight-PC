@@ -414,13 +414,8 @@ pub async fn install_bepinex_for_profile<R: Runtime>(
         None
     };
 
-    bepinex_service::install_bepinex(
-        app.clone(),
-        bepinex_url,
-        profile.path.clone(),
-        cache_path,
-    )
-    .await?;
+    bepinex_service::install_bepinex(app.clone(), bepinex_url, profile.path.clone(), cache_path)
+        .await?;
 
     tauri::async_runtime::spawn_blocking(move || {
         profile.bepinex_installed = Some(true);
