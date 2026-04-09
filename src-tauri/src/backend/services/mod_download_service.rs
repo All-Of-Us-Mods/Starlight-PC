@@ -52,7 +52,7 @@ pub async fn download_mod<R: Runtime>(
     mod_id: String,
     url: String,
     destination: String,
-    expected_checksum: String,
+    expected_checksum: Option<String>,
 ) -> AppResult<()> {
     let dest_path = Path::new(&destination);
     if let Some(parent) = dest_path.parent() {
@@ -101,7 +101,9 @@ pub async fn download_mod<R: Runtime>(
 
     emit_progress(&app, &mod_id, downloaded, total_size, "verifying");
     let computed_checksum = format!("{:x}", hasher.finalize());
-    if computed_checksum != expected_checksum.to_lowercase() {
+    if let Some(expected_checksum) = expected_checksum.filter(|checksum| !checksum.is_empty())
+        && computed_checksum != expected_checksum.to_lowercase()
+    {
         return Err(AppError::validation(format!(
             "Checksum mismatch: expected {}, got {}",
             expected_checksum, computed_checksum

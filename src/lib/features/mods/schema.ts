@@ -7,29 +7,28 @@ export const ExternalLink = type({
 
 export const ModResponseLinks = type({
   self: "string",
-  info: "string",
   thumbnail: "string",
   versions: "string",
 });
 
 export const ModResponse = type({
   "status?": "string", // Maps to db.PublicationStatus
+  "mod_type?": "string",
   id: "string <= 100",
   name: "string <= 100",
   author: "string <= 100",
   description: "string <= 500",
+  "long_description?": "string <= 20000",
+  "license?": "string <= 100",
+  "links?": type(ExternalLink.array()),
+  "tags?": "string[]",
   created_at: "number",
   updated_at: "number",
   downloads: "number",
   _links: ModResponseLinks,
 });
 
-export const ModInfoResponse = type({
-  long_description: "string <= 20000",
-  license: "string <= 100",
-  links: type(ExternalLink.array()),
-  tags: "string[]",
-});
+export const ModInfoResponse = ModResponse;
 
 export const ModDependency = type({
   mod_id: "string",
@@ -38,10 +37,13 @@ export const ModDependency = type({
 });
 
 export const ModVersionInfo = type({
-  file_name: "string",
-  changelog: "string",
-  checksum: "string",
-  "download_url?": "string",
+  "status?": "string",
+  name: "string",
+  version: "string",
+  "supported_platforms?": "string[]",
+  downloads: "number",
+  created_at: "number",
+  "changelog?": "string",
   "platforms?": type(
     type({
       platform: "string",
@@ -56,14 +58,14 @@ export const ModVersionInfo = type({
 });
 
 export const ModVersion = type({
+  "status?": "string",
   name: "string",
   version: "string",
-  platform: "string",
+  "supported_platforms?": "string[]",
   downloads: "number",
   created_at: "number",
   _links: {
     self: "string",
-    info: "string",
   },
 });
 
