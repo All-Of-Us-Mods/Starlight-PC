@@ -8,7 +8,7 @@ pub struct ModdingBepInExInstallArgs {
     pub url: String,
     pub destination: String,
     pub cache_path: Option<String>,
-    pub target_type: String,
+    pub target_type: bepinex_service::BepInExTargetType,
     pub target_id: String,
 }
 
@@ -51,7 +51,7 @@ pub async fn modding_bepinex_install<R: Runtime>(
         args.url,
         args.destination,
         args.cache_path,
-        &args.target_type,
+        args.target_type,
         &args.target_id,
     )
     .await

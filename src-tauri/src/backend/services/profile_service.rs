@@ -419,7 +419,7 @@ pub async fn install_bepinex_for_profile<R: Runtime>(
         bepinex_url,
         profile.path.clone(),
         cache_path,
-        "profile",
+        bepinex_service::BepInExTargetType::Profile,
         &profile_id_owned,
     )
     .await?;

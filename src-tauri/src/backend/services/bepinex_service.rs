@@ -5,13 +5,20 @@ use std::fs;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, Runtime};
 
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BepInExTargetType {
+    Profile,
+    Cache,
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BepInExProgress {
     stage: String,
     progress: f64,
     message: String,
-    target_type: String,
+    target_type: BepInExTargetType,
     target_id: String,
 }
 
@@ -20,7 +27,7 @@ fn emit<R: Runtime>(
     stage: &str,
     progress: f64,
     message: &str,
-    target_type: &str,
+    target_type: BepInExTargetType,
     target_id: &str,
 ) {
     let _ = app.emit(
@@ -29,7 +36,7 @@ fn emit<R: Runtime>(
             stage: stage.to_string(),
             progress,
             message: message.to_string(),
-            target_type: target_type.to_string(),
+            target_type,
             target_id: target_id.to_string(),
         },
     );
@@ -40,7 +47,7 @@ pub async fn install_bepinex<R: Runtime>(
     url: String,
     destination: String,
     cache_path: Option<String>,
-    target_type: &str,
+    target_type: BepInExTargetType,
     target_id: &str,
 ) -> AppResult<()> {
     info!("install_bepinex: {} -> {}", url, destination);
@@ -145,7 +152,7 @@ pub async fn download_bepinex_to_cache<R: Runtime>(
         "downloading",
         0.0,
         "Downloading...",
-        "cache",
+        BepInExTargetType::Cache,
         &architecture,
     );
     download_file(&url, cache_file, |dl, total| {
@@ -155,14 +162,21 @@ pub async fn download_bepinex_to_cache<R: Runtime>(
                 "downloading",
                 dl as f64 / t as f64 * 100.0,
                 &format!("Downloading... {:.0}%", dl as f64 / t as f64 * 100.0),
-                "cache",
+                BepInExTargetType::Cache,
                 &architecture,
             );
         }
     })
     .await?;
 
-    emit(&app, "complete", 100.0, "Complete!", "cache", &architecture);
+    emit(
+        &app,
+        "complete",
+        100.0,
+        "Complete!",
+        BepInExTargetType::Cache,
+        &architecture,
+    );
     Ok(())
 }
 
