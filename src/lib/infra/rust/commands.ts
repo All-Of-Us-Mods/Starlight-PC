@@ -46,7 +46,7 @@ export type RustCommandMap = {
   profiles_update_last_launched: { args: { profileId: string }; result: void };
 
   modding_bepinex_cache_download: {
-    args: { url: string; cachePath: string };
+    args: { url: string; cachePath: string; architecture: "x86" | "x64" };
     result: void;
   };
   modding_bepinex_cache_clear: { args: { cachePath: string }; result: void };

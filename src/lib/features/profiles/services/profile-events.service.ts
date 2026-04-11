@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export function listenForBepInExProgress(profileId: string): Promise<UnlistenFn> {
   return listen<BepInExProgress>("bepinex-progress", (event) => {
+    if (event.payload.targetType !== "profile" || event.payload.targetId !== profileId) return;
     gameState.setBepInExProgress(profileId, event.payload);
   });
 }

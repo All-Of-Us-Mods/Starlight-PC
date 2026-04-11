@@ -46,6 +46,8 @@ export interface BepInExProgress {
   stage: "downloading" | "extracting" | "complete";
   progress: number;
   message: string;
+  targetType: "profile" | "cache";
+  targetId: string;
 }
 
 // Progress types for mod downloads

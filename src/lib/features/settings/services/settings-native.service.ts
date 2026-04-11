@@ -3,7 +3,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 export async function downloadBepInExToCache(url: string, architecture: "x86" | "x64") {
   const cachePath = await rustInvoke("core_get_bepinex_cache_path_for_arch", { architecture });
-  await rustInvoke("modding_bepinex_cache_download", { url, cachePath });
+  await rustInvoke("modding_bepinex_cache_download", { url, cachePath, architecture });
 }
 
 export async function clearBepInExCache(architecture: "x86" | "x64") {
