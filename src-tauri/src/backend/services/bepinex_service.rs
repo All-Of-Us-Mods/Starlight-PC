@@ -68,14 +68,7 @@ pub async fn install_bepinex<R: Runtime>(
                     target_id,
                 );
             })?;
-            emit(
-                &app,
-                "complete",
-                100.0,
-                "Complete!",
-                target_type,
-                target_id,
-            );
+            emit(&app, "complete", 100.0, "Complete!", target_type, target_id);
             return Ok(());
         }
     }
@@ -135,14 +128,7 @@ pub async fn install_bepinex<R: Runtime>(
     })?;
 
     fs::remove_file(&temp).ok();
-    emit(
-        &app,
-        "complete",
-        100.0,
-        "Complete!",
-        target_type,
-        target_id,
-    );
+    emit(&app, "complete", 100.0, "Complete!", target_type, target_id);
     Ok(())
 }
 
