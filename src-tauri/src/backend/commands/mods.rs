@@ -8,6 +8,8 @@ pub struct ModdingBepInExInstallArgs {
     pub url: String,
     pub destination: String,
     pub cache_path: Option<String>,
+    pub target_type: String,
+    pub target_id: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -15,6 +17,7 @@ pub struct ModdingBepInExInstallArgs {
 pub struct ModdingBepInExCacheDownloadArgs {
     pub url: String,
     pub cache_path: String,
+    pub architecture: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -43,9 +46,16 @@ pub async fn modding_bepinex_install<R: Runtime>(
     app: AppHandle<R>,
     args: ModdingBepInExInstallArgs,
 ) -> Result<(), String> {
-    bepinex_service::install_bepinex(app, args.url, args.destination, args.cache_path)
-        .await
-        .map_err(|e| e.to_string())
+    bepinex_service::install_bepinex(
+        app,
+        args.url,
+        args.destination,
+        args.cache_path,
+        &args.target_type,
+        &args.target_id,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -53,7 +63,7 @@ pub async fn modding_bepinex_cache_download<R: Runtime>(
     app: AppHandle<R>,
     args: ModdingBepInExCacheDownloadArgs,
 ) -> Result<(), String> {
-    bepinex_service::download_bepinex_to_cache(app, args.url, args.cache_path)
+    bepinex_service::download_bepinex_to_cache(app, args.url, args.cache_path, args.architecture)
         .await
         .map_err(|e| e.to_string())
 }

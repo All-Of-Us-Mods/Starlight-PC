@@ -131,17 +131,23 @@
 	}
 
 	async function handleDownloadToCache() {
-		const url = activeBepInExArch === 'x64' ? localUrlX64 : localUrlX86;
+		const architecture = activeBepInExArch;
+		const url = architecture === 'x64' ? localUrlX64 : localUrlX86;
 		if (!url) return showError('BepInEx URL is required');
 		isCacheDownloading = true;
 		cacheDownloadProgress = 0;
 		let unlisten: (() => void) | undefined;
 		try {
 			unlisten = await listen<BepInExProgress>('bepinex-progress', (event) => {
+				if (
+					event.payload.targetType !== 'cache' ||
+					event.payload.targetId !== architecture
+				)
+					return;
 				cacheDownloadProgress = event.payload.progress;
 			});
-			await downloadCacheMutation.mutateAsync({ url, architecture: activeBepInExArch });
-			queryClient.setQueryData(settingsCacheExistsQueryKey(activeBepInExArch), true);
+			await downloadCacheMutation.mutateAsync({ url, architecture });
+			queryClient.setQueryData(settingsCacheExistsQueryKey(architecture), true);
 			showSuccess('BepInEx downloaded to cache');
 		} catch (e) {
 			showError(e);
