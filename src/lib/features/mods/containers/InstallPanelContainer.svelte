@@ -7,10 +7,7 @@
 	import { Download, Check, TriangleAlert } from '@jis3r/icons';
 	import { LoaderCircle, Package } from '@lucide/svelte';
 	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
-	import {
-		modQueries,
-		resolveDependencyVersionWithConstraints
-	} from '$lib/features/mods/queries';
+	import { modQueries, resolveInstallDependencies } from '$lib/features/mods/queries';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { profileActions } from '$lib/features/profiles/actions';
 	import { gameState } from '$lib/features/profiles/state/game-state.svelte';
@@ -147,92 +144,32 @@
 		try {
 			installError = '';
 
-			const modsToInstall = [{ modId, version: selectedVersion }];
-			const modNameById = new Map<string, string>([[modId, selectedModName]]);
-			const constraintsByModId = new Map<string, { constraints: Set<string>; name: string }>();
-			const resolvedVersionByModId = new Map<string, string>();
-			for (const dep of resolvedDeps) {
-				modNameById.set(dep.mod_id, dep.modName);
-			}
+			const dependencyNameById = new Map(resolvedDeps.map((item) => [item.mod_id, item.modName]));
+			const resolvedDependencies = await resolveInstallDependencies({
+				queryClient,
+				dependencies,
+				selectedDependencyIds: selectedDependencies
+			});
+			const installPlan = [
+				{ modId, version: selectedVersion, modName: selectedModName },
+				...resolvedDependencies
+					.filter(
+						(dependency) =>
+							installedVersionByModId.get(dependency.mod_id) !== dependency.resolvedVersion
+					)
+					.map((dependency) => ({
+						modId: dependency.mod_id,
+						version: dependency.resolvedVersion,
+						modName: dependencyNameById.get(dependency.mod_id) || dependency.modName
+					}))
+			];
 
-			const addConstraint = (dep: ModDependency): boolean => {
-				const name = dep.name;
-				const existing = constraintsByModId.get(dep.mod_id);
-				if (existing) {
-					const sizeBefore = existing.constraints.size;
-					existing.constraints.add(dep.version_constraint);
-					if (!existing.name && name) {
-						existing.name = name;
-					}
-					return existing.constraints.size !== sizeBefore;
-				}
-
-				constraintsByModId.set(dep.mod_id, {
-					constraints: new Set([dep.version_constraint]),
-					name
-				});
-				return true;
-			};
-
-			for (const dep of dependencies) {
-				if (dep.type === 'conflict') continue;
-				if (dep.type === 'optional' && !selectedDependencies.has(dep.mod_id)) continue;
-				addConstraint(dep);
-			}
-
-			let changed = true;
-			while (changed) {
-				changed = false;
-
-				for (const [depModId, data] of constraintsByModId) {
-					const versions = await queryClient.fetchQuery(modQueries.versions(depModId));
-					const resolvedVersion = resolveDependencyVersionWithConstraints(
-						Array.from(data.constraints),
-						versions
-					);
-
-					if (!resolvedVersion) {
-						const list = Array.from(data.constraints).join(', ');
-						throw new Error(
-							`No compatible version found for ${data.name || depModId} (${list})`
-						);
-					}
-
-					if (resolvedVersionByModId.get(depModId) === resolvedVersion) {
-						continue;
-					}
-
-					resolvedVersionByModId.set(depModId, resolvedVersion);
-					changed = true;
-
-					const versionInfo = await queryClient.fetchQuery(
-						modQueries.versionInfo(depModId, resolvedVersion)
-					);
-
-					for (const transitive of versionInfo.dependencies) {
-						if (transitive.type !== 'required') continue;
-						if (addConstraint(transitive)) {
-							changed = true;
-						}
-					}
-				}
-			}
-
-			for (const [depModId, depVersion] of resolvedVersionByModId) {
-				if (installedVersionByModId.get(depModId) === depVersion) continue;
-				modsToInstall.push({ modId: depModId, version: depVersion });
-				modNameById.set(depModId, constraintsByModId.get(depModId)?.name || depModId);
-			}
-
-			modsBeingInstalled = modsToInstall.map((m) => ({
-				modId: m.modId,
-				modName: modNameById.get(m.modId) || m.modId
-			}));
+			modsBeingInstalled = installPlan;
 			isInstalling = true;
 
 			await installModsMutation.mutateAsync({
 				profileId: selectedProfile.id,
-				mods: modsToInstall
+				mods: installPlan.map((entry) => ({ modId: entry.modId, version: entry.version }))
 			});
 			showSuccess(`Installed to ${selectedProfile.name}`);
 			onInstallComplete?.();

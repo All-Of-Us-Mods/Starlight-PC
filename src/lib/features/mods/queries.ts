@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/svelte-query";
+import { type QueryClient, queryOptions } from "@tanstack/svelte-query";
 import { type } from "arktype";
 import { rcompare, satisfies, valid } from "semver";
 import { apiFetch } from "$lib/infra/http/starlight-api";
@@ -71,6 +71,87 @@ export function resolveDependencyVersionWithConstraints(
   versions: Array<{ version: string }>,
 ): string | null {
   return resolveLatestSatisfyingVersion(constraints, versions);
+}
+
+export type ResolvedInstallDependency = {
+  mod_id: string;
+  modName: string;
+  resolvedVersion: string;
+};
+
+export async function resolveInstallDependencies(args: {
+  queryClient: QueryClient;
+  dependencies: ModDependency[];
+  selectedDependencyIds: Set<string>;
+}): Promise<ResolvedInstallDependency[]> {
+  const { queryClient, dependencies, selectedDependencyIds } = args;
+  const constraintsByModId = new Map<string, { constraints: Set<string>; name: string }>();
+  const resolvedVersionByModId = new Map<string, string>();
+
+  const addConstraint = (dependency: ModDependency): boolean => {
+    const existing = constraintsByModId.get(dependency.mod_id);
+    if (existing) {
+      const sizeBefore = existing.constraints.size;
+      existing.constraints.add(dependency.version_constraint);
+      if (!existing.name && dependency.name) {
+        existing.name = dependency.name;
+      }
+      return existing.constraints.size !== sizeBefore;
+    }
+
+    constraintsByModId.set(dependency.mod_id, {
+      constraints: new Set([dependency.version_constraint]),
+      name: dependency.name,
+    });
+    return true;
+  };
+
+  for (const dependency of dependencies) {
+    if (dependency.type === "conflict") continue;
+    if (dependency.type === "optional" && !selectedDependencyIds.has(dependency.mod_id)) continue;
+    addConstraint(dependency);
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+
+    for (const [modId, data] of constraintsByModId) {
+      const versions = await queryClient.fetchQuery(modQueries.versions(modId));
+      const resolvedVersion = resolveDependencyVersionWithConstraints(
+        Array.from(data.constraints),
+        versions,
+      );
+
+      if (!resolvedVersion) {
+        const list = Array.from(data.constraints).join(", ");
+        throw new Error(`No compatible version found for ${data.name || modId} (${list})`);
+      }
+
+      if (resolvedVersionByModId.get(modId) === resolvedVersion) {
+        continue;
+      }
+
+      resolvedVersionByModId.set(modId, resolvedVersion);
+      changed = true;
+
+      const versionInfo = await queryClient.fetchQuery(
+        modQueries.versionInfo(modId, resolvedVersion),
+      );
+      for (const dependency of versionInfo.dependencies) {
+        if (dependency.type !== "required") continue;
+        if (addConstraint(dependency)) {
+          changed = true;
+        }
+      }
+    }
+  }
+
+  return Array.from(resolvedVersionByModId).map(([mod_id, resolvedVersion]) => ({
+    mod_id,
+    modName: constraintsByModId.get(mod_id)?.name || mod_id,
+    resolvedVersion,
+  }));
 }
 
 export const modQueries = {
