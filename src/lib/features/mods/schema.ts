@@ -32,6 +32,7 @@ export const ModInfoResponse = ModResponse;
 
 export const ModDependency = type({
   mod_id: "string",
+  name: "string",
   version_constraint: "string",
   type: "'required' | 'optional' | 'conflict'",
 });

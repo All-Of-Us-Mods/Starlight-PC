@@ -7,7 +7,10 @@
 	import { Download, Check, TriangleAlert } from '@jis3r/icons';
 	import { LoaderCircle, Package } from '@lucide/svelte';
 	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
-	import { modQueries } from '$lib/features/mods/queries';
+	import {
+		modQueries,
+		resolveDependencyVersionWithConstraints
+	} from '$lib/features/mods/queries';
 	import { profileQueries } from '$lib/features/profiles/queries';
 	import { profileActions } from '$lib/features/profiles/actions';
 	import { gameState } from '$lib/features/profiles/state/game-state.svelte';
@@ -37,6 +40,7 @@
 	// ============ QUERIES ============
 
 	const profilesQuery = createQuery(() => profileQueries.all());
+	const modInfoQuery = createQuery(() => modQueries.info(modId));
 	const profiles = $derived((profilesQuery.data ?? []) as Profile[]);
 	const hasProfiles = $derived(profiles.length > 0);
 
@@ -50,7 +54,7 @@
 	let isInstalling = $state(false);
 	let installError = $state('');
 	let selectedDependencies = $state<Set<string>>(new Set());
-	let modsBeingInstalled = $state<string[]>([]);
+	let modsBeingInstalled = $state<Array<{ modId: string; modName: string }>>([]);
 	let hasInitializedDeps = $state(false);
 
 	// ============ MUTATIONS ============
@@ -60,12 +64,16 @@
 	// ============ DERIVED ============
 
 	const selectedProfile = $derived(profiles.find((p) => p.id === selectedProfileId));
+	const selectedModName = $derived(modInfoQuery.data?.name ?? modId);
 
 	const installedModInProfile = $derived(selectedProfile?.mods.find((m) => m.mod_id === modId));
 	const installedVersion = $derived(installedModInProfile?.version ?? '');
 
 	const installedDepsInProfile = $derived(
 		new Set(selectedProfile?.mods.map((m) => m.mod_id) ?? [])
+	);
+	const installedVersionByModId = $derived(
+		new Map((selectedProfile?.mods ?? []).map((m) => [m.mod_id, m.version]))
 	);
 
 	const conflictsInProfile = $derived(
@@ -116,7 +124,7 @@
 		(currentDeps) => {
 			if (currentDeps.length > 0 && !hasInitializedDeps) {
 				selectedDependencies = new Set(
-					currentDeps.filter((dep) => dep.type !== 'conflict').map((dep) => dep.mod_id)
+					currentDeps.filter((dep) => dep.type === 'required').map((dep) => dep.mod_id)
 				);
 				hasInitializedDeps = true;
 			}
@@ -125,7 +133,8 @@
 
 	// ============ HANDLERS ============
 
-	function toggleDependency(depModId: string) {
+	function toggleDependency(depModId: string, depType: ModDependency['type']) {
+		if (depType === 'required') return;
 		if (selectedDependencies.has(depModId)) {
 			selectedDependencies = new Set([...selectedDependencies].filter((id) => id !== depModId));
 			return;
@@ -135,19 +144,92 @@
 
 	async function handleInstall() {
 		if (!selectedProfile || !selectedVersion) return;
-
-		const modsToInstall = [{ modId, version: selectedVersion }];
-		for (const dep of installableDependencies) {
-			if (selectedDependencies.has(dep.mod_id) && !installedDepsInProfile.has(dep.mod_id)) {
-				modsToInstall.push({ modId: dep.mod_id, version: dep.resolvedVersion });
-			}
-		}
-
-		modsBeingInstalled = modsToInstall.map((m) => m.modId);
-		isInstalling = true;
-		installError = '';
-
 		try {
+			installError = '';
+
+			const modsToInstall = [{ modId, version: selectedVersion }];
+			const modNameById = new Map<string, string>([[modId, selectedModName]]);
+			const constraintsByModId = new Map<string, { constraints: Set<string>; name: string }>();
+			const resolvedVersionByModId = new Map<string, string>();
+			for (const dep of resolvedDeps) {
+				modNameById.set(dep.mod_id, dep.modName);
+			}
+
+			const addConstraint = (dep: ModDependency): boolean => {
+				const name = dep.name;
+				const existing = constraintsByModId.get(dep.mod_id);
+				if (existing) {
+					const sizeBefore = existing.constraints.size;
+					existing.constraints.add(dep.version_constraint);
+					if (!existing.name && name) {
+						existing.name = name;
+					}
+					return existing.constraints.size !== sizeBefore;
+				}
+
+				constraintsByModId.set(dep.mod_id, {
+					constraints: new Set([dep.version_constraint]),
+					name
+				});
+				return true;
+			};
+
+			for (const dep of dependencies) {
+				if (dep.type === 'conflict') continue;
+				if (dep.type === 'optional' && !selectedDependencies.has(dep.mod_id)) continue;
+				addConstraint(dep);
+			}
+
+			let changed = true;
+			while (changed) {
+				changed = false;
+
+				for (const [depModId, data] of constraintsByModId) {
+					const versions = await queryClient.fetchQuery(modQueries.versions(depModId));
+					const resolvedVersion = resolveDependencyVersionWithConstraints(
+						Array.from(data.constraints),
+						versions
+					);
+
+					if (!resolvedVersion) {
+						const list = Array.from(data.constraints).join(', ');
+						throw new Error(
+							`No compatible version found for ${data.name || depModId} (${list})`
+						);
+					}
+
+					if (resolvedVersionByModId.get(depModId) === resolvedVersion) {
+						continue;
+					}
+
+					resolvedVersionByModId.set(depModId, resolvedVersion);
+					changed = true;
+
+					const versionInfo = await queryClient.fetchQuery(
+						modQueries.versionInfo(depModId, resolvedVersion)
+					);
+
+					for (const transitive of versionInfo.dependencies) {
+						if (transitive.type !== 'required') continue;
+						if (addConstraint(transitive)) {
+							changed = true;
+						}
+					}
+				}
+			}
+
+			for (const [depModId, depVersion] of resolvedVersionByModId) {
+				if (installedVersionByModId.get(depModId) === depVersion) continue;
+				modsToInstall.push({ modId: depModId, version: depVersion });
+				modNameById.set(depModId, constraintsByModId.get(depModId)?.name || depModId);
+			}
+
+			modsBeingInstalled = modsToInstall.map((m) => ({
+				modId: m.modId,
+				modName: modNameById.get(m.modId) || m.modId
+			}));
+			isInstalling = true;
+
 			await installModsMutation.mutateAsync({
 				profileId: selectedProfile.id,
 				mods: modsToInstall
@@ -249,8 +331,8 @@
 								<div class="flex items-center gap-2.5">
 									<Switch
 										checked={selectedDependencies.has(dep.mod_id)}
-										onCheckedChange={() => toggleDependency(dep.mod_id)}
-										disabled={isInstalling || isInstalled}
+										onCheckedChange={() => toggleDependency(dep.mod_id, dep.type)}
+										disabled={isInstalling || isInstalled || dep.type === 'required'}
 										class="scale-90"
 									/>
 									<div class="flex flex-col">
@@ -301,14 +383,14 @@
 				<div class="space-y-2">
 					<span class="text-xs font-medium text-muted-foreground">Installing...</span>
 					<div class="space-y-2 rounded-lg border border-border/50 p-2">
-						{#each modsBeingInstalled as downloadingModId (downloadingModId)}
-							{@const state = gameState.getModDownloadState(downloadingModId)}
+						{#each modsBeingInstalled as item (item.modId)}
+							{@const state = gameState.getModDownloadState(item.modId)}
 							<div class="flex items-center gap-2 px-1">
 								{#if state?.status === 'downloading'}
 									<LoaderCircle class="h-3.5 w-3.5 animate-spin text-primary" />
 									<div class="min-w-0 flex-1">
 										<div class="flex items-center justify-between text-xs">
-											<span class="truncate font-medium">{downloadingModId}</span>
+											<span class="truncate font-medium">{item.modName}</span>
 											<span class="text-muted-foreground">
 												{gameState.getModDownloadStageText(state.progress.stage)}
 											</span>
@@ -324,10 +406,10 @@
 									</div>
 								{:else if state?.status === 'complete'}
 									<Check size={14} class="text-green-500" />
-									<span class="text-xs font-medium">{downloadingModId}</span>
+									<span class="text-xs font-medium">{item.modName}</span>
 								{:else}
 									<LoaderCircle size={14} class="animate-spin text-muted-foreground" />
-									<span class="text-xs text-muted-foreground">{downloadingModId}</span>
+									<span class="text-xs text-muted-foreground">{item.modName}</span>
 								{/if}
 							</div>
 						{/each}

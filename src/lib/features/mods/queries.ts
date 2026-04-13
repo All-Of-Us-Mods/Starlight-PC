@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/svelte-query";
 import { type } from "arktype";
-import { satisfies, valid } from "semver";
+import { rcompare, satisfies, valid } from "semver";
 import { apiFetch } from "$lib/infra/http/starlight-api";
 import { ModResponse, ModVersion, ModVersionInfo, type ModDependency } from "./schema";
 import {
@@ -18,24 +18,59 @@ import {
 const ModArrayValidator = type(ModResponse.array());
 const ModVersionsValidator = type(ModVersion.array());
 
-function resolveDependencyVersion(
-  versionConstraint: string,
-  versionsSortedByNewest: Array<{ version: string }>,
+function resolveLatestSatisfyingVersion(
+  constraints: string[],
+  versions: Array<{ version: string }>,
 ): string | null {
-  if (versionsSortedByNewest.length === 0) return null;
-  if (versionConstraint === "*") return versionsSortedByNewest[0]?.version ?? null;
+  if (versions.length === 0) return null;
 
-  try {
-    for (const item of versionsSortedByNewest) {
-      if (valid(item.version) && satisfies(item.version, versionConstraint)) {
-        return item.version;
+  const normalizedConstraints = constraints.filter((item) => !!item.trim());
+  const validVersions = versions
+    .map((item) => item.version)
+    .filter((version): version is string => !!valid(version))
+    .toSorted((a, b) => rcompare(a, b));
+
+  const requirementList = normalizedConstraints.length > 0 ? normalizedConstraints : ["*"];
+  let hasInvalidConstraint = false;
+
+  for (const version of validVersions) {
+    try {
+      if (
+        requirementList.every((constraint) =>
+          satisfies(version, constraint, { includePrerelease: true }),
+        )
+      ) {
+        return version;
       }
+    } catch {
+      // Invalid semver requirement from API; fallback to latest version.
+      hasInvalidConstraint = true;
+      break;
     }
-  } catch {
-    // Invalid semver requirement from API; fallback to latest version.
   }
 
-  return versionsSortedByNewest[0]?.version ?? null;
+  if (normalizedConstraints.length > 0) {
+    if (hasInvalidConstraint) {
+      return validVersions[0] ?? versions[0]?.version ?? null;
+    }
+    return null;
+  }
+
+  return validVersions[0] ?? versions[0]?.version ?? null;
+}
+
+export function resolveDependencyVersion(
+  versionConstraint: string,
+  versions: Array<{ version: string }>,
+): string | null {
+  return resolveLatestSatisfyingVersion([versionConstraint], versions);
+}
+
+export function resolveDependencyVersionWithConstraints(
+  constraints: string[],
+  versions: Array<{ version: string }>,
+): string | null {
+  return resolveLatestSatisfyingVersion(constraints, versions);
 }
 
 export const modQueries = {
@@ -109,7 +144,7 @@ export const modQueries = {
 
   resolvedDependencies: (dependencies: ModDependency[]) => {
     const queryKey = dependencies
-      .map((d) => `${d.mod_id}:${d.version_constraint}`)
+      .map((d) => `${d.mod_id}:${d.version_constraint}:${d.type}:${d.name}`)
       .toSorted()
       .join(",");
 
@@ -118,16 +153,18 @@ export const modQueries = {
       queryFn: async () => {
         const resolved = await Promise.all(
           dependencies.map(async (dependency) => {
-            const [mod, versions] = await Promise.all([
-              apiFetch(`/api/v3/mods/${dependency.mod_id}`, ModResponse),
-              apiFetch(`/api/v3/mods/${dependency.mod_id}/versions`, ModVersionsValidator),
-            ]);
-            const sorted = [...versions].toSorted((a, b) => b.created_at - a.created_at);
-            const resolvedVersion = resolveDependencyVersion(dependency.version_constraint, sorted);
+            const versions = await apiFetch(
+              `/api/v3/mods/${dependency.mod_id}/versions`,
+              ModVersionsValidator,
+            );
+            const resolvedVersion = resolveDependencyVersion(
+              dependency.version_constraint,
+              versions,
+            );
             if (!resolvedVersion) return null;
             return {
               mod_id: dependency.mod_id,
-              modName: mod.name,
+              modName: dependency.name,
               resolvedVersion,
               type: dependency.type,
             };
