@@ -20,6 +20,8 @@
             nodejs
             cargo
             rustc
+            rustfmt
+            clippy
             pkg-config
             openssl
             cacert
