@@ -18,6 +18,19 @@ pub enum GamePlatform {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinuxRunnerKind {
+    Wine,
+    Proton,
+}
+
+impl Default for LinuxRunnerKind {
+    fn default() -> Self {
+        Self::Proton
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub bepinex_url_x86: String,
     pub bepinex_url_x64: String,
@@ -27,6 +40,18 @@ pub struct AppSettings {
     pub game_platform: GamePlatform,
     pub cache_bepinex: bool,
     pub xbox_app_id: Option<String>,
+    #[serde(default)]
+    pub linux_runner_kind: LinuxRunnerKind,
+    #[serde(default)]
+    pub linux_runner_binary: String,
+    #[serde(default)]
+    pub linux_wine_prefix: String,
+    #[serde(default)]
+    pub linux_proton_compat_data_path: String,
+    #[serde(default)]
+    pub linux_proton_steam_client_path: String,
+    #[serde(default)]
+    pub linux_proton_use_steam_run: bool,
 }
 
 impl Default for AppSettings {
@@ -40,6 +65,12 @@ impl Default for AppSettings {
             game_platform: GamePlatform::Steam,
             cache_bepinex: false,
             xbox_app_id: None,
+            linux_runner_kind: LinuxRunnerKind::Proton,
+            linux_runner_binary: String::new(),
+            linux_wine_prefix: String::new(),
+            linux_proton_compat_data_path: String::new(),
+            linux_proton_steam_client_path: String::new(),
+            linux_proton_use_steam_run: true,
         }
     }
 }
@@ -54,6 +85,12 @@ pub struct AppSettingsPatch {
     pub game_platform: Option<GamePlatform>,
     pub cache_bepinex: Option<bool>,
     pub xbox_app_id: Option<Option<String>>,
+    pub linux_runner_kind: Option<LinuxRunnerKind>,
+    pub linux_runner_binary: Option<String>,
+    pub linux_wine_prefix: Option<String>,
+    pub linux_proton_compat_data_path: Option<String>,
+    pub linux_proton_steam_client_path: Option<String>,
+    pub linux_proton_use_steam_run: Option<bool>,
 }
 
 fn app_data_dir<R: Runtime>(app: &AppHandle<R>) -> AppResult<PathBuf> {
@@ -92,6 +129,12 @@ fn read_legacy_settings<R: Runtime>(app: &AppHandle<R>) -> AppResult<Option<AppS
         game_platform: Option<GamePlatform>,
         cache_bepinex: Option<bool>,
         xbox_app_id: Option<String>,
+        linux_runner_kind: Option<LinuxRunnerKind>,
+        linux_runner_binary: Option<String>,
+        linux_wine_prefix: Option<String>,
+        linux_proton_compat_data_path: Option<String>,
+        linux_proton_steam_client_path: Option<String>,
+        linux_proton_use_steam_run: Option<bool>,
     }
 
     let mut settings = AppSettings::default();
@@ -126,6 +169,24 @@ fn read_legacy_settings<R: Runtime>(app: &AppHandle<R>) -> AppResult<Option<AppS
     }
     if let Some(value) = patch.xbox_app_id {
         settings.xbox_app_id = Some(value);
+    }
+    if let Some(value) = patch.linux_runner_kind {
+        settings.linux_runner_kind = value;
+    }
+    if let Some(value) = patch.linux_runner_binary {
+        settings.linux_runner_binary = value;
+    }
+    if let Some(value) = patch.linux_wine_prefix {
+        settings.linux_wine_prefix = value;
+    }
+    if let Some(value) = patch.linux_proton_compat_data_path {
+        settings.linux_proton_compat_data_path = value;
+    }
+    if let Some(value) = patch.linux_proton_steam_client_path {
+        settings.linux_proton_steam_client_path = value;
+    }
+    if let Some(value) = patch.linux_proton_use_steam_run {
+        settings.linux_proton_use_steam_run = value;
     }
 
     Ok(Some(settings))
@@ -191,6 +252,24 @@ pub fn update_settings<R: Runtime>(
     }
     if let Some(value) = patch.xbox_app_id {
         settings.xbox_app_id = value;
+    }
+    if let Some(value) = patch.linux_runner_kind {
+        settings.linux_runner_kind = value;
+    }
+    if let Some(value) = patch.linux_runner_binary {
+        settings.linux_runner_binary = value;
+    }
+    if let Some(value) = patch.linux_wine_prefix {
+        settings.linux_wine_prefix = value;
+    }
+    if let Some(value) = patch.linux_proton_compat_data_path {
+        settings.linux_proton_compat_data_path = value;
+    }
+    if let Some(value) = patch.linux_proton_steam_client_path {
+        settings.linux_proton_steam_client_path = value;
+    }
+    if let Some(value) = patch.linux_proton_use_steam_run {
+        settings.linux_proton_use_steam_run = value;
     }
 
     let path = settings_path(app)?;

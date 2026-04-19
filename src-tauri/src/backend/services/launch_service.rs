@@ -8,6 +8,21 @@ use std::path::PathBuf;
 use std::process::Command;
 use tauri::{AppHandle, Runtime};
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum LinuxRunner {
+    Wine { binary: String, prefix: String },
+    Proton {
+        binary: String,
+        #[serde(rename = "compatDataPath")]
+        compat_data_path: String,
+        #[serde(rename = "steamClientPath")]
+        steam_client_path: String,
+        #[serde(rename = "useSteamRun")]
+        use_steam_run: bool,
+    },
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchModdedArgs {
@@ -19,6 +34,8 @@ pub struct LaunchModdedArgs {
     pub dotnet_dir: String,
     pub coreclr_path: String,
     pub platform: String,
+    #[cfg(target_os = "linux")]
+    pub runner: LinuxRunner,
 }
 
 #[derive(Deserialize)]
@@ -26,6 +43,8 @@ pub struct LaunchModdedArgs {
 pub struct LaunchVanillaArgs {
     pub game_exe: String,
     pub platform: String,
+    #[cfg(target_os = "linux")]
+    pub runner: LinuxRunner,
 }
 
 #[cfg(windows)]
@@ -38,7 +57,10 @@ fn set_dll_directory(path: &str) -> AppResult<()> {
         .map_err(|e| AppError::process(format!("SetDllDirectory failed: {e}")))
 }
 
-fn build_game_command(game_exe: &str) -> AppResult<Command> {
+fn build_game_command(
+    game_exe: &str,
+    #[cfg(target_os = "linux")] runner: &LinuxRunner,
+) -> AppResult<Command> {
     #[cfg(windows)]
     {
         Ok(Command::new(game_exe))
@@ -47,20 +69,35 @@ fn build_game_command(game_exe: &str) -> AppResult<Command> {
     #[cfg(target_os = "linux")]
     {
         const STEAM_RUN: &str = "steam-run";
-        const PROTON_BINARY: &str =
-            "/home/yanpla/.local/share/Steam/steamapps/common/Proton - Experimental/proton";
-        const STEAM_COMPAT_DATA_PATH: &str = "/mnt/games/SteamLibrary/steamapps/compatdata/945360";
-        const STEAM_CLIENT_PATH: &str = "/home/yanpla/.local/share/Steam";
 
-        let wine_prefix = format!("{STEAM_COMPAT_DATA_PATH}/pfx");
+        let cmd = match runner {
+            LinuxRunner::Wine { binary, prefix } => {
+                let mut cmd = Command::new(binary);
+                cmd.env("WINEPREFIX", prefix).arg(game_exe);
+                cmd
+            }
+            LinuxRunner::Proton {
+                binary,
+                compat_data_path,
+                steam_client_path,
+                use_steam_run,
+            } => {
+                let mut cmd = if *use_steam_run {
+                    let mut steam = Command::new(STEAM_RUN);
+                    steam.arg(binary);
+                    steam
+                } else {
+                    Command::new(binary)
+                };
 
-        let mut cmd = Command::new(STEAM_RUN);
-        cmd.env("STEAM_COMPAT_DATA_PATH", STEAM_COMPAT_DATA_PATH)
-            .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", STEAM_CLIENT_PATH)
-            .env("WINEPREFIX", wine_prefix)
-            .arg(PROTON_BINARY)
-            .arg("waitforexitandrun")
-            .arg(game_exe);
+                cmd.env("STEAM_COMPAT_DATA_PATH", compat_data_path)
+                    .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_client_path)
+                    .env("WINEPREFIX", format!("{compat_data_path}/pfx"))
+                    .arg("waitforexitandrun")
+                    .arg(game_exe);
+                cmd
+            }
+        };
 
         Ok(cmd)
     }
@@ -158,7 +195,11 @@ pub async fn launch_modded<R: Runtime>(app: AppHandle<R>, args: LaunchModdedArgs
     #[cfg(target_os = "linux")]
     prepare_linux_winhttp_proxy(&game_dir, &args.profile_path)?;
 
-    let mut cmd = build_game_command(&args.game_exe)?;
+    let mut cmd = build_game_command(
+        &args.game_exe,
+        #[cfg(target_os = "linux")]
+        &args.runner,
+    )?;
 
     #[cfg(target_os = "linux")]
     let bepinex_dll = to_wine_path(&args.bepinex_dll);
@@ -203,7 +244,11 @@ pub async fn launch_vanilla<R: Runtime>(
         cleanup_linux_doorstop_files(&game_dir)?;
     }
 
-    let mut cmd = build_game_command(&args.game_exe)?;
+    let mut cmd = build_game_command(
+        &args.game_exe,
+        #[cfg(target_os = "linux")]
+        &args.runner,
+    )?;
 
     attach_epic_launch_token(&mut cmd, &args.platform).await?;
     launch_process(app, cmd, None)

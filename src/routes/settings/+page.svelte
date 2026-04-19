@@ -16,6 +16,11 @@
 	import { epicAuthService } from '$lib/features/settings/services/epic-auth.service';
 	import EpicLoginDialogContainer from '$lib/features/settings/containers/EpicLoginDialogContainer.svelte';
 	import { Debounced, watch } from 'runed';
+	import { platform } from '@tauri-apps/plugin-os';
+	import { Input } from '$lib/components/ui/input';
+	import { Label } from '$lib/components/ui/label';
+	import { Button } from '$lib/components/ui/button';
+	import { Switch } from '$lib/components/ui/switch';
 	import GameSettingsSection from '$lib/features/settings/components/GameSettingsSection.svelte';
 	import BepInExSettingsSection from '$lib/features/settings/components/BepInExSettingsSection.svelte';
 	import AppBehaviorSection from '$lib/features/settings/components/AppBehaviorSection.svelte';
@@ -41,6 +46,13 @@
 	let localCacheBepInEx = $state(false);
 	let localCloseOnLaunch = $state(false);
 	let localAllowMultiInstanceLaunch = $state(false);
+	let localLinuxRunnerKind = $state<'wine' | 'proton'>('proton');
+	let localLinuxRunnerBinary = $state('');
+	let localLinuxWinePrefix = $state('');
+	let localLinuxProtonCompatDataPath = $state('');
+	let localLinuxProtonSteamClientPath = $state('');
+	let localLinuxProtonUseSteamRun = $state(true);
+	const isLinux = platform() === 'linux';
 	const activeBepInExArch = $derived(
 		localPlatform === 'epic' || localPlatform === 'xbox' ? 'x64' : 'x86'
 	);
@@ -59,6 +71,10 @@
 	const debouncedPath = new Debounced(() => localPath, 500);
 	const debouncedUrlX86 = new Debounced(() => localUrlX86, 500);
 	const debouncedUrlX64 = new Debounced(() => localUrlX64, 500);
+	const debouncedLinuxRunnerBinary = new Debounced(() => localLinuxRunnerBinary, 500);
+	const debouncedLinuxWinePrefix = new Debounced(() => localLinuxWinePrefix, 500);
+	const debouncedLinuxProtonCompatDataPath = new Debounced(() => localLinuxProtonCompatDataPath, 500);
+	const debouncedLinuxProtonSteamClientPath = new Debounced(() => localLinuxProtonSteamClientPath, 500);
 
 	async function validatePath(path: string): Promise<boolean> {
 		if (!path) return ((pathError = ''), true);
@@ -186,6 +202,12 @@
 			localAllowMultiInstanceLaunch = settings.allow_multi_instance_launch ?? false;
 			localPlatform = settings.game_platform ?? 'steam';
 			localCacheBepInEx = settings.cache_bepinex ?? false;
+			localLinuxRunnerKind = settings.linux_runner_kind ?? 'proton';
+			localLinuxRunnerBinary = settings.linux_runner_binary ?? '';
+			localLinuxWinePrefix = settings.linux_wine_prefix ?? '';
+			localLinuxProtonCompatDataPath = settings.linux_proton_compat_data_path ?? '';
+			localLinuxProtonSteamClientPath = settings.linux_proton_steam_client_path ?? '';
+			localLinuxProtonUseSteamRun = settings.linux_proton_use_steam_run ?? true;
 			epicAuthService.isLoggedIn().then((v) => (isLoggedIn = v));
 			initialized = true;
 			isHydrating = false;
@@ -270,6 +292,64 @@
 		},
 		{ lazy: true }
 	);
+
+	watch(
+		() => localLinuxRunnerKind,
+		() => {
+			if (isHydrating || !isLinux) return;
+			void updateMutation.mutateAsync({ linux_runner_kind: localLinuxRunnerKind });
+		},
+		{ lazy: true }
+	);
+
+	watch(
+		() => debouncedLinuxRunnerBinary.current,
+		() => {
+			if (isHydrating || !isLinux) return;
+			void updateMutation.mutateAsync({ linux_runner_binary: localLinuxRunnerBinary });
+		},
+		{ lazy: true }
+	);
+
+	watch(
+		() => debouncedLinuxWinePrefix.current,
+		() => {
+			if (isHydrating || !isLinux) return;
+			void updateMutation.mutateAsync({ linux_wine_prefix: localLinuxWinePrefix });
+		},
+		{ lazy: true }
+	);
+
+	watch(
+		() => debouncedLinuxProtonCompatDataPath.current,
+		() => {
+			if (isHydrating || !isLinux) return;
+			void updateMutation.mutateAsync({
+				linux_proton_compat_data_path: localLinuxProtonCompatDataPath
+			});
+		},
+		{ lazy: true }
+	);
+
+	watch(
+		() => debouncedLinuxProtonSteamClientPath.current,
+		() => {
+			if (isHydrating || !isLinux) return;
+			void updateMutation.mutateAsync({
+				linux_proton_steam_client_path: localLinuxProtonSteamClientPath
+			});
+		},
+		{ lazy: true }
+	);
+
+	watch(
+		() => localLinuxProtonUseSteamRun,
+		() => {
+			if (isHydrating || !isLinux) return;
+			void updateMutation.mutateAsync({ linux_proton_use_steam_run: localLinuxProtonUseSteamRun });
+		},
+		{ lazy: true }
+	);
 </script>
 
 <div class="scrollbar-styled h-full overflow-y-auto px-10 py-8">
@@ -316,6 +396,81 @@
 				onDownloadToCache={handleDownloadToCache}
 				onClearCache={handleClearCache}
 			/>
+			{#if isLinux}
+				<section class="space-y-4 rounded-xl border border-border/50 bg-card/30 p-6 backdrop-blur-sm lg:col-span-2">
+					<header>
+						<h2 class="text-lg font-semibold tracking-tight">Linux Runner</h2>
+					</header>
+					<div class="space-y-2">
+						<Label>Runner Type</Label>
+						<div class="flex gap-2">
+							<Button
+								variant={localLinuxRunnerKind === 'proton' ? 'default' : 'outline'}
+								onclick={() => (localLinuxRunnerKind = 'proton')}
+								class="flex-1"
+							>
+								Proton
+							</Button>
+							<Button
+								variant={localLinuxRunnerKind === 'wine' ? 'default' : 'outline'}
+								onclick={() => (localLinuxRunnerKind = 'wine')}
+								class="flex-1"
+							>
+								Wine
+							</Button>
+						</div>
+					</div>
+
+					<div class="space-y-2">
+						<Label for="linux-runner-binary">Runner Binary</Label>
+						<Input
+							id="linux-runner-binary"
+							bind:value={localLinuxRunnerBinary}
+							placeholder={localLinuxRunnerKind === 'proton'
+								? '/home/user/.local/share/Steam/steamapps/common/Proton - Experimental/proton'
+								: 'wine'}
+						/>
+					</div>
+
+					{#if localLinuxRunnerKind === 'proton'}
+						<div class="flex items-center justify-between rounded-md bg-muted/50 p-3">
+							<div class="space-y-0.5">
+								<Label for="linux-proton-use-steam-run">Use steam-run</Label>
+								<p class="text-sm text-muted-foreground">
+									Wrap Proton with steam-run for Nix/FHS environments
+								</p>
+							</div>
+							<Switch id="linux-proton-use-steam-run" bind:checked={localLinuxProtonUseSteamRun} />
+						</div>
+
+						<div class="space-y-2">
+							<Label for="linux-proton-compat-data-path">Compat Data Path</Label>
+							<Input
+								id="linux-proton-compat-data-path"
+								bind:value={localLinuxProtonCompatDataPath}
+								placeholder="/mnt/games/SteamLibrary/steamapps/compatdata/945360"
+							/>
+						</div>
+						<div class="space-y-2">
+							<Label for="linux-proton-steam-client-path">Steam Client Path</Label>
+							<Input
+								id="linux-proton-steam-client-path"
+								bind:value={localLinuxProtonSteamClientPath}
+								placeholder="/home/user/.local/share/Steam"
+							/>
+						</div>
+					{:else}
+						<div class="space-y-2">
+							<Label for="linux-wine-prefix">Wine Prefix</Label>
+							<Input
+								id="linux-wine-prefix"
+								bind:value={localLinuxWinePrefix}
+								placeholder="/home/user/.wine"
+							/>
+						</div>
+					{/if}
+				</section>
+			{/if}
 			<AppBehaviorSection bind:localCloseOnLaunch bind:localAllowMultiInstanceLaunch />
 			<AboutStarlightCardContainer githubUrl={GITHUB_URL} onOpenDataFolder={handleOpenDataFolder} />
 		</div>
