@@ -76,10 +76,9 @@ fn to_wine_path(path: &str) -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn prepare_linux_doorstop_files(game_dir: &PathBuf, profile_path: &str) -> AppResult<()> {
+fn prepare_linux_winhttp_proxy(game_dir: &PathBuf, profile_path: &str) -> AppResult<()> {
     let profile_dir = PathBuf::from(profile_path);
     let src_dll = profile_dir.join("winhttp.dll");
-    let src_ini = profile_dir.join("doorstop_config.ini");
     let dst_dll = game_dir.join("winhttp.dll");
     let dst_ini = game_dir.join("doorstop_config.ini");
 
@@ -88,49 +87,13 @@ fn prepare_linux_doorstop_files(game_dir: &PathBuf, profile_path: &str) -> AppRe
             "winhttp.dll not found in profile. Please wait for BepInEx installation to complete.",
         ));
     }
-    if !src_ini.exists() {
-        return Err(AppError::validation(
-            "doorstop_config.ini not found in profile. Please wait for BepInEx installation to complete.",
-        ));
-    }
 
     fs::copy(&src_dll, &dst_dll)?;
 
-    let ini_content = fs::read_to_string(&src_ini)
-        .map_err(|e| AppError::process(format!("Failed to read doorstop_config.ini: {e}")))?;
-
-    let target_assembly = to_wine_path(
-        &profile_dir
-            .join("BepInEx")
-            .join("core")
-            .join("BepInEx.Unity.IL2CPP.dll")
-            .to_string_lossy(),
-    );
-    let coreclr_path = to_wine_path(&profile_dir.join("dotnet").join("coreclr.dll").to_string_lossy());
-
-    let mut modified_content = String::new();
-    for line in ini_content.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with('#')
-            && !trimmed.starts_with(';')
-            && trimmed.starts_with("target_assembly")
-            && trimmed.contains('=')
-        {
-            modified_content.push_str(&format!("target_assembly = \"{}\"\n", target_assembly));
-        } else if !trimmed.starts_with('#')
-            && !trimmed.starts_with(';')
-            && trimmed.starts_with("coreclr_path")
-            && trimmed.contains('=')
-        {
-            modified_content.push_str(&format!("coreclr_path = \"{}\"\n", coreclr_path));
-        } else {
-            modified_content.push_str(line);
-            modified_content.push('\n');
-        }
+    if dst_ini.exists() {
+        fs::remove_file(dst_ini)?;
     }
 
-    fs::write(&dst_ini, modified_content)
-        .map_err(|e| AppError::process(format!("Failed to write doorstop_config.ini: {e}")))?;
     Ok(())
 }
 
@@ -193,7 +156,7 @@ pub async fn launch_modded<R: Runtime>(app: AppHandle<R>, args: LaunchModdedArgs
     set_dll_directory(&args.profile_path)?;
 
     #[cfg(target_os = "linux")]
-    prepare_linux_doorstop_files(&game_dir, &args.profile_path)?;
+    prepare_linux_winhttp_proxy(&game_dir, &args.profile_path)?;
 
     let mut cmd = build_game_command(&args.game_exe)?;
 
