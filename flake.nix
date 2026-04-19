@@ -7,51 +7,42 @@
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      flake-utils,
-    }:
+    { nixpkgs, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs {
-          inherit system;
-        };
+        pkgs = import nixpkgs { inherit system; };
       in
       {
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             bun
-            nodejs_24
+            cargo
+            rustc
             pkg-config
             openssl
-            glib
-            gtk3
-            webkitgtk_4_1
-            libsoup_3
-            glib-networking
             cacert
-            cairo
-            pango
-            gdk-pixbuf
-            atk
-            rustc
-            cargo
-            rustfmt
-            clippy
+            glib-networking
+            librsvg
+            webkitgtk_4_1
+            gst_all_1.gstreamer
+            gst_all_1.gst-plugins-base
+            gst_all_1.gst-plugins-good
           ];
 
           shellHook = ''
-            export GIO_MODULE_DIR="${pkgs.glib-networking}/lib/gio/modules/"
-            export GIO_EXTRA_MODULES="${pkgs.glib-networking}/lib/gio/modules/"
-            export SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+            export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH"
 
-            echo "Bun + Rust dev shell ready"
-            bun --version
-            node --version
-            cargo --version
-            pkg-config --version
+            export GIO_EXTRA_MODULES="${pkgs.glib-networking}/lib/gio/modules"
+
+
+            export SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+            export NIX_SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+
+            export OPENSSL_DIR="${pkgs.openssl.dev}"
+            export OPENSSL_LIB_DIR="${pkgs.openssl.out}/lib"
+            export OPENSSL_INCLUDE_DIR="${pkgs.openssl.dev}/include"
+            export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig:$PKG_CONFIG_PATH"
           '';
         };
       }
