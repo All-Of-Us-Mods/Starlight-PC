@@ -6,6 +6,7 @@ import {
   clearBepInExCache,
   detectAmongUsPath,
   detectGameStore,
+  detectLinuxRunner,
   downloadBepInExToCache,
   openDataFolder,
 } from "./services/settings-native.service";
@@ -44,6 +45,9 @@ export const settingsActions = {
   }),
   detectGameStore: () => ({
     mutationFn: (path: string) => detectGameStore(path),
+  }),
+  detectLinuxRunner: () => ({
+    mutationFn: (path?: string) => detectLinuxRunner(path),
   }),
   openDataFolder: () => ({
     mutationFn: () => openDataFolder(),

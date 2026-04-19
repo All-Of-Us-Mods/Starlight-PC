@@ -11,6 +11,15 @@ type LinuxRunnerArgs =
       useSteamRun: boolean;
     };
 
+export type LinuxRunnerDetection = {
+  runnerKind: "wine" | "proton";
+  runnerBinary: string | null;
+  winePrefix: string | null;
+  protonCompatDataPath: string | null;
+  protonSteamClientPath: string | null;
+  protonUseSteamRun: boolean;
+};
+
 type AppSettingsUpdate = Omit<Partial<AppSettings>, "xbox_app_id"> & {
   xbox_app_id?: string | null;
 };
@@ -24,6 +33,10 @@ export type RustCommandMap = {
 
   platform_detect_among_us: { args: void; result: string | null };
   platform_detect_game_store: { args: { path: string }; result: GamePlatform };
+  platform_detect_linux_runner: {
+    args: { path?: string | null };
+    result: LinuxRunnerDetection;
+  };
 
   profiles_get_dir: { args: void; result: string };
   profiles_list: { args: void; result: Profile[] };

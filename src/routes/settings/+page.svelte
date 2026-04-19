@@ -37,6 +37,7 @@
 	const openDataFolderMutation = createMutation(() => settingsActions.openDataFolder());
 	const detectAmongUsPathMutation = createMutation(() => settingsActions.detectAmongUsPath());
 	const detectGameStoreMutation = createMutation(() => settingsActions.detectGameStore());
+	const detectLinuxRunnerMutation = createMutation(() => settingsActions.detectLinuxRunner());
 
 	// Form state
 	let localPath = $state('');
@@ -119,6 +120,9 @@
 			if (path) {
 				localPath = path;
 				await detectPlatform(path);
+				if (isLinux) {
+					await handleDetectLinuxRunner(path);
+				}
 				showSuccess('Among Us path detected successfully');
 			} else {
 				showError('Could not auto-detect Among Us installation');
@@ -140,9 +144,36 @@
 			if (selected) {
 				localPath = selected;
 				await detectPlatform(selected);
+				if (isLinux) {
+					await handleDetectLinuxRunner(selected);
+				}
 			}
 		} catch (e) {
 			showError(e);
+		}
+	}
+
+	async function handleDetectLinuxRunner(path?: string) {
+		if (!isLinux) return;
+		try {
+			const detected = await detectLinuxRunnerMutation.mutateAsync(path);
+			localLinuxRunnerKind = detected.runnerKind;
+			localLinuxRunnerBinary = detected.runnerBinary ?? '';
+			localLinuxWinePrefix = detected.winePrefix ?? '';
+			localLinuxProtonCompatDataPath = detected.protonCompatDataPath ?? '';
+			localLinuxProtonSteamClientPath = detected.protonSteamClientPath ?? '';
+			localLinuxProtonUseSteamRun = detected.protonUseSteamRun;
+
+			await updateMutation.mutateAsync({
+				linux_runner_kind: detected.runnerKind,
+				linux_runner_binary: detected.runnerBinary ?? '',
+				linux_wine_prefix: detected.winePrefix ?? '',
+				linux_proton_compat_data_path: detected.protonCompatDataPath ?? '',
+				linux_proton_steam_client_path: detected.protonSteamClientPath ?? '',
+				linux_proton_use_steam_run: detected.protonUseSteamRun
+			});
+		} catch (e) {
+			showError(e, 'Linux runner detection');
 		}
 	}
 
@@ -401,6 +432,11 @@
 					<header>
 						<h2 class="text-lg font-semibold tracking-tight">Linux Runner</h2>
 					</header>
+					<div class="flex justify-end">
+						<Button variant="outline" size="sm" onclick={() => handleDetectLinuxRunner(localPath)}>
+							Auto-detect runner
+						</Button>
+					</div>
 					<div class="space-y-2">
 						<Label>Runner Type</Label>
 						<div class="flex gap-2">
