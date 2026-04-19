@@ -17,17 +17,12 @@ pub enum GamePlatform {
     Xbox,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default,Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LinuxRunnerKind {
     Wine,
+    #[default]
     Proton,
-}
-
-impl Default for LinuxRunnerKind {
-    fn default() -> Self {
-        Self::Proton
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

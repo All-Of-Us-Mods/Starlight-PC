@@ -4,14 +4,17 @@ use crate::backend::state::game_runtime;
 use log::{debug, info, warn};
 use serde::Deserialize;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Runtime};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum LinuxRunner {
-    Wine { binary: String, prefix: String },
+    Wine {
+        binary: String,
+        prefix: String,
+    },
     Proton {
         binary: String,
         #[serde(rename = "compatDataPath")]
@@ -113,7 +116,7 @@ fn to_wine_path(path: &str) -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn prepare_linux_winhttp_proxy(game_dir: &PathBuf, profile_path: &str) -> AppResult<()> {
+fn prepare_linux_winhttp_proxy(game_dir: &Path, profile_path: &str) -> AppResult<()> {
     let profile_dir = PathBuf::from(profile_path);
     let src_dll = profile_dir.join("winhttp.dll");
     let dst_dll = game_dir.join("winhttp.dll");
@@ -135,7 +138,7 @@ fn prepare_linux_winhttp_proxy(game_dir: &PathBuf, profile_path: &str) -> AppRes
 }
 
 #[cfg(target_os = "linux")]
-fn cleanup_linux_doorstop_files(game_dir: &PathBuf) -> AppResult<()> {
+fn cleanup_linux_doorstop_files(game_dir: &Path) -> AppResult<()> {
     let dll_path = game_dir.join("winhttp.dll");
     let ini_path = game_dir.join("doorstop_config.ini");
 

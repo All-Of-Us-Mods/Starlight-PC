@@ -130,7 +130,10 @@ fn find_among_us_linux_paths() -> Vec<PathBuf> {
     library_roots.dedup();
 
     for library_root in library_roots {
-        let full_path = library_root.join("steamapps").join("common").join("Among Us");
+        let full_path = library_root
+            .join("steamapps")
+            .join("common")
+            .join("Among Us");
         if verify_among_us_directory(&full_path) {
             info!("Found Among Us at: {}", full_path.display());
             detected_paths.push(full_path);
@@ -249,7 +252,11 @@ fn detect_linux_runner_fallback() -> LinuxRunnerDetection {
         wine_prefix: None,
         proton_compat_data_path: steam_root
             .as_ref()
-            .map(|root| root.join("steamapps").join("compatdata").join(AMONG_US_STEAM_APP_ID))
+            .map(|root| {
+                root.join("steamapps")
+                    .join("compatdata")
+                    .join(AMONG_US_STEAM_APP_ID)
+            })
             .map(|p| p.to_string_lossy().to_string()),
         proton_steam_client_path: steam_root.map(|p| p.to_string_lossy().to_string()),
         proton_use_steam_run: true,
