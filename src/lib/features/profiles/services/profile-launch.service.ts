@@ -3,7 +3,9 @@ import type { AppSettings } from "$lib/features/settings/schema";
 import { settingsQueryKey } from "$lib/features/settings/settings-keys";
 import { closeCurrentWindow } from "$lib/infra/tauri/window";
 import { rustInvoke } from "$lib/infra/rust/invoke";
+import type { LinuxRunnerArgs } from "$lib/infra/rust/commands";
 import { epicAuthService } from "$lib/features/settings/services/epic-auth.service";
+import { platform } from "@tauri-apps/plugin-os";
 import type { Profile } from "../schema";
 import {
   assertPathExists,
@@ -12,6 +14,37 @@ import {
   resolveDotnetDir,
   resolveGameExecutablePath,
 } from "./profile-files.service";
+
+function getLinuxRunnerArgs(settings: AppSettings): LinuxRunnerArgs | undefined {
+  if (platform() !== "linux") return undefined;
+
+  const binary = settings.linux_runner_binary.trim();
+  if (!binary) {
+    throw new Error("Linux runner binary is required in Settings.");
+  }
+
+  if (settings.linux_runner_kind === "wine") {
+    const prefix = settings.linux_wine_prefix.trim();
+    if (!prefix) {
+      throw new Error("Wine prefix is required in Settings.");
+    }
+    return { kind: "wine", binary, prefix };
+  }
+
+  const compatDataPath = settings.linux_proton_compat_data_path.trim();
+  const steamClientPath = settings.linux_proton_steam_client_path.trim();
+  if (!compatDataPath || !steamClientPath) {
+    throw new Error("Proton compat data path and Steam client path are required in Settings.");
+  }
+
+  return {
+    kind: "proton",
+    binary,
+    compatDataPath,
+    steamClientPath,
+    useSteamRun: settings.linux_proton_use_steam_run,
+  };
+}
 
 export async function ensureEpicLogin(): Promise<void> {
   await epicAuthService.ensureLoggedIn();
@@ -72,6 +105,8 @@ export async function launchModdedProfile(profile: Profile, settings: AppSetting
     "dotnet runtime not found. Please wait for installation to complete.",
   );
 
+  const runner = getLinuxRunnerArgs(settings);
+
   await rustInvoke("game_launch_modded", {
     gameExe,
     profileId: profile.id,
@@ -80,15 +115,18 @@ export async function launchModdedProfile(profile: Profile, settings: AppSetting
     dotnetDir,
     coreclrPath,
     platform: settings.game_platform,
+    runner,
   });
 }
 
 export async function launchVanillaGame(settings: AppSettings) {
   const gameExe = await resolveGameExecutablePath(settings.among_us_path);
   await assertPathExists(gameExe, "Among Us.exe not found at configured path");
+  const runner = getLinuxRunnerArgs(settings);
   await rustInvoke("game_launch_vanilla", {
     gameExe,
     platform: settings.game_platform,
+    runner,
   });
 }
 

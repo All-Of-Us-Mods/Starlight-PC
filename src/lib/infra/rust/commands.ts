@@ -1,6 +1,25 @@
 import type { Profile, ProfileIconSelection } from "$lib/features/profiles/schema";
 import type { AppSettings, GamePlatform } from "$lib/features/settings/schema";
 
+export type LinuxRunnerArgs =
+  | { kind: "wine"; binary: string; prefix: string }
+  | {
+      kind: "proton";
+      binary: string;
+      compatDataPath: string;
+      steamClientPath: string;
+      useSteamRun: boolean;
+    };
+
+export type LinuxRunnerDetection = {
+  runnerKind: "wine" | "proton";
+  runnerBinary: string | null;
+  winePrefix: string | null;
+  protonCompatDataPath: string | null;
+  protonSteamClientPath: string | null;
+  protonUseSteamRun: boolean;
+};
+
 type AppSettingsUpdate = Omit<Partial<AppSettings>, "xbox_app_id"> & {
   xbox_app_id?: string | null;
 };
@@ -14,6 +33,10 @@ export type RustCommandMap = {
 
   platform_detect_among_us: { args: void; result: string | null };
   platform_detect_game_store: { args: { path: string }; result: GamePlatform };
+  platform_detect_linux_runner: {
+    args: { path?: string | null };
+    result: LinuxRunnerDetection;
+  };
 
   profiles_get_dir: { args: void; result: string };
   profiles_list: { args: void; result: Profile[] };
@@ -65,10 +88,14 @@ export type RustCommandMap = {
       dotnetDir: string;
       coreclrPath: string;
       platform: string;
+      runner?: LinuxRunnerArgs;
     };
     result: void;
   };
-  game_launch_vanilla: { args: { gameExe: string; platform: string }; result: void };
+  game_launch_vanilla: {
+    args: { gameExe: string; platform: string; runner?: LinuxRunnerArgs };
+    result: void;
+  };
   game_stop_profile_instances: { args: { profileId: string }; result: number };
   game_stop_all_instances: { args: void; result: number };
   game_xbox_get_app_id: { args: void; result: string };

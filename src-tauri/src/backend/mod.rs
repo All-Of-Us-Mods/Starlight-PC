@@ -96,6 +96,7 @@ pub fn run() {
             commands::game::game_xbox_cleanup,
             commands::platform::platform_detect_among_us,
             commands::platform::platform_detect_game_store,
+            commands::platform::platform_detect_linux_runner,
             commands::mods::modding_bepinex_install,
             commands::mods::modding_bepinex_cache_download,
             commands::mods::modding_bepinex_cache_clear,

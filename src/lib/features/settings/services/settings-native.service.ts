@@ -1,5 +1,6 @@
 import { rustInvoke } from "$lib/infra/rust/invoke";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import type { LinuxRunnerDetection } from "$lib/infra/rust/commands";
 
 export async function downloadBepInExToCache(url: string, architecture: "x86" | "x64") {
   const cachePath = await rustInvoke("core_get_bepinex_cache_path_for_arch", { architecture });
@@ -17,6 +18,10 @@ export function detectAmongUsPath() {
 
 export function detectGameStore(path: string) {
   return rustInvoke("platform_detect_game_store", { path });
+}
+
+export function detectLinuxRunner(path?: string): Promise<LinuxRunnerDetection> {
+  return rustInvoke("platform_detect_linux_runner", { path: path ?? null });
 }
 
 export async function openDataFolder() {

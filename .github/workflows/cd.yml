@@ -11,10 +11,11 @@ jobs:
     permissions:
       contents: write
     strategy:
-      fail-fast: false
       matrix:
         include:
           - platform: "windows-latest" # Windows
+            args: ""
+          - platform: "ubuntu-latest" # Linux
             args: ""
 
     runs-on: ${{ matrix.platform }}
@@ -91,7 +92,7 @@ jobs:
           PUBLIC_API_URL: "https://starlight.allofus.dev"
         with:
           tagName: v__VERSION__
-          releaseName: "Starlight PC Beta v__VERSION__"
+          releaseName: "Starlight PC v__VERSION__"
           releaseBody: "See the assets to download this version and install."
           releaseDraft: true
           prerelease: false
