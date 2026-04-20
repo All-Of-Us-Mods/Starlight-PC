@@ -3,6 +3,7 @@ import type { AppSettings } from "$lib/features/settings/schema";
 import { settingsQueryKey } from "$lib/features/settings/settings-keys";
 import { closeCurrentWindow } from "$lib/infra/tauri/window";
 import { rustInvoke } from "$lib/infra/rust/invoke";
+import type { LinuxRunnerArgs } from "$lib/infra/rust/commands";
 import { epicAuthService } from "$lib/features/settings/services/epic-auth.service";
 import { platform } from "@tauri-apps/plugin-os";
 import type { Profile } from "../schema";
@@ -14,17 +15,7 @@ import {
   resolveGameExecutablePath,
 } from "./profile-files.service";
 
-type LinuxRunnerInvokeArgs =
-  | { kind: "wine"; binary: string; prefix: string }
-  | {
-      kind: "proton";
-      binary: string;
-      compatDataPath: string;
-      steamClientPath: string;
-      useSteamRun: boolean;
-    };
-
-function getLinuxRunnerArgs(settings: AppSettings): LinuxRunnerInvokeArgs | undefined {
+function getLinuxRunnerArgs(settings: AppSettings): LinuxRunnerArgs | undefined {
   if (platform() !== "linux") return undefined;
 
   const binary = settings.linux_runner_binary.trim();

@@ -1,7 +1,7 @@
 import type { Profile, ProfileIconSelection } from "$lib/features/profiles/schema";
 import type { AppSettings, GamePlatform } from "$lib/features/settings/schema";
 
-type LinuxRunnerArgs =
+export type LinuxRunnerArgs =
   | { kind: "wine"; binary: string; prefix: string }
   | {
       kind: "proton";
