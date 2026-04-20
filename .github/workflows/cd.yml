@@ -15,7 +15,7 @@ jobs:
         include:
           - platform: "windows-latest" # Windows
             args: ""
-          - platform: "ubuntu-latest" # Linux
+          - platform: "ubuntu-22.04" # Linux
             args: ""
 
     runs-on: ${{ matrix.platform }}
