@@ -46,10 +46,10 @@ export function showSuccess(message: string, description?: string): void {
   toast.success(message, description ? { description } : undefined);
 }
 
-export function showInfo(message: string, description?: string): void {
+function showInfo(message: string, description?: string): void {
   toast.info(message, description ? { description } : undefined);
 }
 
-export function showWarning(message: string, description?: string): void {
+function showWarning(message: string, description?: string): void {
   toast.warning(message, description ? { description } : undefined);
 }

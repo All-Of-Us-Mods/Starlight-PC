@@ -60,7 +60,7 @@ export function getInstallTarget(profiles: Profile[]): string | null {
   return isKnownProfile(profiles, installTarget.profileId) ? installTarget.profileId : null;
 }
 
-export function clearInstallTarget(): void {
+function clearInstallTarget(): void {
   installTarget = { profileId: null, source: null, updatedAt: 0 };
 }
 

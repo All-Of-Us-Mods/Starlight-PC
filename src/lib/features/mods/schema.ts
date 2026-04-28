@@ -1,11 +1,11 @@
 import { type } from "arktype";
 
-export const ExternalLink = type({
+const ExternalLink = type({
   type: "string",
   url: "string",
 });
 
-export const ModResponseLinks = type({
+const ModResponseLinks = type({
   self: "string",
   thumbnail: "string",
   versions: "string",
@@ -28,9 +28,9 @@ export const ModResponse = type({
   _links: ModResponseLinks,
 });
 
-export const ModInfoResponse = ModResponse;
+const ModInfoResponse = ModResponse;
 
-export const ModDependency = type({
+const ModDependency = type({
   mod_id: "string",
   name: "string",
   version_constraint: "string",

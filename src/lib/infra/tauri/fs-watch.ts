@@ -59,7 +59,7 @@ class FileWatcherManager {
   }
 }
 
-export const fileWatcherManager = new FileWatcherManager();
+const fileWatcherManager = new FileWatcherManager();
 
 export async function watchDirectory(
   path: string,

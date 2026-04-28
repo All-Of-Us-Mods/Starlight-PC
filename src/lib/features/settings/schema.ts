@@ -1,6 +1,6 @@
 import { type } from "arktype";
 
-export const Settings = type({
+const Settings = type({
   bepinex_url_x86: "string",
   bepinex_url_x64: "string",
   among_us_path: "string",
