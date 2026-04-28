@@ -83,7 +83,7 @@ export function getSidebar() {
  * Automatically opens the sidebar with the given snippet when the
  * component mounts, and closes it when the component unmounts.
  */
-export function useSidebar(content: Snippet) {
+function useSidebar(content: Snippet) {
   const sidebar = getSidebar();
   if (!sidebar) return;
 

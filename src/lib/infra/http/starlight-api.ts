@@ -3,7 +3,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 const DEFAULT_API_BASE_URL = "https://starlight.allofus.dev";
 
-export function apiBaseUrl(): string {
+function apiBaseUrl(): string {
   const raw = PUBLIC_API_URL;
   if (typeof raw === "string" && raw.trim().length > 0) {
     return raw.trim();
@@ -11,7 +11,7 @@ export function apiBaseUrl(): string {
   return DEFAULT_API_BASE_URL;
 }
 
-export class FetchApiError extends Error {
+class FetchApiError extends Error {
   path: string;
   status?: number;
   cause?: unknown;

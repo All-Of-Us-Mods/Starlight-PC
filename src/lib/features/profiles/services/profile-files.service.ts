@@ -36,7 +36,7 @@ export async function invalidateProfileAndDiskQueries(
   }
 }
 
-export function buildProfileFilePath(profilePath: string, fileName: string): Promise<string> {
+function buildProfileFilePath(profilePath: string, fileName: string): Promise<string> {
   return join(profilePath, fileName);
 }
 
@@ -64,10 +64,10 @@ export function resolveProfilePluginPath(profilePath: string, fileName: string):
   return join(profilePath, "BepInEx", "plugins", fileName);
 }
 
-export function resolveProfileLogsDir(profilePath: string): Promise<string> {
+function resolveProfileLogsDir(profilePath: string): Promise<string> {
   return join(profilePath, "BepInEx");
 }
 
-export function resolveProfileLogPath(profilePath: string, fileName: string): Promise<string> {
+function resolveProfileLogPath(profilePath: string, fileName: string): Promise<string> {
   return join(profilePath, "BepInEx", fileName);
 }

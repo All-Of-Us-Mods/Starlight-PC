@@ -59,14 +59,14 @@ function resolveLatestSatisfyingVersion(
   return validVersions[0] ?? versions[0]?.version ?? null;
 }
 
-export function resolveDependencyVersion(
+function resolveDependencyVersion(
   versionConstraint: string,
   versions: Array<{ version: string }>,
 ): string | null {
   return resolveLatestSatisfyingVersion([versionConstraint], versions);
 }
 
-export function resolveDependencyVersionWithConstraints(
+function resolveDependencyVersionWithConstraints(
   constraints: string[],
   versions: Array<{ version: string }>,
 ): string | null {

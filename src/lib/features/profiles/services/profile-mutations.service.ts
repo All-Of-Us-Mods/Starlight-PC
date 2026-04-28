@@ -1,6 +1,6 @@
 let activeMutationsCount = 0;
 
-export function getActiveMutationsCount() {
+function getActiveMutationsCount() {
   return activeMutationsCount;
 }
 

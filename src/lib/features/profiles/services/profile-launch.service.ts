@@ -50,10 +50,7 @@ export async function ensureEpicLogin(): Promise<void> {
   await epicAuthService.ensureLoggedIn();
 }
 
-export async function ensureXboxAppId(
-  settings: AppSettings,
-  queryClient?: QueryClient,
-): Promise<string> {
+async function ensureXboxAppId(settings: AppSettings, queryClient?: QueryClient): Promise<string> {
   let appId = settings.xbox_app_id?.trim() ?? "";
   if (!appId) {
     appId = await rustInvoke("game_xbox_get_app_id");

@@ -1,12 +1,12 @@
 import { type } from "arktype";
 
-export const ProfileModEntry = type({
+const ProfileModEntry = type({
   mod_id: "string",
   version: "string",
   "file?": "string", // The installed filename
 });
 
-export const ProfileEntry = type({
+const ProfileEntry = type({
   id: "string",
   name: "string <= 100",
   path: "string",
