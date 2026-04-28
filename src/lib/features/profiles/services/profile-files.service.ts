@@ -63,11 +63,3 @@ export function resolveCoreClrPath(dotnetDir: string): Promise<string> {
 export function resolveProfilePluginPath(profilePath: string, fileName: string): Promise<string> {
   return join(profilePath, "BepInEx", "plugins", fileName);
 }
-
-function resolveProfileLogsDir(profilePath: string): Promise<string> {
-  return join(profilePath, "BepInEx");
-}
-
-function resolveProfileLogPath(profilePath: string, fileName: string): Promise<string> {
-  return join(profilePath, "BepInEx", fileName);
-}
