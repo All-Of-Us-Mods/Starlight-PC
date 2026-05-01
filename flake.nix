@@ -57,46 +57,6 @@
           outputHashMode = "recursive";
           outputHash = "sha256-81JoWZNK5PYYmsIOWb7KLZyw7P3Y2B3czuye2b5XxGM=";
         };
-
-        frontend = pkgs.stdenvNoCC.mkDerivation {
-          pname = "${pname}-frontend";
-          inherit version src;
-
-          nativeBuildInputs = [
-            pkgs.bun
-            pkgs.nodejs
-          ];
-
-          env.PUBLIC_API_URL = "https://starlight.allofus.dev";
-
-          configurePhase = ''
-            runHook preConfigure
-
-            export HOME="$TMPDIR"
-            cp -R ${bunDeps}/node_modules ./node_modules
-            chmod -R u+w ./node_modules
-            patchShebangs ./node_modules
-
-            runHook postConfigure
-          '';
-
-          buildPhase = ''
-            runHook preBuild
-
-            bun run build
-
-            runHook postBuild
-          '';
-
-          installPhase = ''
-            runHook preInstall
-
-            mkdir -p "$out"
-            cp -R build "$out/"
-
-            runHook postInstall
-          '';
-        };
       in
       {
         packages.default = pkgs.stdenv.mkDerivation {
@@ -108,6 +68,7 @@
           cargoRoot = "src-tauri";
 
           nativeBuildInputs = with pkgs; [
+            bun
             cargo
             cargo-tauri
             nodejs
@@ -126,11 +87,21 @@
 
           env = {
             OPENSSL_NO_VENDOR = "1";
+            PUBLIC_API_URL = "https://starlight.allofus.dev";
           };
 
-          postPatch = ''
-            cp -R ${frontend}/build ./build
-            chmod -R u+w ./build
+          configurePhase = ''
+            runHook preConfigure
+
+            export HOME="$TMPDIR"
+
+            cp -R ${bunDeps}/node_modules ./node_modules
+            chmod -R u+w ./node_modules
+            patchShebangs ./node_modules
+
+            export PATH="$PWD/node_modules/.bin:$PATH"
+
+            runHook postConfigure
           '';
 
           buildPhase = ''
@@ -142,19 +113,21 @@
           '';
 
           installPhase = ''
-            runHook preInstall
+                runHook preInstall
 
-            bin="$(find . \( -path '*/target/release/Starlight' -o -path '*/target/release/starlight' \) -type f -perm -0100 | head -n1)"
-            if [ -z "$bin" ]; then
-              echo "could not find built starlight binary" >&2
-              find . -path '*/target/release/*' -maxdepth 4 -type f >&2
-              exit 1
-            fi
-            install -Dm755 "$bin" "$out/bin/starlight"
-            install -Dm644 src-tauri/icons/128x128.png "$out/share/icons/hicolor/128x128/apps/starlight.png"
-            install -Dm644 static/starlight.png "$out/share/pixmaps/starlight.png"
+                bin="$(find src-tauri/target/release -maxdepth 1 \( -name 'Starlight' -o -name 'starlight' \) -type f -perm -0100 | head -n1)"
 
-            install -Dm644 /dev/stdin "$out/share/applications/starlight.desktop" <<EOF
+                if [ -z "$bin" ]; then
+                  echo "could not find built starlight binary" >&2
+                  find src-tauri/target/release -maxdepth 2 -type f >&2
+                  exit 1
+                fi
+
+                install -Dm755 "$bin" "$out/bin/starlight"
+                install -Dm644 src-tauri/icons/128x128.png "$out/share/icons/hicolor/128x128/apps/starlight.png"
+                install -Dm644 static/starlight.png "$out/share/pixmaps/starlight.png"
+
+                install -Dm644 /dev/stdin "$out/share/applications/starlight.desktop" <<EOF
             [Desktop Entry]
             Type=Application
             Name=Starlight
@@ -166,7 +139,7 @@
             StartupWMClass=Starlight
             EOF
 
-            runHook postInstall
+                runHook postInstall
           '';
 
           meta = {
