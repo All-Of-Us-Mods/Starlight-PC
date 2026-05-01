@@ -109,6 +109,7 @@
 
           nativeBuildInputs = with pkgs; [
             cargo
+            cargo-tauri
             nodejs
             pkg-config
             rustPlatform.cargoSetupHook
@@ -135,7 +136,7 @@
           buildPhase = ''
             runHook preBuild
 
-            cargo build --manifest-path src-tauri/Cargo.toml --release --locked
+            cargo tauri build --no-bundle
 
             runHook postBuild
           '';
