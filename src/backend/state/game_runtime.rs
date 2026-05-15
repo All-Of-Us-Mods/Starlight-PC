@@ -19,7 +19,7 @@ struct TrackedState {
 static TRACKED_STATE: LazyLock<Mutex<TrackedState>> =
     LazyLock::new(|| Mutex::new(TrackedState::default()));
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct GameStatePayload {
     pub running: bool,
     pub running_count: usize,
@@ -65,7 +65,9 @@ fn build_state_payload(state: &TrackedState) -> GameStatePayload {
 
 fn emit_state_snapshot(state: &TrackedState) {
     let payload = build_state_payload(state);
-    // emit("game-state-changed", payload)
+    crate::backend::events::publish(
+        crate::backend::events::BackendEvent::GameStateChanged(payload),
+    );
 }
 
 fn prune_finished_processes(state: &mut TrackedState) {

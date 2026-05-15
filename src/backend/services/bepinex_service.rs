@@ -4,21 +4,21 @@ use log::{debug, info, warn};
 use std::fs;
 use std::path::Path;
 
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BepInExTargetType {
     Profile,
     Cache,
 }
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BepInExProgress {
-    stage: String,
-    progress: f64,
-    message: String,
-    target_type: BepInExTargetType,
-    target_id: String,
+    pub stage: String,
+    pub progress: f64,
+    pub message: String,
+    pub target_type: BepInExTargetType,
+    pub target_id: String,
 }
 
 fn emit(
@@ -28,14 +28,15 @@ fn emit(
     target_type: BepInExTargetType,
     target_id: &str,
 ) {
-    // TODO(phase 2): forward to the BackendEvents channel.
-    let _ = BepInExProgress {
-        stage: stage.to_string(),
-        progress,
-        message: message.to_string(),
-        target_type,
-        target_id: target_id.to_string(),
-    };
+    crate::backend::events::publish(crate::backend::events::BackendEvent::BepInExProgress(
+        BepInExProgress {
+            stage: stage.to_string(),
+            progress,
+            message: message.to_string(),
+            target_type,
+            target_id: target_id.to_string(),
+        },
+    ));
 }
 
 pub async fn install_bepinex(

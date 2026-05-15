@@ -10,6 +10,7 @@ fn main() {
     gpui_platform::application().run(|cx: &mut App| {
         theme::init(cx);
         settings::init(cx);
+        backend::init(cx);
         
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(

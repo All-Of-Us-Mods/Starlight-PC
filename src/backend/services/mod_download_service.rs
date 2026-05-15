@@ -11,7 +11,7 @@ use uuid::Uuid;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct ModDownloadProgress {
     pub mod_id: String,
     pub downloaded: u64,
@@ -29,6 +29,15 @@ fn emit_progress(
     let progress = total
         .map(|t| downloaded as f64 / t as f64 * 100.0)
         .unwrap_or(0.0);
+    crate::backend::events::publish(crate::backend::events::BackendEvent::ModDownloadProgress(
+        ModDownloadProgress {
+            mod_id: mod_id.to_string(),
+            downloaded,
+            total,
+            progress,
+            stage: stage.to_string(),
+        },
+    ));
 }
 
 pub async fn download_mod(
