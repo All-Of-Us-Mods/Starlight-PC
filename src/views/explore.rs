@@ -202,7 +202,8 @@ impl Render for ExploreView {
             (f32::from(viewport_size.height) - PAGE_FIXED_HEIGHT).max(MOD_CARD_HEIGHT);
         let columns = (((content_width + GRID_GAP) / (MIN_CARD_WIDTH + GRID_GAP)).floor() as u32)
             .clamp(1, MAX_GRID_COLUMNS);
-        let rows = (((middle_height + GRID_GAP) / (MOD_CARD_HEIGHT + GRID_GAP)).floor() as u32).max(1);
+        let rows =
+            (((middle_height + GRID_GAP) / (MOD_CARD_HEIGHT + GRID_GAP)).floor() as u32).max(1);
         self.update_page_size(columns * rows, cx);
 
         let body: AnyElement = match &self.state {
@@ -249,7 +250,8 @@ impl Render for ExploreView {
         };
 
         let can_prev = self.page > 0;
-        let can_next = matches!(&self.state, LoadState::Loaded(v) if v.len() as u32 == self.page_size);
+        let can_next =
+            matches!(&self.state, LoadState::Loaded(v) if v.len() as u32 == self.page_size);
 
         let pagination = div()
             .flex()

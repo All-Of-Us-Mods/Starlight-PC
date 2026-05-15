@@ -1,8 +1,10 @@
+use chrono::{DateTime, Local};
 use gpui::*;
 
-use crate::backend::api::{self, ModResponse};
+use crate::backend::api::{self, ModResponse, ModVersion, ModVersionInfo};
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::{IconName, icon};
+use crate::ui::mod_card::format_count;
 
 #[derive(Clone, Debug)]
 pub enum ModDetailEvent {
@@ -17,8 +19,14 @@ pub struct ModDetailView {
 
 enum LoadState {
     Loading,
-    Loaded(ModResponse),
+    Loaded(ModDetailData),
     Failed(String),
+}
+
+struct ModDetailData {
+    mod_info: ModResponse,
+    versions: Vec<ModVersion>,
+    version_info: Option<ModVersionInfo>,
 }
 
 impl ModDetailView {
@@ -30,7 +38,18 @@ impl ModDetailView {
             let id = mod_id.clone();
             let result = cx
                 .background_executor()
-                .spawn(async move { api::fetch_mod(&id) })
+                .spawn(async move {
+                    let mod_info = api::fetch_mod(&id)?;
+                    let versions = api::fetch_mod_versions(&id).unwrap_or_default();
+                    let version_info = versions.first().and_then(|version| {
+                        api::fetch_mod_version_info(&id, &version.version).ok()
+                    });
+                    Ok::<ModDetailData, crate::backend::error::AppError>(ModDetailData {
+                        mod_info,
+                        versions,
+                        version_info,
+                    })
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.state = match result {
@@ -43,6 +62,31 @@ impl ModDetailView {
         .detach();
         view
     }
+}
+
+fn format_date(timestamp_ms: i64) -> String {
+    DateTime::from_timestamp_millis(timestamp_ms)
+        .map(|date| date.with_timezone(&Local).format("%b %-d, %Y").to_string())
+        .unwrap_or_else(|| "Unknown date".to_string())
+}
+
+fn section_label(text: &'static str, theme: &crate::theme::Theme) -> impl IntoElement {
+    div()
+        .text_xs()
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(theme.text_muted)
+        .child(text)
+}
+
+fn chip(text: String, theme: &crate::theme::Theme) -> impl IntoElement {
+    div()
+        .px_2()
+        .py_1()
+        .rounded_md()
+        .bg(theme.hover)
+        .text_xs()
+        .text_color(theme.text)
+        .child(text)
 }
 
 impl Render for ModDetailView {
@@ -75,41 +119,198 @@ impl Render for ModDetailView {
                 .text_color(rgb(0xef4444))
                 .child(format!("Failed: {e}"))
                 .into_any_element(),
-            LoadState::Loaded(m) => div()
-                .flex()
-                .flex_col()
-                .gap_4()
-                .child(
-                    img(api::mod_thumbnail_url(&m.id))
-                        .w_full()
-                        .h(px(280.0))
-                        .object_fit(ObjectFit::Contain)
-                        .rounded_lg()
-                        .bg(theme.hover),
-                )
-                .child(
-                    div()
-                        .text_2xl()
-                        .font_weight(FontWeight::BOLD)
-                        .child(m.name.clone()),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap_4()
-                        .text_sm()
-                        .text_color(theme.text_muted)
-                        .child(format!("by {}", m.author))
-                        .child(format!("{} downloads", m.downloads))
-                        .children(m.mod_type.clone().map(|t| t)),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(theme.text)
-                        .child(m.description.clone()),
-                )
-                .into_any_element(),
+            LoadState::Loaded(data) => {
+                let m = &data.mod_info;
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_6()
+                    .child(
+                        div().flex().justify_center().child(
+                            img(api::mod_thumbnail_url(&m.id))
+                                .w(px(176.0))
+                                .h(px(176.0))
+                                .object_fit(ObjectFit::Contain)
+                                .rounded_lg()
+                                .bg(theme.hover)
+                                .border_1()
+                                .border_color(theme.border),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_2xl()
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(m.name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.text_muted)
+                                    .child(format!("by {}", m.author)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .justify_center()
+                            .text_sm()
+                            .gap_4()
+                            .text_color(theme.text_muted)
+                            .child(format!("{} downloads", format_count(m.downloads)))
+                            .child(format!("Updated {}", format_date(m.updated_at)))
+                            .children(m.mod_type.clone().map(|t| format!("Type: {t}"))),
+                    )
+                    .children(m.tags.clone().filter(|tags| !tags.is_empty()).map(|tags| {
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .justify_center()
+                            .gap_2()
+                            .children(tags.into_iter().map(|tag| chip(tag, &theme)))
+                    }))
+                    .child(
+                        div()
+                            .text_sm()
+                            .line_height(px(22.0))
+                            .text_color(theme.text_muted)
+                            .child(m.description.clone()),
+                    )
+                    .child(div().h(px(1.0)).w_full().bg(theme.border))
+                    .children(m.long_description.clone().map(|description| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(section_label("About", &theme))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .line_height(px(22.0))
+                                    .text_color(theme.text)
+                                    .child(description),
+                            )
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(section_label("Version", &theme))
+                            .child(if let Some(version) = data.versions.first() {
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .rounded_lg()
+                                    .bg(theme.hover)
+                                    .border_1()
+                                    .border_color(theme.border)
+                                    .px_3()
+                                    .py_2()
+                                    .child(format!("Latest: {}", version.version))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme.text_muted)
+                                            .child(format_date(version.created_at)),
+                                    )
+                                    .into_any_element()
+                            } else {
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.text_muted)
+                                    .child("No versions available")
+                                    .into_any_element()
+                            }),
+                    )
+                    .children(data.version_info.as_ref().and_then(|version| {
+                        version.changelog.as_ref().map(|changelog| {
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_2()
+                                .rounded_lg()
+                                .bg(theme.hover)
+                                .p_3()
+                                .child(section_label("Changelog", &theme))
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .line_height(px(22.0))
+                                        .child(changelog.clone()),
+                                )
+                        })
+                    }))
+                    .children(data.version_info.as_ref().and_then(|version| {
+                        if version.dependencies.is_empty() {
+                            None
+                        } else {
+                            Some(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .child(section_label("Dependencies", &theme))
+                                    .children(version.dependencies.iter().map(|dep| {
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .rounded_lg()
+                                            .bg(theme.hover)
+                                            .px_3()
+                                            .py_2()
+                                            .child(dep.name.clone())
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap_2()
+                                                    .text_xs()
+                                                    .text_color(theme.text_muted)
+                                                    .child(format!("v{}", dep.version_constraint))
+                                                    .child(dep.dependency_type.clone()),
+                                            )
+                                    })),
+                            )
+                        }
+                    }))
+                    .children(
+                        m.links
+                            .clone()
+                            .filter(|links| !links.is_empty())
+                            .map(|links| {
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .child(section_label("Links", &theme))
+                                    .child(div().flex().flex_wrap().gap_2().children(
+                                        links.into_iter().map(|link| {
+                                            chip(
+                                                format!("{}: {}", link.link_type, link.url),
+                                                &theme,
+                                            )
+                                        }),
+                                    ))
+                            }),
+                    )
+                    .children(m.license.clone().map(|license| {
+                        div()
+                            .text_xs()
+                            .text_color(theme.text_muted)
+                            .child(format!("Licensed under {license}"))
+                    }))
+                    .into_any_element()
+            }
         };
 
         div()

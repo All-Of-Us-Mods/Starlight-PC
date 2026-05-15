@@ -7,6 +7,7 @@ use crate::ui::mod_card;
 #[derive(Clone, Debug)]
 pub enum HomeEvent {
     OpenMod(String),
+    OpenNews(Post),
 }
 
 impl EventEmitter<HomeEvent> for HomeView {}
@@ -78,8 +79,10 @@ fn carousel(id: &'static str, items: Vec<AnyElement>) -> impl IntoElement {
         .children(items)
 }
 
-fn news_card(post: &Post, theme: &crate::theme::Theme) -> AnyElement {
+fn news_card(post: &Post, theme: &crate::theme::Theme, cx: &mut Context<HomeView>) -> AnyElement {
+    let post_for_click = post.clone();
     div()
+        .id(SharedString::from(format!("news-{}", post.id)))
         .flex()
         .flex_col()
         .gap_2()
@@ -90,9 +93,15 @@ fn news_card(post: &Post, theme: &crate::theme::Theme) -> AnyElement {
         .bg(theme.sidebar_background)
         .border_1()
         .border_color(theme.border)
+        .cursor_pointer()
+        .hover(|s| s.border_color(theme.primary))
+        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+            cx.emit(HomeEvent::OpenNews(post_for_click.clone()));
+        }))
         .child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
+                .line_clamp(2)
                 .child(post.title.clone()),
         )
         .child(
@@ -141,7 +150,7 @@ impl Render for HomeView {
                 .into_any_element(),
             Loading::Ready(items) => carousel(
                 "news-carousel",
-                items.iter().map(|p| news_card(p, &theme)).collect(),
+                items.iter().map(|p| news_card(p, &theme, cx)).collect(),
             )
             .into_any_element(),
         };

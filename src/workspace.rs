@@ -7,6 +7,7 @@ use crate::views::home::HomeView;
 use crate::views::library::{LibraryEvent, LibraryView};
 use crate::views::library_detail::{LibraryDetailEvent, LibraryDetailView};
 use crate::views::mod_detail::{ModDetailEvent, ModDetailView};
+use crate::views::news_detail::{NewsDetailEvent, NewsDetailView};
 use crate::views::settings::SettingsView;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -43,6 +44,7 @@ enum ActiveView {
     Library,
     LibraryDetail(Entity<LibraryDetailView>),
     ModDetail(Entity<ModDetailView>),
+    NewsDetail(Entity<NewsDetailView>),
     Settings(Entity<SettingsView>),
 }
 
@@ -66,6 +68,7 @@ impl Workspace {
             &home,
             |this, _, ev: &crate::views::home::HomeEvent, cx| match ev {
                 crate::views::home::HomeEvent::OpenMod(id) => this.open_mod(id.clone(), cx),
+                crate::views::home::HomeEvent::OpenNews(post) => this.open_news(post.clone(), cx),
             },
         )
         .detach();
@@ -194,6 +197,7 @@ impl Workspace {
             ActiveView::Library => self.library.clone().into_any_element(),
             ActiveView::LibraryDetail(v) => v.clone().into_any_element(),
             ActiveView::ModDetail(v) => v.clone().into_any_element(),
+            ActiveView::NewsDetail(v) => v.clone().into_any_element(),
             ActiveView::Settings(v) => v.clone().into_any_element(),
         }
     }
@@ -208,6 +212,19 @@ impl Workspace {
         })
         .detach();
         self.view = ActiveView::ModDetail(detail);
+        cx.notify();
+    }
+
+    fn open_news(&mut self, post: crate::backend::api::Post, cx: &mut Context<Self>) {
+        let detail = cx.new(|_| NewsDetailView::new(post));
+        let return_tab = self.tab;
+        cx.subscribe(&detail, move |this, _, ev: &NewsDetailEvent, cx| match ev {
+            NewsDetailEvent::Close => {
+                this.switch_tab(return_tab, cx);
+            }
+        })
+        .detach();
+        self.view = ActiveView::NewsDetail(detail);
         cx.notify();
     }
 }
