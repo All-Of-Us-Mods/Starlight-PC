@@ -42,4 +42,5 @@ icons!(
     "icons/download.svg",
     "icons/trash.svg",
     "icons/image.svg",
+    "icons/starlight.svg",
 );

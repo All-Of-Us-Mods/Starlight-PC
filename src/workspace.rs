@@ -156,12 +156,19 @@ impl Workspace {
             .px_3()
             .child(
                 div()
-                    .text_xl()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(theme.text)
+                    .flex()
+                    .items_center()
+                    .gap_2()
                     .px_2()
                     .pb_4()
-                    .child("Starlight"),
+                    .child(img("starlight.png").w(px(28.0)).h(px(28.0)))
+                    .child(
+                        div()
+                            .text_xl()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(theme.text)
+                            .child("Starlight"),
+                    ),
             )
             .child(
                 div()

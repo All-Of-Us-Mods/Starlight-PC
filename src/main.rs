@@ -15,8 +15,13 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     log::info!("starlight starting");
 
+    let http = std::sync::Arc::new(
+        reqwest_client::ReqwestClient::user_agent("Starlight").expect("http client"),
+    );
+
     gpui_platform::application()
         .with_assets(assets::EmbeddedAssets)
+        .with_http_client(http)
         .run(|cx: &mut App| {
         theme::init(cx);
         settings::init(cx);

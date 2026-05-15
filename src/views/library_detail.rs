@@ -151,6 +151,7 @@ impl LibraryDetailView {
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
+        let fg = theme.text;
         div()
             .id(id)
             .flex()
@@ -160,10 +161,10 @@ impl LibraryDetailView {
             .py_2()
             .rounded_md()
             .bg(bg)
-            .text_color(theme.text)
+            .text_color(fg)
             .cursor_pointer()
             .hover(|s| s.opacity(0.85))
-            .children(leading.map(icon))
+            .children(leading.map(|name| icon(name).text_color(fg)))
             .child(label)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
     }

@@ -65,11 +65,13 @@ pub fn mod_thumbnail_url(id: &str) -> String {
     format!("{}/api/v3/mods/{}/thumbnail", DEFAULT_API_BASE_URL, id)
 }
 
-pub fn search_mods(query: &str) -> AppResult<Vec<ModResponse>> {
+pub fn search_mods(query: &str, limit: u32, offset: u32) -> AppResult<Vec<ModResponse>> {
     let url = format!(
-        "{}/api/v3/mods/search?q={}",
+        "{}/api/v3/mods/search?q={}&limit={}&offset={}",
         DEFAULT_API_BASE_URL,
-        urlencoding::encode(query)
+        urlencoding::encode(query),
+        limit,
+        offset,
     );
     ureq::get(&url)
         .call()?
