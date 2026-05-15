@@ -12,6 +12,7 @@ pub enum IconName {
     Download,
     Trash,
     Image,
+    Starlight,
 }
 
 impl IconName {
@@ -27,6 +28,7 @@ impl IconName {
             IconName::Download => "icons/download.svg",
             IconName::Trash => "icons/trash.svg",
             IconName::Image => "icons/image.svg",
+            IconName::Starlight => "icons/starlight.svg",
         }
     }
 }
