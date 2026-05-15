@@ -14,6 +14,9 @@ enum Loading<T> {
     Failed(String),
 }
 
+const CARD_WIDTH: f32 = 280.0;
+const NEWS_CARD_WIDTH: f32 = 320.0;
+
 impl HomeView {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let view = Self {
@@ -57,12 +60,24 @@ fn section_title(text: &'static str) -> impl IntoElement {
         .child(text)
 }
 
-fn news_card(post: &Post, theme: &crate::theme::Theme) -> impl IntoElement {
+fn carousel(id: &'static str, items: Vec<AnyElement>) -> impl IntoElement {
+    div()
+        .id(id)
+        .flex()
+        .gap_3()
+        .overflow_x_scroll()
+        .pb_2()
+        .children(items)
+}
+
+fn news_card(post: &Post, theme: &crate::theme::Theme) -> AnyElement {
     div()
         .flex()
         .flex_col()
-        .gap_1()
+        .gap_2()
         .p_4()
+        .w(px(NEWS_CARD_WIDTH))
+        .flex_shrink_0()
         .rounded_lg()
         .bg(theme.sidebar_background)
         .border_1()
@@ -78,14 +93,23 @@ fn news_card(post: &Post, theme: &crate::theme::Theme) -> impl IntoElement {
                 .text_color(theme.text_muted)
                 .child(format!("by {}", post.author)),
         )
+        .child(
+            div()
+                .text_sm()
+                .text_color(theme.text_muted)
+                .child(post.content.chars().take(140).collect::<String>()),
+        )
+        .into_any_element()
 }
 
-fn mod_card(m: &ModResponse, theme: &crate::theme::Theme) -> impl IntoElement {
+fn mod_card(m: &ModResponse, theme: &crate::theme::Theme) -> AnyElement {
     div()
         .flex()
         .flex_col()
-        .gap_1()
+        .gap_2()
         .p_4()
+        .w(px(CARD_WIDTH))
+        .flex_shrink_0()
         .rounded_lg()
         .bg(theme.sidebar_background)
         .border_1()
@@ -99,54 +123,70 @@ fn mod_card(m: &ModResponse, theme: &crate::theme::Theme) -> impl IntoElement {
             div()
                 .text_xs()
                 .text_color(theme.text_muted)
+                .child(format!("by {}", m.author)),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(theme.text_muted)
+                .child(
+                    m.description
+                        .chars()
+                        .take(100)
+                        .collect::<String>(),
+                ),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(theme.text_muted)
                 .child(format!("{} downloads", m.downloads)),
         )
-}
-
-fn render_loading<T, F>(state: &Loading<T>, render_items: F) -> AnyElement
-where
-    F: FnOnce(&T) -> AnyElement,
-{
-    match state {
-        Loading::Pending => div().child("Loading…").into_any_element(),
-        Loading::Failed(e) => div()
-            .text_color(rgb(0xef4444))
-            .child(e.clone())
-            .into_any_element(),
-        Loading::Ready(items) => render_items(items),
-    }
+        .into_any_element()
 }
 
 impl Render for HomeView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let news_section = {
-            let theme = theme.clone();
-            render_loading(&self.news, move |items| {
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .children(items.iter().take(5).map(|p| news_card(p, &theme).into_any_element()))
-                    .into_any_element()
-            })
+
+        let news_body: AnyElement = match &self.news {
+            Loading::Pending => div()
+                .text_color(theme.text_muted)
+                .child("Loading news…")
+                .into_any_element(),
+            Loading::Failed(e) => div()
+                .text_color(rgb(0xef4444))
+                .child(e.clone())
+                .into_any_element(),
+            Loading::Ready(items) => carousel(
+                "news-carousel",
+                items.iter().map(|p| news_card(p, &theme)).collect(),
+            )
+            .into_any_element(),
         };
-        let trending_section = {
-            let theme = theme.clone();
-            render_loading(&self.trending, move |items| {
-                div()
-                    .grid()
-                    .grid_cols(2)
-                    .gap_3()
-                    .children(items.iter().take(6).map(|m| mod_card(m, &theme).into_any_element()))
-                    .into_any_element()
-            })
+
+        let trending_body: AnyElement = match &self.trending {
+            Loading::Pending => div()
+                .text_color(theme.text_muted)
+                .child("Loading mods…")
+                .into_any_element(),
+            Loading::Failed(e) => div()
+                .text_color(rgb(0xef4444))
+                .child(e.clone())
+                .into_any_element(),
+            Loading::Ready(items) => carousel(
+                "trending-carousel",
+                items.iter().map(|m| mod_card(m, &theme)).collect(),
+            )
+            .into_any_element(),
         };
 
         div()
+            .id("home-page")
             .flex()
             .flex_col()
             .size_full()
+            .overflow_y_scroll()
             .font_family(theme::FONT_FAMILY)
             .text_color(theme.text)
             .text_size(px(14.0))
@@ -164,14 +204,14 @@ impl Render for HomeView {
                     .flex()
                     .flex_col()
                     .child(section_title("News"))
-                    .child(news_section),
+                    .child(news_body),
             )
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .child(section_title("Trending Mods"))
-                    .child(trending_section),
+                    .child(trending_body),
             )
     }
 }

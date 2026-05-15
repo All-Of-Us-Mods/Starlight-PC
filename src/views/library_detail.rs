@@ -1,8 +1,12 @@
 use gpui::*;
 use log::warn;
 
+use std::path::PathBuf;
+
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_service::{BepInExProgress, BepInExTargetType};
+use crate::backend::services::core_service;
+use crate::backend::services::launch_service::{self, LaunchModdedArgs};
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::theme::{self, ThemeExt};
 
@@ -18,6 +22,7 @@ pub struct LibraryDetailView {
     state: LoadState,
     bep_progress: Option<BepInExProgress>,
     confirming_delete: bool,
+    launch_error: Option<String>,
 }
 
 enum LoadState {
@@ -34,6 +39,7 @@ impl LibraryDetailView {
             state: LoadState::Loading,
             bep_progress: None,
             confirming_delete: false,
+            launch_error: None,
         };
 
         view.spawn_load(cx);
@@ -93,6 +99,28 @@ impl LibraryDetailView {
             .detach();
     }
 
+    fn launch(&mut self, cx: &mut Context<Self>) {
+        let LoadState::Loaded(profile) = &self.state else {
+            return;
+        };
+        let profile = profile.clone();
+        self.launch_error = None;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { run_launch(profile) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    warn!("launch failed: {e}");
+                    this.launch_error = Some(e);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
     fn delete_profile(&mut self, cx: &mut Context<Self>) {
         let id = self.profile_id.clone();
         cx.spawn(async move |this, cx| {
@@ -135,6 +163,96 @@ impl LibraryDetailView {
     }
 }
 
+fn run_launch(profile: ProfileEntry) -> Result<(), String> {
+    let settings = core_service::get_settings().map_err(|e| e.to_string())?;
+    let game_path = settings.among_us_path.trim();
+    if game_path.is_empty() {
+        return Err("Among Us path is not set. Configure it in Settings.".into());
+    }
+
+    let game_exe = PathBuf::from(game_path).join(GAME_EXE_NAME);
+    if !game_exe.exists() {
+        return Err(format!("{} not found at {}", GAME_EXE_NAME, game_exe.display()));
+    }
+
+    let profile_path = PathBuf::from(&profile.path);
+    let bepinex_dll = profile_path
+        .join("BepInEx")
+        .join("core")
+        .join("BepInEx.Unity.IL2CPP.dll");
+    if !bepinex_dll.exists() {
+        return Err(
+            "BepInEx DLL not found. Install BepInEx for this profile first.".into(),
+        );
+    }
+    let dotnet_dir = profile_path.join("dotnet");
+    let coreclr_path = dotnet_dir.join(CORECLR_FILE);
+    if !coreclr_path.exists() {
+        return Err(format!(
+            "dotnet runtime not found at {}",
+            coreclr_path.display()
+        ));
+    }
+
+    let platform_label = match settings.game_platform {
+        core_service::GamePlatform::Steam => "steam",
+        core_service::GamePlatform::Epic => "epic",
+        core_service::GamePlatform::Xbox => "xbox",
+    };
+
+    #[cfg(target_os = "linux")]
+    let runner = build_linux_runner(&settings)?;
+
+    let args = LaunchModdedArgs {
+        game_exe: game_exe.to_string_lossy().to_string(),
+        profile_id: profile.id.clone(),
+        #[cfg(any(windows, target_os = "linux"))]
+        profile_path: profile.path.clone(),
+        bepinex_dll: bepinex_dll.to_string_lossy().to_string(),
+        dotnet_dir: dotnet_dir.to_string_lossy().to_string(),
+        coreclr_path: coreclr_path.to_string_lossy().to_string(),
+        platform: platform_label.to_string(),
+        #[cfg(target_os = "linux")]
+        runner,
+    };
+
+    launch_service::launch_modded(args).map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "windows")]
+const GAME_EXE_NAME: &str = "Among Us.exe";
+#[cfg(not(target_os = "windows"))]
+const GAME_EXE_NAME: &str = "Among Us.exe";
+
+#[cfg(target_os = "windows")]
+const CORECLR_FILE: &str = "coreclr.dll";
+#[cfg(target_os = "linux")]
+const CORECLR_FILE: &str = "coreclr.dll";
+#[cfg(target_os = "macos")]
+const CORECLR_FILE: &str = "libcoreclr.dylib";
+
+#[cfg(target_os = "linux")]
+fn build_linux_runner(
+    settings: &core_service::AppSettings,
+) -> Result<launch_service::LinuxRunner, String> {
+    let binary = settings.linux_runner_binary.trim();
+    if binary.is_empty() {
+        return Err("Linux runner binary is required in Settings.".into());
+    }
+    Ok(match settings.linux_runner_kind {
+        core_service::LinuxRunnerKind::Wine => launch_service::LinuxRunner::Wine {
+            binary: binary.to_string(),
+            prefix: settings.linux_wine_prefix.clone(),
+        },
+        core_service::LinuxRunnerKind::Proton => launch_service::LinuxRunner::Proton {
+            binary: binary.to_string(),
+            compat_data_path: settings.linux_proton_compat_data_path.clone(),
+            steam_client_path: settings.linux_proton_steam_client_path.clone(),
+            use_steam_run: settings.linux_proton_use_steam_run,
+        },
+    })
+}
+
 impl Render for LibraryDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
@@ -171,6 +289,24 @@ impl Render for LibraryDetailView {
                         |this, cx| this.install_bepinex(cx),
                         cx,
                     )
+                });
+
+                let launch_btn = bep_installed.then(|| {
+                    Self::button(
+                        "launch",
+                        "Launch".into(),
+                        rgb(0x16a34a),
+                        &theme,
+                        |this, cx| this.launch(cx),
+                        cx,
+                    )
+                });
+
+                let launch_err = self.launch_error.clone().map(|msg| {
+                    div()
+                        .text_sm()
+                        .text_color(rgb(0xef4444))
+                        .child(msg)
                 });
 
                 let progress_row = self.bep_progress.as_ref().map(|p| {
@@ -312,6 +448,8 @@ impl Render for LibraryDetailView {
                     )
                     .children(progress_row)
                     .children(install_btn)
+                    .children(launch_btn)
+                    .children(launch_err)
                     .children(mods_section)
                     .child(delete_row)
                     .into_any_element()
@@ -319,10 +457,12 @@ impl Render for LibraryDetailView {
         };
 
         div()
+            .id("library-detail-page")
             .flex()
             .flex_col()
             .gap_4()
             .size_full()
+            .overflow_y_scroll()
             .font_family(theme::FONT_FAMILY)
             .text_color(theme.text)
             .text_size(px(14.0))

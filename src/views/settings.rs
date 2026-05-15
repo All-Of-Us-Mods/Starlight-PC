@@ -251,9 +251,11 @@ impl Render for SettingsView {
         };
 
         div()
+            .id("settings-page")
             .flex()
             .flex_col()
             .size_full()
+            .overflow_y_scroll()
             .font_family(theme::FONT_FAMILY)
             .text_color(theme.text)
             .text_size(px(14.0))

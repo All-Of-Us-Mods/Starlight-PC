@@ -4,6 +4,7 @@ mod app;
 mod backend;
 mod settings;
 mod theme;
+mod ui;
 mod views;
 mod workspace;
 

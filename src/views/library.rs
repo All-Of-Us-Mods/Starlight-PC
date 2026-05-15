@@ -3,6 +3,7 @@ use log::warn;
 
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::theme::{self, ThemeExt};
+use crate::ui::text_input::{TextInput, TextInputEvent};
 
 #[derive(Clone, Debug)]
 pub enum LibraryEvent {
@@ -13,6 +14,7 @@ impl EventEmitter<LibraryEvent> for LibraryView {}
 
 pub struct LibraryView {
     state: LoadState,
+    create_dialog: Option<Entity<TextInput>>,
 }
 
 enum LoadState {
@@ -25,6 +27,7 @@ impl LibraryView {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let view = Self {
             state: LoadState::Loading,
+            create_dialog: None,
         };
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -71,12 +74,30 @@ impl LibraryView {
         .detach();
     }
 
-    fn create_profile(&mut self, cx: &mut Context<Self>) {
+    fn open_create_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| TextInput::new(cx, "Profile name"));
+        input.update(cx, |input, cx| input.focus(window, cx));
+        cx.subscribe(&input, |this, _, event: &TextInputEvent, cx| match event {
+            TextInputEvent::Submit(name) => {
+                this.submit_create(name.clone(), cx);
+            }
+        })
+        .detach();
+        self.create_dialog = Some(input);
+        cx.notify();
+    }
+
+    fn submit_create(&mut self, name: String, cx: &mut Context<Self>) {
+        let trimmed = name.trim().to_string();
+        if trimmed.is_empty() {
+            return;
+        }
+        self.create_dialog = None;
+        cx.notify();
         cx.spawn(async move |this, cx| {
-            let name = format!("Profile {}", chrono::Utc::now().format("%H%M%S"));
             let result = cx
                 .background_executor()
-                .spawn(async move { profile_service::create_profile(&name) })
+                .spawn(async move { profile_service::create_profile(&trimmed) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if let Err(e) = result {
@@ -112,8 +133,8 @@ impl LibraryView {
                     .cursor_pointer()
                     .hover(|s| s.opacity(0.85))
                     .child("Create Profile")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.create_profile(cx);
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.open_create_dialog(window, cx);
                     })),
             )
     }
@@ -196,10 +217,83 @@ impl Render for LibraryView {
             }
         };
 
+        let dialog = self.create_dialog.clone().map(|input| {
+            let theme = theme.clone();
+            div()
+                .absolute()
+                .inset_0()
+                .bg(Rgba {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.6,
+                })
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .w(px(360.0))
+                        .p_5()
+                        .rounded_lg()
+                        .bg(theme.background)
+                        .border_1()
+                        .border_color(theme.border)
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("New Profile"),
+                        )
+                        .child(input)
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .justify_end()
+                                .child(
+                                    div()
+                                        .id("cancel-create")
+                                        .px_4()
+                                        .py_2()
+                                        .rounded_md()
+                                        .bg(theme.hover)
+                                        .cursor_pointer()
+                                        .child("Cancel")
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            this.create_dialog = None;
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    div()
+                                        .id("confirm-create")
+                                        .px_4()
+                                        .py_2()
+                                        .rounded_md()
+                                        .bg(theme.primary)
+                                        .cursor_pointer()
+                                        .child("Create")
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            if let Some(input) = this.create_dialog.clone() {
+                                                let name = input.read(cx).value().to_string();
+                                                this.submit_create(name, cx);
+                                            }
+                                        })),
+                                ),
+                        ),
+                )
+        });
+
         div()
+            .id("library-page")
+            .relative()
             .flex()
             .flex_col()
             .size_full()
+            .overflow_y_scroll()
             .font_family(theme::FONT_FAMILY)
             .text_color(theme.text)
             .text_size(px(14.0))
@@ -207,5 +301,6 @@ impl Render for LibraryView {
             .pt(px(48.0))
             .child(self.render_header(cx))
             .child(body)
+            .children(dialog)
     }
 }
