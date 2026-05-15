@@ -4,6 +4,13 @@ use log::warn;
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::theme::ThemeExt;
 
+#[derive(Clone, Debug)]
+pub enum LibraryEvent {
+    Open(String),
+}
+
+impl EventEmitter<LibraryEvent> for LibraryView {}
+
 pub struct LibraryView {
     state: LoadState,
 }
@@ -111,8 +118,16 @@ impl LibraryView {
             )
     }
 
-    fn render_profile_card(profile: &ProfileEntry, theme: &crate::theme::Theme) -> impl IntoElement {
+    fn render_profile_card(
+        &self,
+        profile: &ProfileEntry,
+        theme: &crate::theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let id = profile.id.clone();
+        let emit_id = id.clone();
         div()
+            .id(SharedString::from(id))
             .flex()
             .flex_col()
             .gap_2()
@@ -121,6 +136,11 @@ impl LibraryView {
             .bg(theme.sidebar_background)
             .border_1()
             .border_color(theme.border)
+            .cursor_pointer()
+            .hover(|s| s.bg(theme.hover))
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.emit(LibraryEvent::Open(emit_id.clone()));
+            }))
             .child(
                 div()
                     .text_base()
@@ -162,16 +182,18 @@ impl Render for LibraryView {
                 .text_color(theme.text_muted)
                 .child("No profiles yet. Click \"Create Profile\" to make one.")
                 .into_any_element(),
-            LoadState::Loaded(profiles) => div()
-                .grid()
-                .grid_cols(2)
-                .gap_4()
-                .children(
-                    profiles
-                        .iter()
-                        .map(|p| Self::render_profile_card(p, &theme).into_any_element()),
-                )
-                .into_any_element(),
+            LoadState::Loaded(profiles) => {
+                let cards: Vec<AnyElement> = profiles
+                    .iter()
+                    .map(|p| self.render_profile_card(p, &theme, cx).into_any_element())
+                    .collect();
+                div()
+                    .grid()
+                    .grid_cols(2)
+                    .gap_4()
+                    .children(cards)
+                    .into_any_element()
+            }
         };
 
         div()

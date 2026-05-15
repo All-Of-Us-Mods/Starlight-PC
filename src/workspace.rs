@@ -1,46 +1,92 @@
 use gpui::*;
 
 use crate::theme::ThemeExt;
-use crate::views::library::LibraryView;
+use crate::views::explore::ExploreView;
+use crate::views::home::HomeView;
+use crate::views::library::{LibraryEvent, LibraryView};
+use crate::views::library_detail::LibraryDetailView;
+use crate::views::settings::SettingsView;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum View {
+pub enum Tab {
     Home,
     Explore,
     Library,
     Settings,
 }
 
-impl View {
+impl Tab {
     fn label(self) -> &'static str {
         match self {
-            View::Home => "Home",
-            View::Explore => "Explore",
-            View::Library => "Library",
-            View::Settings => "Settings",
+            Tab::Home => "Home",
+            Tab::Explore => "Explore",
+            Tab::Library => "Library",
+            Tab::Settings => "Settings",
         }
     }
 }
 
+enum ActiveView {
+    Home(Entity<HomeView>),
+    Explore(Entity<ExploreView>),
+    Library,
+    LibraryDetail(Entity<LibraryDetailView>),
+    Settings(Entity<SettingsView>),
+}
+
 pub struct Workspace {
-    current: View,
+    tab: Tab,
+    view: ActiveView,
     library: Entity<LibraryView>,
+    home: Entity<HomeView>,
+    explore: Entity<ExploreView>,
+    settings: Entity<SettingsView>,
 }
 
 impl Workspace {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let library = cx.new(|cx| LibraryView::new(cx));
+        let home = cx.new(|cx| HomeView::new(cx));
+        let explore = cx.new(|cx| ExploreView::new(cx));
+        let settings = cx.new(|cx| SettingsView::new(cx));
+
+        cx.subscribe(&library, |this, _, event: &LibraryEvent, cx| match event {
+            LibraryEvent::Open(profile_id) => {
+                let id = profile_id.clone();
+                this.view = ActiveView::LibraryDetail(
+                    cx.new(|cx| LibraryDetailView::new(id, cx)),
+                );
+                cx.notify();
+            }
+        })
+        .detach();
+
         Self {
-            current: View::Library,
+            tab: Tab::Library,
+            view: ActiveView::Library,
             library,
+            home,
+            explore,
+            settings,
         }
     }
 
-    fn nav_button(&self, view: View, cx: &mut Context<Self>) -> impl IntoElement {
+    fn switch_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
+        self.tab = tab;
+        self.view = match tab {
+            Tab::Home => ActiveView::Home(self.home.clone()),
+            Tab::Explore => ActiveView::Explore(self.explore.clone()),
+            Tab::Library => ActiveView::Library,
+            Tab::Settings => ActiveView::Settings(self.settings.clone()),
+        };
+        cx.notify();
+    }
+
+    fn nav_button(&self, tab: Tab, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let is_active = self.current == view;
+        let is_active = self.tab == tab;
         div()
-            .id(SharedString::from(view.label()))
+            .id(SharedString::from(tab.label()))
             .px_4()
             .py_2()
             .rounded_md()
@@ -48,10 +94,9 @@ impl Workspace {
             .bg(if is_active { theme.hover } else { rgba(0x00000000).into() })
             .hover(|s| s.bg(theme.hover))
             .cursor_pointer()
-            .child(view.label())
+            .child(tab.label())
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.current = view;
-                cx.notify();
+                this.switch_tab(tab, cx);
             }))
     }
 
@@ -81,31 +126,22 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(self.nav_button(View::Home, cx))
-                    .child(self.nav_button(View::Explore, cx))
-                    .child(self.nav_button(View::Library, cx))
-                    .child(self.nav_button(View::Settings, cx)),
+                    .child(self.nav_button(Tab::Home, cx))
+                    .child(self.nav_button(Tab::Explore, cx))
+                    .child(self.nav_button(Tab::Library, cx))
+                    .child(self.nav_button(Tab::Settings, cx)),
             )
     }
 
     fn render_content(&self) -> AnyElement {
-        match self.current {
-            View::Home => placeholder("Home").into_any_element(),
-            View::Explore => placeholder("Explore").into_any_element(),
-            View::Library => self.library.clone().into_any_element(),
-            View::Settings => placeholder("Settings").into_any_element(),
+        match &self.view {
+            ActiveView::Home(v) => v.clone().into_any_element(),
+            ActiveView::Explore(v) => v.clone().into_any_element(),
+            ActiveView::Library => self.library.clone().into_any_element(),
+            ActiveView::LibraryDetail(v) => v.clone().into_any_element(),
+            ActiveView::Settings(v) => v.clone().into_any_element(),
         }
     }
-}
-
-fn placeholder(label: &'static str) -> impl IntoElement {
-    div()
-        .flex()
-        .size_full()
-        .items_center()
-        .justify_center()
-        .text_lg()
-        .child(format!("{label} — not yet ported"))
 }
 
 impl Render for Workspace {

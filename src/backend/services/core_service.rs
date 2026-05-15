@@ -8,7 +8,7 @@ const DEFAULT_BEPINEX_URL_X86: &str = "https://builds.bepinex.dev/projects/bepin
 const DEFAULT_BEPINEX_URL_X64: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.752%2Bdd0655f.zip";
 const SETTINGS_FILE_NAME: &str = "settings.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GamePlatform {
     Steam,

@@ -43,3 +43,26 @@ pub fn fetch_trending_mods() -> AppResult<Vec<ModResponse>> {
         .into_json::<Vec<ModResponse>>()
         .map_err(|e| AppError::Http(e.to_string()))
 }
+
+pub fn fetch_mods(limit: u32, offset: u32) -> AppResult<Vec<ModResponse>> {
+    let url = format!(
+        "{}/api/v3/mods?limit={}&offset={}",
+        DEFAULT_API_BASE_URL, limit, offset
+    );
+    ureq::get(&url)
+        .call()?
+        .into_json::<Vec<ModResponse>>()
+        .map_err(|e| AppError::Http(e.to_string()))
+}
+
+pub fn search_mods(query: &str) -> AppResult<Vec<ModResponse>> {
+    let url = format!(
+        "{}/api/v3/mods/search?q={}",
+        DEFAULT_API_BASE_URL,
+        urlencoding::encode(query)
+    );
+    ureq::get(&url)
+        .call()?
+        .into_json::<Vec<ModResponse>>()
+        .map_err(|e| AppError::Http(e.to_string()))
+}
