@@ -1,5 +1,4 @@
 use gpui::*;
-use std::borrow::Cow;
 
 mod app;
 mod backend;
@@ -12,16 +11,9 @@ actions!(starlight, [Quit]);
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    log::info!("starlight starting");
 
     gpui_platform::application().run(|cx: &mut App| {
-        let fonts: Vec<Cow<'static, [u8]>> = vec![
-            Cow::Borrowed(include_bytes!("../assets/fonts/Lilex-Regular.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/Lilex-Bold.ttf")),
-        ];
-        if let Err(e) = cx.text_system().add_fonts(fonts) {
-            log::error!("failed to load bundled fonts: {e}");
-        }
-
         theme::init(cx);
         settings::init(cx);
         backend::init(cx);
