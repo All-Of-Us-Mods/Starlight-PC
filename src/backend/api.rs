@@ -19,13 +19,11 @@ pub struct ModResponse {
     pub id: String,
     pub name: String,
     pub description: String,
-    pub authors: Vec<String>,
+    pub author: String,
+    pub mod_type: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
-    pub icon_url: Option<String>,
-    pub latest_version: String,
-    pub download_count: u64,
-    pub views: u64,
+    pub downloads: u64,
 }
 
 pub fn fetch_news() -> AppResult<Vec<Post>> {

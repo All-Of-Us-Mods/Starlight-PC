@@ -99,7 +99,7 @@ fn mod_card(m: &ModResponse, theme: &crate::theme::Theme) -> impl IntoElement {
             div()
                 .text_xs()
                 .text_color(theme.text_muted)
-                .child(format!("{} downloads", m.download_count)),
+                .child(format!("{} downloads", m.downloads)),
         )
 }
 

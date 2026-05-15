@@ -60,10 +60,7 @@ impl ExploreView {
                 div()
                     .text_xs()
                     .text_color(theme.text_muted)
-                    .child(format!(
-                        "v{} · {} downloads",
-                        m.latest_version, m.download_count
-                    )),
+                    .child(format!("{} · {} downloads", m.author, m.downloads)),
             )
     }
 }
