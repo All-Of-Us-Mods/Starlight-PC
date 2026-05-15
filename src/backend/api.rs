@@ -53,6 +53,18 @@ pub fn fetch_mods(limit: u32, offset: u32) -> AppResult<Vec<ModResponse>> {
         .map_err(|e| AppError::Http(e.to_string()))
 }
 
+pub fn fetch_mod(id: &str) -> AppResult<ModResponse> {
+    let url = format!("{}/api/v3/mods/{}", DEFAULT_API_BASE_URL, id);
+    ureq::get(&url)
+        .call()?
+        .into_json::<ModResponse>()
+        .map_err(|e| AppError::Http(e.to_string()))
+}
+
+pub fn mod_thumbnail_url(id: &str) -> String {
+    format!("{}/api/v3/mods/{}/thumbnail", DEFAULT_API_BASE_URL, id)
+}
+
 pub fn search_mods(query: &str) -> AppResult<Vec<ModResponse>> {
     let url = format!(
         "{}/api/v3/mods/search?q={}",

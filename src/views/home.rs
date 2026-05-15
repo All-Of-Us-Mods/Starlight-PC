@@ -3,6 +3,13 @@ use gpui::*;
 use crate::backend::api::{self, ModResponse, Post};
 use crate::theme::{self, ThemeExt};
 
+#[derive(Clone, Debug)]
+pub enum HomeEvent {
+    OpenMod(String),
+}
+
+impl EventEmitter<HomeEvent> for HomeView {}
+
 pub struct HomeView {
     news: Loading<Vec<Post>>,
     trending: Loading<Vec<ModResponse>>,
@@ -102,47 +109,60 @@ fn news_card(post: &Post, theme: &crate::theme::Theme) -> AnyElement {
         .into_any_element()
 }
 
-fn mod_card(m: &ModResponse, theme: &crate::theme::Theme) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .p_4()
-        .w(px(CARD_WIDTH))
-        .flex_shrink_0()
-        .rounded_lg()
-        .bg(theme.sidebar_background)
-        .border_1()
-        .border_color(theme.border)
-        .child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(m.name.clone()),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(theme.text_muted)
-                .child(format!("by {}", m.author)),
-        )
-        .child(
-            div()
-                .text_sm()
-                .text_color(theme.text_muted)
-                .child(
-                    m.description
-                        .chars()
-                        .take(100)
-                        .collect::<String>(),
-                ),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(theme.text_muted)
-                .child(format!("{} downloads", m.downloads)),
-        )
-        .into_any_element()
+impl HomeView {
+    fn mod_card(m: &ModResponse, theme: &crate::theme::Theme, cx: &mut Context<Self>) -> AnyElement {
+        let id = SharedString::from(format!("trending-{}", m.id));
+        let mod_id_for_click = m.id.clone();
+        div()
+            .id(id)
+            .flex()
+            .flex_col()
+            .gap_2()
+            .w(px(CARD_WIDTH))
+            .flex_shrink_0()
+            .rounded_lg()
+            .overflow_hidden()
+            .bg(theme.sidebar_background)
+            .border_1()
+            .border_color(theme.border)
+            .cursor_pointer()
+            .hover(|s| s.border_color(theme.primary))
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.emit(HomeEvent::OpenMod(mod_id_for_click.clone()));
+            }))
+            .child(
+                img(api::mod_thumbnail_url(&m.id))
+                    .w_full()
+                    .h(px(140.0))
+                    .object_fit(ObjectFit::Cover)
+                    .bg(theme.hover),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .p_3()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(m.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.text_muted)
+                            .child(format!("by {}", m.author)),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.text_muted)
+                            .child(format!("{} downloads", m.downloads)),
+                    ),
+            )
+            .into_any_element()
+    }
 }
 
 impl Render for HomeView {
@@ -176,7 +196,10 @@ impl Render for HomeView {
                 .into_any_element(),
             Loading::Ready(items) => carousel(
                 "trending-carousel",
-                items.iter().map(|m| mod_card(m, &theme)).collect(),
+                items
+                    .iter()
+                    .map(|m| Self::mod_card(m, &theme, cx))
+                    .collect(),
             )
             .into_any_element(),
         };

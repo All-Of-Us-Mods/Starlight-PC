@@ -1,6 +1,7 @@
 use gpui::*;
 
 mod app;
+mod assets;
 mod backend;
 mod settings;
 mod theme;
@@ -14,7 +15,9 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     log::info!("starlight starting");
 
-    gpui_platform::application().run(|cx: &mut App| {
+    gpui_platform::application()
+        .with_assets(assets::EmbeddedAssets)
+        .run(|cx: &mut App| {
         theme::init(cx);
         settings::init(cx);
         backend::init(cx);
@@ -46,3 +49,4 @@ fn main() {
             .unwrap();
     });
 }
+

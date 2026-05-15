@@ -1,10 +1,12 @@
 use gpui::*;
 
 use crate::theme::{self, ThemeExt};
+use crate::ui::icon::{icon, IconName};
 use crate::views::explore::ExploreView;
 use crate::views::home::HomeView;
 use crate::views::library::{LibraryEvent, LibraryView};
 use crate::views::library_detail::{LibraryDetailEvent, LibraryDetailView};
+use crate::views::mod_detail::{ModDetailEvent, ModDetailView};
 use crate::views::settings::SettingsView;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -24,6 +26,15 @@ impl Tab {
             Tab::Settings => "Settings",
         }
     }
+
+    fn icon(self) -> IconName {
+        match self {
+            Tab::Home => IconName::Home,
+            Tab::Explore => IconName::Compass,
+            Tab::Library => IconName::Library,
+            Tab::Settings => IconName::Settings,
+        }
+    }
 }
 
 enum ActiveView {
@@ -31,6 +42,7 @@ enum ActiveView {
     Explore(Entity<ExploreView>),
     Library,
     LibraryDetail(Entity<LibraryDetailView>),
+    ModDetail(Entity<ModDetailView>),
     Settings(Entity<SettingsView>),
 }
 
@@ -49,6 +61,20 @@ impl Workspace {
         let home = cx.new(|cx| HomeView::new(cx));
         let explore = cx.new(|cx| ExploreView::new(cx));
         let settings = cx.new(|cx| SettingsView::new(cx));
+
+        cx.subscribe(&home, |this, _, ev: &crate::views::home::HomeEvent, cx| match ev {
+            crate::views::home::HomeEvent::OpenMod(id) => this.open_mod(id.clone(), cx),
+        })
+        .detach();
+        cx.subscribe(
+            &explore,
+            |this, _, ev: &crate::views::explore::ExploreEvent, cx| match ev {
+                crate::views::explore::ExploreEvent::OpenMod(id) => {
+                    this.open_mod(id.clone(), cx)
+                }
+            },
+        )
+        .detach();
 
         cx.subscribe(&library, |this, _, event: &LibraryEvent, cx| match event {
             LibraryEvent::Open(profile_id) => {
@@ -96,15 +122,20 @@ impl Workspace {
     fn nav_button(&self, tab: Tab, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let is_active = self.tab == tab;
+        let text_color = if is_active { theme.text } else { theme.text_muted };
         div()
             .id(SharedString::from(tab.label()))
-            .px_4()
+            .flex()
+            .items_center()
+            .gap_3()
+            .px_3()
             .py_2()
             .rounded_md()
-            .text_color(if is_active { theme.text } else { theme.text_muted })
+            .text_color(text_color)
             .bg(if is_active { theme.hover } else { rgba(0x00000000).into() })
             .hover(|s| s.bg(theme.hover))
             .cursor_pointer()
+            .child(icon(tab.icon()).text_color(text_color))
             .child(tab.label())
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.switch_tab(tab, cx);
@@ -150,8 +181,22 @@ impl Workspace {
             ActiveView::Explore(v) => v.clone().into_any_element(),
             ActiveView::Library => self.library.clone().into_any_element(),
             ActiveView::LibraryDetail(v) => v.clone().into_any_element(),
+            ActiveView::ModDetail(v) => v.clone().into_any_element(),
             ActiveView::Settings(v) => v.clone().into_any_element(),
         }
+    }
+
+    fn open_mod(&mut self, mod_id: String, cx: &mut Context<Self>) {
+        let detail = cx.new(|cx| ModDetailView::new(mod_id, cx));
+        let return_tab = self.tab;
+        cx.subscribe(&detail, move |this, _, ev: &ModDetailEvent, cx| match ev {
+            ModDetailEvent::Close => {
+                this.switch_tab(return_tab, cx);
+            }
+        })
+        .detach();
+        self.view = ActiveView::ModDetail(detail);
+        cx.notify();
     }
 }
 

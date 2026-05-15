@@ -9,6 +9,7 @@ use crate::backend::services::core_service;
 use crate::backend::services::launch_service::{self, LaunchModdedArgs};
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::theme::{self, ThemeExt};
+use crate::ui::icon::{icon, IconName};
 
 #[derive(Clone, Debug)]
 pub enum LibraryDetailEvent {
@@ -144,6 +145,7 @@ impl LibraryDetailView {
     fn button(
         id: &'static str,
         label: SharedString,
+        leading: Option<IconName>,
         bg: Rgba,
         theme: &crate::theme::Theme,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
@@ -151,6 +153,9 @@ impl LibraryDetailView {
     ) -> Stateful<Div> {
         div()
             .id(id)
+            .flex()
+            .items_center()
+            .gap_2()
             .px_4()
             .py_2()
             .rounded_md()
@@ -158,6 +163,7 @@ impl LibraryDetailView {
             .text_color(theme.text)
             .cursor_pointer()
             .hover(|s| s.opacity(0.85))
+            .children(leading.map(icon))
             .child(label)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
     }
@@ -259,7 +265,8 @@ impl Render for LibraryDetailView {
 
         let back = Self::button(
             "back",
-            "← Back".into(),
+            "Back".into(),
+            Some(IconName::ArrowLeft),
             theme.hover,
             &theme,
             |_, cx| cx.emit(LibraryDetailEvent::Close),
@@ -284,6 +291,7 @@ impl Render for LibraryDetailView {
                     Self::button(
                         "install-bepinex",
                         "Install BepInEx".into(),
+                        Some(IconName::Download),
                         theme.primary,
                         &theme,
                         |this, cx| this.install_bepinex(cx),
@@ -295,6 +303,7 @@ impl Render for LibraryDetailView {
                     Self::button(
                         "launch",
                         "Launch".into(),
+                        Some(IconName::Play),
                         rgb(0x16a34a),
                         &theme,
                         |this, cx| this.launch(cx),
@@ -393,6 +402,7 @@ impl Render for LibraryDetailView {
                         .child(Self::button(
                             "confirm-delete",
                             "Delete".into(),
+                            Some(IconName::Trash),
                             rgb(0xdc2626),
                             &theme,
                             |this, cx| this.delete_profile(cx),
@@ -401,6 +411,7 @@ impl Render for LibraryDetailView {
                         .child(Self::button(
                             "cancel-delete",
                             "Cancel".into(),
+                            None,
                             theme.hover,
                             &theme,
                             |this, cx| {
@@ -413,6 +424,7 @@ impl Render for LibraryDetailView {
                     div().child(Self::button(
                         "delete-profile",
                         "Delete Profile".into(),
+                        Some(IconName::Trash),
                         rgb(0xdc2626),
                         &theme,
                         |this, cx| {

@@ -3,6 +3,7 @@ use log::warn;
 
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::theme::{self, ThemeExt};
+use crate::ui::icon::{icon, IconName};
 use crate::ui::text_input::{TextInput, TextInputEvent};
 
 #[derive(Clone, Debug)]
@@ -125,6 +126,9 @@ impl LibraryView {
             .child(
                 div()
                     .id("create-profile")
+                    .flex()
+                    .items_center()
+                    .gap_2()
                     .px_4()
                     .py_2()
                     .rounded_md()
@@ -132,6 +136,7 @@ impl LibraryView {
                     .text_color(theme.text)
                     .cursor_pointer()
                     .hover(|s| s.opacity(0.85))
+                    .child(icon(IconName::Plus))
                     .child("Create Profile")
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.open_create_dialog(window, cx);
