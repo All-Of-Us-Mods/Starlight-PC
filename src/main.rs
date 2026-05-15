@@ -1,10 +1,11 @@
 use gpui::*;
 
 mod app;
+mod backend;
 mod settings;
 mod theme;
+mod views;
 mod workspace;
-mod backend;
 
 fn main() {
     gpui_platform::application().run(|cx: &mut App| {
