@@ -353,23 +353,12 @@ pub fn create_profile(name: &str) -> AppResult<ProfileEntry> {
     Ok(profile)
 }
 
-pub async fn install_bepinex_for_profile(
-    profile_id: &str,
-) -> AppResult<()> {
+pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
     let profile_id_owned = profile_id.to_string();
-    let mut profile = tokio::task::spawn_blocking({
-        let profile_id = profile_id_owned.clone();
-        move || get_profile_by_id(&profile_id)
-    })
-    .await
-    .map_err(|error| AppError::state(format!("Task failed: {error}")))??
-    .ok_or_else(|| AppError::validation(format!("Profile '{profile_id_owned}' not found")))?;
+    let mut profile = get_profile_by_id(&profile_id_owned)?
+        .ok_or_else(|| AppError::validation(format!("Profile '{profile_id_owned}' not found")))?;
 
-    let settings = tokio::task::spawn_blocking({
-        move || core_service::get_settings()
-    })
-    .await
-    .map_err(|error| AppError::state(format!("Task failed: {error}")))??;
+    let settings = core_service::get_settings()?;
     let install_arch = match settings.game_platform {
         core_service::GamePlatform::Epic | core_service::GamePlatform::Xbox => "x64",
         core_service::GamePlatform::Steam => "x86",
@@ -393,15 +382,10 @@ pub async fn install_bepinex_for_profile(
         cache_path,
         bepinex_service::BepInExTargetType::Profile,
         &profile_id_owned,
-    )
-    .await?;
+    )?;
 
-    tokio::task::spawn_blocking(move || {
-        profile.bepinex_installed = Some(true);
-        write_profile(&profile)
-    })
-    .await
-    .map_err(|error| AppError::state(format!("Task failed: {error}")))??;
+    profile.bepinex_installed = Some(true);
+    write_profile(&profile)?;
     Ok(())
 }
 

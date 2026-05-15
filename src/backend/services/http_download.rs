@@ -1,7 +1,5 @@
 use crate::backend::error::{AppError, AppResult};
-use futures_util::StreamExt;
 use log::debug;
-use reqwest::Client;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -10,8 +8,9 @@ use zip::ZipArchive;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+const READ_CHUNK: usize = 64 * 1024;
 
-pub async fn download_file<F>(url: &str, dest_path: &Path, mut on_progress: F) -> AppResult<()>
+pub fn download_file<F>(url: &str, dest_path: &Path, mut on_progress: F) -> AppResult<()>
 where
     F: FnMut(u64, Option<u64>),
 {
@@ -19,28 +18,28 @@ where
         fs::create_dir_all(parent)?;
     }
 
-    let client = Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(CONNECT_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)
-        .build()?;
+        .build();
 
-    let response = client.get(url).send().await?;
-    if !response.status().is_success() {
-        return Err(AppError::other(format!(
-            "Download failed: HTTP {}",
-            response.status()
-        )));
-    }
+    let response = agent.get(url).call()?;
+    let total: Option<u64> = response
+        .header("Content-Length")
+        .and_then(|s| s.parse().ok());
 
-    let total = response.content_length();
-    let mut downloaded = 0u64;
     let mut file = File::create(dest_path)?;
-    let mut stream = response.bytes_stream();
+    let mut reader = response.into_reader();
+    let mut buf = vec![0u8; READ_CHUNK];
+    let mut downloaded = 0u64;
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        file.write_all(&chunk)?;
-        downloaded += chunk.len() as u64;
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n])?;
+        downloaded += n as u64;
         on_progress(downloaded, total);
     }
 

@@ -158,7 +158,7 @@ fn cleanup_linux_doorstop_files(game_dir: &Path) -> AppResult<()> {
     Ok(())
 }
 
-async fn attach_epic_launch_token(cmd: &mut Command, platform: &str) -> AppResult<()> {
+fn attach_epic_launch_token(cmd: &mut Command, platform: &str) -> AppResult<()> {
     if platform != "epic" {
         return Ok(());
     }
@@ -169,7 +169,7 @@ async fn attach_epic_launch_token(cmd: &mut Command, platform: &str) -> AppResul
 
     info!("Epic session found, requesting game token");
     let api = EpicAuthService::new()?;
-    match api.get_game_token(&session).await {
+    match api.get_game_token(&session) {
         Ok(launch_token) => {
             debug!("Epic game token obtained successfully");
             cmd.arg(format!("-AUTH_PASSWORD={}", launch_token));
@@ -190,7 +190,7 @@ fn launch_process(
     game_runtime::register_launched_process(child, profile_id)
 }
 
-pub async fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
+pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     info!("game_launch_modded: game_exe={}", args.game_exe);
 
     let game_dir = PathBuf::from(&args.game_exe)
@@ -242,11 +242,11 @@ pub async fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
         cmd.env("WINEDLLOVERRIDES", "winhttp=n,b");
     }
 
-    attach_epic_launch_token(&mut cmd, &args.platform).await?;
+    attach_epic_launch_token(&mut cmd, &args.platform)?;
     launch_process(cmd, Some(args.profile_id))
 }
 
-pub async fn launch_vanilla(
+pub fn launch_vanilla(
     args: LaunchVanillaArgs,
 ) -> AppResult<()> {
     #[cfg(target_os = "linux")]
@@ -264,6 +264,6 @@ pub async fn launch_vanilla(
         &args.runner,
     )?;
 
-    attach_epic_launch_token(&mut cmd, &args.platform).await?;
+    attach_epic_launch_token(&mut cmd, &args.platform)?;
     launch_process(cmd, None)
 }

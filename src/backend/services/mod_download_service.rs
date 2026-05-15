@@ -1,9 +1,8 @@
 use crate::backend::error::{AppError, AppResult};
-use futures_util::StreamExt;
-use log::{debug, error, info};
+use log::{debug, info};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
@@ -40,7 +39,7 @@ fn emit_progress(
     ));
 }
 
-pub async fn download_mod(
+pub fn download_mod(
     mod_id: String,
     url: String,
     destination: String,
@@ -53,41 +52,39 @@ pub async fn download_mod(
 
     let tracking_id = get_tracking_id()?;
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(CONNECT_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)
-        .build()?;
+        .build();
 
     emit_progress(&mod_id, 0, None, "connecting");
 
-    let response = client
+    let response = agent
         .get(&url)
-        .header("X-Starlight-ID", &tracking_id)
-        .send()
-        .await?;
+        .set("X-Starlight-ID", &tracking_id)
+        .call()?;
 
-    if !response.status().is_success() {
-        return Err(AppError::other(format!(
-            "Download failed: HTTP {}",
-            response.status()
-        )));
-    }
-
-    let total_size = response.content_length();
+    let total_size: Option<u64> = response
+        .header("Content-Length")
+        .and_then(|s| s.parse().ok());
     debug!("Download size: {:?}", total_size);
 
     let mut hasher = Sha256::new();
     let mut downloaded: u64 = 0;
     let mut buffer = Vec::new();
+    let mut chunk = vec![0u8; 64 * 1024];
 
     emit_progress(&mod_id, 0, total_size, "downloading");
 
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        hasher.update(&chunk);
-        buffer.extend_from_slice(&chunk);
-        downloaded += chunk.len() as u64;
+    let mut reader = response.into_reader();
+    loop {
+        let n = reader.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&chunk[..n]);
+        buffer.extend_from_slice(&chunk[..n]);
+        downloaded += n as u64;
         emit_progress(&mod_id, downloaded, total_size, "downloading");
     }
 

@@ -39,7 +39,7 @@ fn emit(
     ));
 }
 
-pub async fn install_bepinex(
+pub fn install_bepinex(
     url: String,
     destination: String,
     cache_path: Option<String>,
@@ -88,8 +88,7 @@ pub async fn install_bepinex(
                 target_id,
             );
         }
-    })
-    .await?;
+    })?;
 
     if let Some(ref cache) = cache_path {
         let cache_file = Path::new(cache);
@@ -123,7 +122,7 @@ pub async fn install_bepinex(
     Ok(())
 }
 
-pub async fn download_bepinex_to_cache(
+pub fn download_bepinex_to_cache(
     url: String,
     cache_path: String,
     architecture: String,
@@ -145,8 +144,7 @@ pub async fn download_bepinex_to_cache(
                 &architecture,
             );
         }
-    })
-    .await?;
+    })?;
 
     emit("complete",
         100.0,

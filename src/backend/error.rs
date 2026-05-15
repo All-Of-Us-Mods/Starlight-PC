@@ -5,7 +5,7 @@ pub type AppResult<T> = Result<T, AppError>;
 #[derive(Debug)]
 pub enum AppError {
     Io(std::io::Error),
-    Http(reqwest::Error),
+    Http(String),
     Zip(zip::result::ZipError),
     Parse(String),
     Process(String),
@@ -71,9 +71,9 @@ impl From<std::io::Error> for AppError {
     }
 }
 
-impl From<reqwest::Error> for AppError {
-    fn from(value: reqwest::Error) -> Self {
-        Self::Http(value)
+impl From<ureq::Error> for AppError {
+    fn from(value: ureq::Error) -> Self {
+        Self::Http(value.to_string())
     }
 }
 

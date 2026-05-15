@@ -1,4 +1,4 @@
-use reqwest::Client;
+use crate::backend::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_API_BASE_URL: &str = "https://starlight.allofus.dev";
@@ -28,16 +28,18 @@ pub struct ModResponse {
     pub views: u64,
 }
 
-pub async fn fetch_news() -> Result<Vec<Post>, reqwest::Error> {
+pub fn fetch_news() -> AppResult<Vec<Post>> {
     let url = format!("{}/api/v3/news/posts", DEFAULT_API_BASE_URL);
-    let client = Client::new();
-    let response = client.get(&url).send().await?;
-    response.json::<Vec<Post>>().await
+    ureq::get(&url)
+        .call()?
+        .into_json::<Vec<Post>>()
+        .map_err(|e| AppError::Http(e.to_string()))
 }
 
-pub async fn fetch_trending_mods() -> Result<Vec<ModResponse>, reqwest::Error> {
+pub fn fetch_trending_mods() -> AppResult<Vec<ModResponse>> {
     let url = format!("{}/api/v3/mods/trending", DEFAULT_API_BASE_URL);
-    let client = Client::new();
-    let response = client.get(&url).send().await?;
-    response.json::<Vec<ModResponse>>().await
+    ureq::get(&url)
+        .call()?
+        .into_json::<Vec<ModResponse>>()
+        .map_err(|e| AppError::Http(e.to_string()))
 }

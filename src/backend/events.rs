@@ -1,11 +1,11 @@
 //! Backend → frontend event bus.
 //!
-//! Services running on the tokio runtime publish progress / state events
-//! through `publish()`. The GPUI layer subscribes via `subscribe()` and
-//! forwards events into entity updates on the main thread.
+//! Backend services publish progress / state events via [`publish`].
+//! GPUI views subscribe with [`subscribe`] and `.recv().await` on gpui's
+//! background executor.
 
+use async_broadcast::{InactiveReceiver, Receiver, Sender, broadcast};
 use std::sync::LazyLock;
-use tokio::sync::broadcast;
 
 use crate::backend::services::bepinex_service::BepInExProgress;
 use crate::backend::services::mod_download_service::ModDownloadProgress;
@@ -22,16 +22,29 @@ pub enum BackendEvent {
 
 const CHANNEL_CAPACITY: usize = 256;
 
-static EVENT_BUS: LazyLock<broadcast::Sender<BackendEvent>> = LazyLock::new(|| {
-    let (tx, _rx) = broadcast::channel(CHANNEL_CAPACITY);
-    tx
+struct Bus {
+    tx: Sender<BackendEvent>,
+    // Hold an inactive receiver so the channel stays alive even if all
+    // subscribers drop. New subscribers can still receive future events.
+    _keepalive: InactiveReceiver<BackendEvent>,
+}
+
+static EVENT_BUS: LazyLock<Bus> = LazyLock::new(|| {
+    let (mut tx, rx) = broadcast::<BackendEvent>(CHANNEL_CAPACITY);
+    // Drop the oldest event when full instead of blocking the publisher.
+    tx.set_overflow(true);
+    Bus {
+        tx,
+        _keepalive: rx.deactivate(),
+    }
 });
 
 pub fn publish(event: BackendEvent) {
-    // Errors only mean there are no live subscribers — fine, drop the event.
-    let _ = EVENT_BUS.send(event);
+    // try_broadcast returns Err if there are no subscribers (and we're not
+    // keeping a live receiver) — fine, just drop.
+    let _ = EVENT_BUS.tx.try_broadcast(event);
 }
 
-pub fn subscribe() -> broadcast::Receiver<BackendEvent> {
-    EVENT_BUS.subscribe()
+pub fn subscribe() -> Receiver<BackendEvent> {
+    EVENT_BUS.tx.new_receiver()
 }
