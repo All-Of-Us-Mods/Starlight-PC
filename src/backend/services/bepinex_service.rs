@@ -53,14 +53,16 @@ pub fn install_bepinex(
         let cache_file = Path::new(cache);
         if cache_file.exists() {
             info!("Using cached BepInEx");
-            emit("extracting",
+            emit(
+                "extracting",
                 0.0,
                 "Using cached BepInEx...",
                 target_type,
                 target_id,
             );
             extract_zip(cache_file, dest, |cur, total| {
-                emit("extracting",
+                emit(
+                    "extracting",
                     cur as f64 / total as f64 * 100.0,
                     &format!("Extracting {}/{}", cur, total),
                     target_type,
@@ -73,15 +75,11 @@ pub fn install_bepinex(
     }
 
     let temp = dest.with_extension("zip.tmp");
-    emit("downloading",
-        0.0,
-        "Downloading...",
-        target_type,
-        target_id,
-    );
+    emit("downloading", 0.0, "Downloading...", target_type, target_id);
     download_file(&url, &temp, |dl, total| {
         if let Some(t) = total {
-            emit("downloading",
+            emit(
+                "downloading",
                 dl as f64 / t as f64 * 100.0,
                 &format!("Downloading... {:.0}%", dl as f64 / t as f64 * 100.0),
                 target_type,
@@ -102,14 +100,10 @@ pub fn install_bepinex(
         }
     }
 
-    emit("extracting",
-        0.0,
-        "Extracting...",
-        target_type,
-        target_id,
-    );
+    emit("extracting", 0.0, "Extracting...", target_type, target_id);
     extract_zip(&temp, dest, |cur, total| {
-        emit("extracting",
+        emit(
+            "extracting",
             cur as f64 / total as f64 * 100.0,
             &format!("Extracting {}/{}", cur, total),
             target_type,
@@ -129,7 +123,8 @@ pub fn download_bepinex_to_cache(
 ) -> AppResult<()> {
     let cache_file = Path::new(&cache_path);
 
-    emit("downloading",
+    emit(
+        "downloading",
         0.0,
         "Downloading...",
         BepInExTargetType::Cache,
@@ -137,7 +132,8 @@ pub fn download_bepinex_to_cache(
     );
     download_file(&url, cache_file, |dl, total| {
         if let Some(t) = total {
-            emit("downloading",
+            emit(
+                "downloading",
                 dl as f64 / t as f64 * 100.0,
                 &format!("Downloading... {:.0}%", dl as f64 / t as f64 * 100.0),
                 BepInExTargetType::Cache,
@@ -146,7 +142,8 @@ pub fn download_bepinex_to_cache(
         }
     })?;
 
-    emit("complete",
+    emit(
+        "complete",
         100.0,
         "Complete!",
         BepInExTargetType::Cache,

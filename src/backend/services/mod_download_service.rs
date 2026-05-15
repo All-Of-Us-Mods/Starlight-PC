@@ -19,12 +19,7 @@ pub struct ModDownloadProgress {
     pub stage: String,
 }
 
-fn emit_progress(
-    mod_id: &str,
-    downloaded: u64,
-    total: Option<u64>,
-    stage: &str,
-) {
+fn emit_progress(mod_id: &str, downloaded: u64, total: Option<u64>, stage: &str) {
     let progress = total
         .map(|t| downloaded as f64 / t as f64 * 100.0)
         .unwrap_or(0.0);
@@ -59,10 +54,7 @@ pub fn download_mod(
 
     emit_progress(&mod_id, 0, None, "connecting");
 
-    let response = agent
-        .get(&url)
-        .set("X-Starlight-ID", &tracking_id)
-        .call()?;
+    let response = agent.get(&url).set("X-Starlight-ID", &tracking_id).call()?;
 
     let total_size: Option<u64> = response
         .header("Content-Length")

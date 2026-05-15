@@ -1,5 +1,5 @@
-use crate::backend::error::AppResult;
 use crate::backend::directories;
+use crate::backend::error::AppResult;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -100,16 +100,18 @@ fn write_settings_to_file(path: &PathBuf, settings: &AppSettings) -> AppResult<(
 }
 
 fn read_legacy_settings() -> AppResult<Option<AppSettings>> {
-    let registry_path = directories::app_data_dir()?.join(".settings").join("registry.json");
+    let registry_path = directories::app_data_dir()?
+        .join(".settings")
+        .join("registry.json");
     if !registry_path.exists() {
         return Ok(None);
     }
     let raw = fs::read_to_string(&registry_path)?;
-    
+
     let Ok(store) = serde_json::from_str::<serde_json::Value>(&raw) else {
         return Ok(None);
     };
-    
+
     let Some(settings_val) = store.get("settings") else {
         return Ok(None);
     };

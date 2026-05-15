@@ -9,7 +9,7 @@ use crate::backend::services::core_service;
 use crate::backend::services::launch_service::{self, LaunchModdedArgs};
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::theme::{self, ThemeExt};
-use crate::ui::icon::{icon, IconName};
+use crate::ui::icon::{IconName, icon};
 
 #[derive(Clone, Debug)]
 pub enum LibraryDetailEvent {
@@ -179,7 +179,11 @@ fn run_launch(profile: ProfileEntry) -> Result<(), String> {
 
     let game_exe = PathBuf::from(game_path).join(GAME_EXE_NAME);
     if !game_exe.exists() {
-        return Err(format!("{} not found at {}", GAME_EXE_NAME, game_exe.display()));
+        return Err(format!(
+            "{} not found at {}",
+            GAME_EXE_NAME,
+            game_exe.display()
+        ));
     }
 
     let profile_path = PathBuf::from(&profile.path);
@@ -188,9 +192,7 @@ fn run_launch(profile: ProfileEntry) -> Result<(), String> {
         .join("core")
         .join("BepInEx.Unity.IL2CPP.dll");
     if !bepinex_dll.exists() {
-        return Err(
-            "BepInEx DLL not found. Install BepInEx for this profile first.".into(),
-        );
+        return Err("BepInEx DLL not found. Install BepInEx for this profile first.".into());
     }
     let dotnet_dir = profile_path.join("dotnet");
     let coreclr_path = dotnet_dir.join(CORECLR_FILE);
@@ -312,12 +314,10 @@ impl Render for LibraryDetailView {
                     )
                 });
 
-                let launch_err = self.launch_error.clone().map(|msg| {
-                    div()
-                        .text_sm()
-                        .text_color(rgb(0xef4444))
-                        .child(msg)
-                });
+                let launch_err = self
+                    .launch_error
+                    .clone()
+                    .map(|msg| div().text_sm().text_color(rgb(0xef4444)).child(msg));
 
                 let progress_row = self.bep_progress.as_ref().map(|p| {
                     div()
@@ -452,13 +452,11 @@ impl Render for LibraryDetailView {
                             .text_color(theme.text_muted)
                             .child(profile.path.clone()),
                     )
-                    .child(
-                        div().text_sm().child(if bep_installed {
-                            "BepInEx installed"
-                        } else {
-                            "BepInEx not installed"
-                        }),
-                    )
+                    .child(div().text_sm().child(if bep_installed {
+                        "BepInEx installed"
+                    } else {
+                        "BepInEx not installed"
+                    }))
                     .children(progress_row)
                     .children(install_btn)
                     .children(launch_btn)

@@ -3,7 +3,7 @@ use log::warn;
 
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::theme::{self, ThemeExt};
-use crate::ui::icon::{icon, IconName};
+use crate::ui::icon::{IconName, icon};
 use crate::ui::text_input::{TextInput, TextInputEvent};
 
 #[derive(Clone, Debug)]
@@ -38,7 +38,8 @@ impl LibraryView {
             let _ = this.update(cx, |this, cx| {
                 this.state = match result {
                     Ok(mut profiles) => {
-                        profiles.sort_by_key(|p| std::cmp::Reverse(p.last_launched_at.unwrap_or(0)));
+                        profiles
+                            .sort_by_key(|p| std::cmp::Reverse(p.last_launched_at.unwrap_or(0)));
                         LoadState::Loaded(profiles)
                     }
                     Err(e) => {
@@ -64,7 +65,8 @@ impl LibraryView {
             let _ = this.update(cx, |this, cx| {
                 this.state = match result {
                     Ok(mut profiles) => {
-                        profiles.sort_by_key(|p| std::cmp::Reverse(p.last_launched_at.unwrap_or(0)));
+                        profiles
+                            .sort_by_key(|p| std::cmp::Reverse(p.last_launched_at.unwrap_or(0)));
                         LoadState::Loaded(profiles)
                     }
                     Err(e) => LoadState::Failed(e.to_string()),
@@ -173,16 +175,13 @@ impl LibraryView {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(profile.name.clone()),
             )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme.text_muted)
-                    .child(if profile.bepinex_installed == Some(true) {
-                        "BepInEx installed"
-                    } else {
-                        "BepInEx not installed"
-                    }),
-            )
+            .child(div().text_sm().text_color(theme.text_muted).child(
+                if profile.bepinex_installed == Some(true) {
+                    "BepInEx installed"
+                } else {
+                    "BepInEx not installed"
+                },
+            ))
             .child(
                 div()
                     .text_xs()
@@ -247,11 +246,7 @@ impl Render for LibraryView {
                         .bg(theme.background)
                         .border_1()
                         .border_color(theme.border)
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("New Profile"),
-                        )
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child("New Profile"))
                         .child(input)
                         .child(
                             div()

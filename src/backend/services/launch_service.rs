@@ -180,10 +180,7 @@ fn attach_epic_launch_token(cmd: &mut Command, platform: &str) -> AppResult<()> 
     Ok(())
 }
 
-fn launch_process(
-    mut cmd: Command,
-    profile_id: Option<String>,
-) -> AppResult<()> {
+fn launch_process(mut cmd: Command, profile_id: Option<String>) -> AppResult<()> {
     let child = cmd
         .spawn()
         .map_err(|e| AppError::process(format!("Failed to launch game: {e}")))?;
@@ -246,9 +243,7 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     launch_process(cmd, Some(args.profile_id))
 }
 
-pub fn launch_vanilla(
-    args: LaunchVanillaArgs,
-) -> AppResult<()> {
+pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
     #[cfg(target_os = "linux")]
     {
         let game_dir = PathBuf::from(&args.game_exe)

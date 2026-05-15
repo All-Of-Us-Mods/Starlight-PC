@@ -1,9 +1,7 @@
 use gpui::*;
 use log::warn;
 
-use crate::backend::services::core_service::{
-    self, AppSettings, AppSettingsPatch, GamePlatform,
-};
+use crate::backend::services::core_service::{self, AppSettings, AppSettingsPatch, GamePlatform};
 use crate::theme::{self, ThemeExt};
 
 pub struct SettingsView {
@@ -138,7 +136,11 @@ impl SettingsView {
     }
 }
 
-fn section(title: &'static str, children: Vec<AnyElement>, theme: &crate::theme::Theme) -> impl IntoElement {
+fn section(
+    title: &'static str,
+    children: Vec<AnyElement>,
+    theme: &crate::theme::Theme,
+) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
@@ -147,12 +149,7 @@ fn section(title: &'static str, children: Vec<AnyElement>, theme: &crate::theme:
         .bg(theme.sidebar_background)
         .border_1()
         .border_color(theme.border)
-        .child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .pb_2()
-                .child(title),
-        )
+        .child(div().font_weight(FontWeight::SEMIBOLD).pb_2().child(title))
         .children(children)
 }
 
@@ -172,9 +169,10 @@ impl Render for SettingsView {
                 let platform = settings.game_platform;
                 let game_section = section(
                     "Game",
-                    vec![self
-                        .render_platform_selector(platform, &theme, cx)
-                        .into_any_element()],
+                    vec![
+                        self.render_platform_selector(platform, &theme, cx)
+                            .into_any_element(),
+                    ],
                     &theme,
                 );
                 let launch_section = section(
@@ -219,8 +217,8 @@ impl Render for SettingsView {
                 );
                 let bepinex_section = section(
                     "BepInEx",
-                    vec![self
-                        .render_toggle(
+                    vec![
+                        self.render_toggle(
                             "cache-bepinex",
                             "Cache BepInEx downloads",
                             cache,
@@ -236,7 +234,8 @@ impl Render for SettingsView {
                             },
                             cx,
                         )
-                        .into_any_element()],
+                        .into_any_element(),
+                    ],
                     &theme,
                 );
                 div()

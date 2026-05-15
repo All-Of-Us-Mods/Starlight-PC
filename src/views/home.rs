@@ -2,6 +2,7 @@ use gpui::*;
 
 use crate::backend::api::{self, ModResponse, Post};
 use crate::theme::{self, ThemeExt};
+use crate::ui::mod_card;
 
 #[derive(Clone, Debug)]
 pub enum HomeEvent {
@@ -21,7 +22,7 @@ enum Loading<T> {
     Failed(String),
 }
 
-const CARD_WIDTH: f32 = 280.0;
+const CARD_WIDTH: f32 = 420.0;
 const NEWS_CARD_WIDTH: f32 = 320.0;
 
 impl HomeView {
@@ -110,57 +111,17 @@ fn news_card(post: &Post, theme: &crate::theme::Theme) -> AnyElement {
 }
 
 impl HomeView {
-    fn mod_card(m: &ModResponse, theme: &crate::theme::Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn mod_card(
+        m: &ModResponse,
+        theme: &crate::theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let id = SharedString::from(format!("trending-{}", m.id));
         let mod_id_for_click = m.id.clone();
-        div()
-            .id(id)
-            .flex()
-            .flex_col()
-            .gap_2()
-            .w(px(CARD_WIDTH))
-            .flex_shrink_0()
-            .rounded_lg()
-            .overflow_hidden()
-            .bg(theme.sidebar_background)
-            .border_1()
-            .border_color(theme.border)
-            .cursor_pointer()
-            .hover(|s| s.border_color(theme.primary))
+        mod_card::mod_card(id, m, Some(px(CARD_WIDTH)), theme)
             .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 cx.emit(HomeEvent::OpenMod(mod_id_for_click.clone()));
             }))
-            .child(
-                img(api::mod_thumbnail_url(&m.id))
-                    .w_full()
-                    .h(px(140.0))
-                    .object_fit(ObjectFit::Cover)
-                    .bg(theme.hover),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .p_3()
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(m.name.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.text_muted)
-                            .child(format!("by {}", m.author)),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.text_muted)
-                            .child(format!("{} downloads", m.downloads)),
-                    ),
-            )
             .into_any_element()
     }
 }
@@ -216,12 +177,7 @@ impl Render for HomeView {
             .p_8()
             .pt(px(48.0))
             .gap_8()
-            .child(
-                div()
-                    .text_2xl()
-                    .font_weight(FontWeight::BOLD)
-                    .child("Home"),
-            )
+            .child(div().text_2xl().font_weight(FontWeight::BOLD).child("Home"))
             .child(
                 div()
                     .flex()

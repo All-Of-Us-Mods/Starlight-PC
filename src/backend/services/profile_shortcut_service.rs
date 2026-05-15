@@ -8,7 +8,6 @@ use std::fs;
 #[cfg(windows)]
 use std::path::PathBuf;
 #[cfg(windows)]
-
 #[cfg(windows)]
 const DEEP_LINK_SCHEME: &str = "starlight";
 #[cfg(windows)]
@@ -51,10 +50,7 @@ fn shortcut_icon_path(profile_id: &str) -> AppResult<PathBuf> {
 }
 
 #[cfg(windows)]
-fn write_shortcut_icon(
-    profile_id: &str,
-    icon_bytes: &[u8],
-) -> AppResult<PathBuf> {
+fn write_shortcut_icon(profile_id: &str, icon_bytes: &[u8]) -> AppResult<PathBuf> {
     let image = image::load_from_memory(icon_bytes).map_err(|error| {
         AppError::validation(format!("Failed to decode profile icon image: {error}"))
     })?;
@@ -69,10 +65,7 @@ fn write_shortcut_icon(
 }
 
 #[cfg(windows)]
-fn resolve_icon_path(
-    profile_id: &str,
-    icon_bytes: Option<&[u8]>,
-) -> AppResult<PathBuf> {
+fn resolve_icon_path(profile_id: &str, icon_bytes: Option<&[u8]>) -> AppResult<PathBuf> {
     let default_icon_path = std::env::current_exe()?;
 
     let Some(icon_bytes) = icon_bytes.filter(|bytes| !bytes.is_empty()) else {
@@ -92,10 +85,7 @@ fn resolve_icon_path(
     }
 }
 
-pub fn create_desktop_shortcut(
-    profile_id: &str,
-    icon_bytes: Option<&[u8]>,
-) -> AppResult<String> {
+pub fn create_desktop_shortcut(profile_id: &str, icon_bytes: Option<&[u8]>) -> AppResult<String> {
     #[cfg(not(windows))]
     {
         let _ = (profile_id, icon_bytes);

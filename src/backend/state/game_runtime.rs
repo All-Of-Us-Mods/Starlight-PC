@@ -65,9 +65,9 @@ fn build_state_payload(state: &TrackedState) -> GameStatePayload {
 
 fn emit_state_snapshot(state: &TrackedState) {
     let payload = build_state_payload(state);
-    crate::backend::events::publish(
-        crate::backend::events::BackendEvent::GameStateChanged(payload),
-    );
+    crate::backend::events::publish(crate::backend::events::BackendEvent::GameStateChanged(
+        payload,
+    ));
 }
 
 fn prune_finished_processes(state: &mut TrackedState) {
@@ -129,10 +129,7 @@ fn monitor_game_process(process_id: u32) {
     });
 }
 
-pub fn register_launched_process(
-    child: Child,
-    profile_id: Option<String>,
-) -> AppResult<()> {
+pub fn register_launched_process(child: Child, profile_id: Option<String>) -> AppResult<()> {
     let process_id: u32;
     {
         let mut state = TRACKED_STATE
@@ -203,9 +200,7 @@ where
     Ok(stopped_count)
 }
 
-pub fn stop_profile_instances(
-    profile_id: &str,
-) -> AppResult<usize> {
+pub fn stop_profile_instances(profile_id: &str) -> AppResult<usize> {
     let mut state = TRACKED_STATE
         .lock()
         .map_err(|_| AppError::state("Failed to acquire game process lock"))?;
@@ -229,9 +224,7 @@ pub fn stop_all_tracked_instances() -> AppResult<usize> {
     stop_result
 }
 
-pub fn register_uwp_instance(
-    profile_id: Option<String>,
-) -> AppResult<()> {
+pub fn register_uwp_instance(profile_id: Option<String>) -> AppResult<()> {
     let mut state = TRACKED_STATE
         .lock()
         .map_err(|_| AppError::state("Failed to update game state"))?;

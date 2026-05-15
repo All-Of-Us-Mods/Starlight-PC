@@ -34,9 +34,7 @@ pub struct EpicAuthService {
 
 impl EpicAuthService {
     pub fn new() -> AppResult<Self> {
-        let agent = ureq::AgentBuilder::new()
-            .user_agent(USER_AGENT)
-            .build();
+        let agent = ureq::AgentBuilder::new().user_agent(USER_AGENT).build();
         Ok(Self { agent })
     }
 
@@ -76,7 +74,10 @@ impl EpicAuthService {
         let response = match self
             .agent
             .post(&format!("https://{OAUTH_HOST}/account/api/oauth/token"))
-            .set("Authorization", &format!("Basic {}", Self::get_basic_auth()))
+            .set(
+                "Authorization",
+                &format!("Basic {}", Self::get_basic_auth()),
+            )
             .send_form(params)
         {
             Ok(r) => r,
@@ -90,7 +91,9 @@ impl EpicAuthService {
             Err(e) => return Err(AppError::from(e)),
         };
 
-        response.into_json().map_err(|e| AppError::Http(e.to_string()))
+        response
+            .into_json()
+            .map_err(|e| AppError::Http(e.to_string()))
     }
 
     pub fn get_game_token(&self, session: &EpicSession) -> AppResult<String> {

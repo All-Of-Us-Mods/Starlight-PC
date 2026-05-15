@@ -6,8 +6,8 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use crate::backend::services::core_service::{get_settings, AppSettings};
 use crate::backend::directories;
+use crate::backend::services::core_service::{AppSettings, get_settings};
 
 const PROFILE_METADATA_FILE: &str = "metadata.json";
 const CUSTOM_ICON_BASE_NAME: &str = "icon";
@@ -280,9 +280,7 @@ pub fn get_profiles() -> AppResult<Vec<ProfileEntry>> {
     Ok(profiles)
 }
 
-pub fn get_profile_by_id(
-    id: &str,
-) -> AppResult<Option<ProfileEntry>> {
+pub fn get_profile_by_id(id: &str) -> AppResult<Option<ProfileEntry>> {
     if !is_safe_profile_id(id) {
         return Ok(None);
     }
@@ -402,10 +400,7 @@ pub fn delete_profile(profile_id: &str) -> AppResult<()> {
     Ok(())
 }
 
-pub fn rename_profile(
-    profile_id: &str,
-    new_name: &str,
-) -> AppResult<()> {
+pub fn rename_profile(profile_id: &str, new_name: &str) -> AppResult<()> {
     let trimmed = new_name.trim();
     if trimmed.is_empty() {
         return Err(AppError::validation("Profile name cannot be empty"));
@@ -430,10 +425,7 @@ pub fn rename_profile(
     write_profile(&profile)
 }
 
-pub fn update_profile_icon(
-    profile_id: &str,
-    selection: ProfileIconSelection,
-) -> AppResult<()> {
+pub fn update_profile_icon(profile_id: &str, selection: ProfileIconSelection) -> AppResult<()> {
     let Some(mut profile) = get_profile_by_id(profile_id)? else {
         return Err(AppError::validation(format!(
             "Profile '{profile_id}' not found"
@@ -537,10 +529,7 @@ pub fn add_mod_to_profile(
     write_profile(&profile)
 }
 
-pub fn add_play_time(
-    profile_id: &str,
-    duration_ms: i64,
-) -> AppResult<()> {
+pub fn add_play_time(profile_id: &str, duration_ms: i64) -> AppResult<()> {
     let Some(mut profile) = get_profile_by_id(profile_id)? else {
         return Err(AppError::validation(format!(
             "Profile '{profile_id}' not found"
@@ -550,10 +539,7 @@ pub fn add_play_time(
     write_profile(&profile)
 }
 
-pub fn remove_mod_from_profile(
-    profile_id: &str,
-    mod_id: &str,
-) -> AppResult<()> {
+pub fn remove_mod_from_profile(profile_id: &str, mod_id: &str) -> AppResult<()> {
     let Some(mut profile) = get_profile_by_id(profile_id)? else {
         return Err(AppError::validation(format!(
             "Profile '{profile_id}' not found"
@@ -564,10 +550,7 @@ pub fn remove_mod_from_profile(
     write_profile(&profile)
 }
 
-pub fn import_mod_to_profile(
-    profile_id: &str,
-    source_path: &str,
-) -> AppResult<String> {
+pub fn import_mod_to_profile(profile_id: &str, source_path: &str) -> AppResult<String> {
     let source = PathBuf::from(source_path);
     if !source.exists() {
         return Err(AppError::validation("Selected mod file does not exist"));
@@ -738,9 +721,7 @@ struct ImportedMetadata {
     mods: Option<serde_json::Value>,
 }
 
-pub fn import_profile_zip(
-    zip_path: &str,
-) -> AppResult<Vec<ProfileEntry>> {
+pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
     let mut profiles = get_profiles()?;
     let zip_name = derive_name_from_zip_path(zip_path);
 
@@ -880,10 +861,7 @@ pub fn import_profile_zip(
     Ok(imported_profiles)
 }
 
-pub fn export_profile_zip(
-    profile_id: &str,
-    destination: &str,
-) -> AppResult<()> {
+pub fn export_profile_zip(profile_id: &str, destination: &str) -> AppResult<()> {
     let Some(profile) = get_profile_by_id(profile_id)? else {
         return Err(AppError::validation(format!(
             "Profile '{profile_id}' not found"

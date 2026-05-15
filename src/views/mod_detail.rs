@@ -2,7 +2,7 @@ use gpui::*;
 
 use crate::backend::api::{self, ModResponse};
 use crate::theme::{self, ThemeExt};
-use crate::ui::icon::{icon, IconName};
+use crate::ui::icon::{IconName, icon};
 
 #[derive(Clone, Debug)]
 pub enum ModDetailEvent {
@@ -83,7 +83,7 @@ impl Render for ModDetailView {
                     img(api::mod_thumbnail_url(&m.id))
                         .w_full()
                         .h(px(280.0))
-                        .object_fit(ObjectFit::Cover)
+                        .object_fit(ObjectFit::Contain)
                         .rounded_lg()
                         .bg(theme.hover),
                 )

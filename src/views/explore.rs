@@ -2,7 +2,7 @@ use gpui::*;
 
 use crate::backend::api::{self, ModResponse};
 use crate::theme::{self, ThemeExt};
-use crate::ui::icon::{icon, IconName};
+use crate::ui::mod_card;
 use crate::ui::text_input::{TextInput, TextInputEvent};
 
 const PAGE_SIZE: u32 = 12;
@@ -142,7 +142,11 @@ impl ExploreView {
             .px_3()
             .py_1p5()
             .rounded_md()
-            .bg(if active { theme.hover } else { theme.sidebar_background })
+            .bg(if active {
+                theme.hover
+            } else {
+                theme.sidebar_background
+            })
             .border_1()
             .border_color(theme.border)
             .text_color(text_color)
@@ -151,54 +155,17 @@ impl ExploreView {
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_sort(sort, cx)))
     }
 
-    fn mod_card(m: &ModResponse, theme: &crate::theme::Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn mod_card(
+        m: &ModResponse,
+        theme: &crate::theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let id = SharedString::from(format!("explore-{}", m.id));
         let mod_id_for_click = m.id.clone();
-        div()
-            .id(id)
-            .flex()
-            .flex_col()
-            .rounded_lg()
-            .overflow_hidden()
-            .bg(theme.sidebar_background)
-            .border_1()
-            .border_color(theme.border)
-            .cursor_pointer()
-            .hover(|s| s.border_color(theme.primary))
+        mod_card::mod_card(id, m, None, theme)
             .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 cx.emit(ExploreEvent::OpenMod(mod_id_for_click.clone()));
             }))
-            .child(
-                img(api::mod_thumbnail_url(&m.id))
-                    .w_full()
-                    .h(px(160.0))
-                    .object_fit(ObjectFit::Cover)
-                    .bg(theme.hover),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .p_4()
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(m.name.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.text_muted)
-                            .child(m.description.chars().take(120).collect::<String>()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.text_muted)
-                            .child(format!("{} · {} downloads", m.author, m.downloads)),
-                    ),
-            )
             .into_any_element()
     }
 }
@@ -249,8 +216,16 @@ impl Render for ExploreView {
                     .px_3()
                     .py_1p5()
                     .rounded_md()
-                    .bg(if can_prev { theme.hover } else { theme.sidebar_background })
-                    .text_color(if can_prev { theme.text } else { theme.text_muted })
+                    .bg(if can_prev {
+                        theme.hover
+                    } else {
+                        theme.sidebar_background
+                    })
+                    .text_color(if can_prev {
+                        theme.text
+                    } else {
+                        theme.text_muted
+                    })
                     .border_1()
                     .border_color(theme.border)
                     .cursor_pointer()
@@ -269,8 +244,16 @@ impl Render for ExploreView {
                     .px_3()
                     .py_1p5()
                     .rounded_md()
-                    .bg(if can_next { theme.hover } else { theme.sidebar_background })
-                    .text_color(if can_next { theme.text } else { theme.text_muted })
+                    .bg(if can_next {
+                        theme.hover
+                    } else {
+                        theme.sidebar_background
+                    })
+                    .text_color(if can_next {
+                        theme.text
+                    } else {
+                        theme.text_muted
+                    })
                     .border_1()
                     .border_color(theme.border)
                     .cursor_pointer()

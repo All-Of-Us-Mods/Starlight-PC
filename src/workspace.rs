@@ -1,7 +1,7 @@
 use gpui::*;
 
 use crate::theme::{self, ThemeExt};
-use crate::ui::icon::{icon, IconName};
+use crate::ui::icon::{IconName, icon};
 use crate::views::explore::ExploreView;
 use crate::views::home::HomeView;
 use crate::views::library::{LibraryEvent, LibraryView};
@@ -62,16 +62,17 @@ impl Workspace {
         let explore = cx.new(|cx| ExploreView::new(cx));
         let settings = cx.new(|cx| SettingsView::new(cx));
 
-        cx.subscribe(&home, |this, _, ev: &crate::views::home::HomeEvent, cx| match ev {
-            crate::views::home::HomeEvent::OpenMod(id) => this.open_mod(id.clone(), cx),
-        })
+        cx.subscribe(
+            &home,
+            |this, _, ev: &crate::views::home::HomeEvent, cx| match ev {
+                crate::views::home::HomeEvent::OpenMod(id) => this.open_mod(id.clone(), cx),
+            },
+        )
         .detach();
         cx.subscribe(
             &explore,
             |this, _, ev: &crate::views::explore::ExploreEvent, cx| match ev {
-                crate::views::explore::ExploreEvent::OpenMod(id) => {
-                    this.open_mod(id.clone(), cx)
-                }
+                crate::views::explore::ExploreEvent::OpenMod(id) => this.open_mod(id.clone(), cx),
             },
         )
         .detach();
@@ -80,17 +81,13 @@ impl Workspace {
             LibraryEvent::Open(profile_id) => {
                 let id = profile_id.clone();
                 let detail = cx.new(|cx| LibraryDetailView::new(id, cx));
-                cx.subscribe(
-                    &detail,
-                    |this, _, ev: &LibraryDetailEvent, cx| match ev {
-                        LibraryDetailEvent::Close => {
-                            this.library
-                                .update(cx, |lib, cx| lib.refresh(cx));
-                            this.view = ActiveView::Library;
-                            cx.notify();
-                        }
-                    },
-                )
+                cx.subscribe(&detail, |this, _, ev: &LibraryDetailEvent, cx| match ev {
+                    LibraryDetailEvent::Close => {
+                        this.library.update(cx, |lib, cx| lib.refresh(cx));
+                        this.view = ActiveView::Library;
+                        cx.notify();
+                    }
+                })
                 .detach();
                 this.view = ActiveView::LibraryDetail(detail);
                 cx.notify();
@@ -122,7 +119,11 @@ impl Workspace {
     fn nav_button(&self, tab: Tab, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let is_active = self.tab == tab;
-        let text_color = if is_active { theme.text } else { theme.text_muted };
+        let text_color = if is_active {
+            theme.text
+        } else {
+            theme.text_muted
+        };
         div()
             .id(SharedString::from(tab.label()))
             .flex()
@@ -132,7 +133,11 @@ impl Workspace {
             .py_2()
             .rounded_md()
             .text_color(text_color)
-            .bg(if is_active { theme.hover } else { rgba(0x00000000).into() })
+            .bg(if is_active {
+                theme.hover
+            } else {
+                rgba(0x00000000).into()
+            })
             .hover(|s| s.bg(theme.hover))
             .cursor_pointer()
             .child(icon(tab.icon()).text_color(text_color))
@@ -161,7 +166,7 @@ impl Workspace {
                     .gap_2()
                     .px_2()
                     .pb_4()
-                    .child(img("starlight.png").w(px(28.0)).h(px(28.0)))
+                    .child(img("icons/starlight.svg").w(px(28.0)).h(px(28.0)))
                     .child(
                         div()
                             .text_xl()

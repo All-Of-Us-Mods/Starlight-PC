@@ -7,11 +7,11 @@
 use std::ops::Range;
 
 use gpui::{
-    actions, fill, point, prelude::*, px, relative, size, App, Bounds, ClipboardItem, Context,
-    CursorStyle, ElementId, ElementInputHandler, Entity, EntityInputHandler, FocusHandle,
-    Focusable, GlobalElementId, KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, PaintQuad, Pixels, Point, Rgba, ShapedLine, SharedString, Style, TextRun,
-    UTF16Selection, UnderlineStyle, Window,
+    App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
+    EntityInputHandler, FocusHandle, Focusable, GlobalElementId, KeyBinding, LayoutId, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Rgba, ShapedLine,
+    SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, fill, point,
+    prelude::*, px, relative, size,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -169,12 +169,7 @@ impl TextInput {
         cx.emit(TextInputEvent::Submit(self.content.to_string()));
     }
 
-    fn on_mouse_down(
-        &mut self,
-        event: &MouseDownEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn on_mouse_down(&mut self, event: &MouseDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.is_selecting = true;
         if event.modifiers.shift {
             self.select_to(self.index_for_mouse_position(event.position), cx);
@@ -343,11 +338,7 @@ impl EntityInputHandler for TextInput {
         })
     }
 
-    fn marked_text_range(
-        &self,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<Range<usize>> {
+    fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
         self.marked_range
             .as_ref()
             .map(|range| self.range_to_utf16(range))
@@ -371,8 +362,7 @@ impl EntityInputHandler for TextInput {
             .unwrap_or(self.selected_range.clone());
 
         self.content =
-            (self.content[..range.start].to_owned() + new_text + &self.content[range.end..])
-                .into();
+            (self.content[..range.start].to_owned() + new_text + &self.content[range.end..]).into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
         self.marked_range.take();
         cx.notify();
@@ -393,8 +383,7 @@ impl EntityInputHandler for TextInput {
             .unwrap_or(self.selected_range.clone());
 
         self.content =
-            (self.content[..range.start].to_owned() + new_text + &self.content[range.end..])
-                .into();
+            (self.content[..range.start].to_owned() + new_text + &self.content[range.end..]).into();
         if !new_text.is_empty() {
             self.marked_range = Some(range.start..range.start + new_text.len());
         } else {
@@ -404,9 +393,7 @@ impl EntityInputHandler for TextInput {
             .as_ref()
             .map(|r| self.range_from_utf16(r))
             .map(|new_range| new_range.start + range.start..new_range.end + range.end)
-            .unwrap_or_else(|| {
-                range.start + new_text.len()..range.start + new_text.len()
-            });
+            .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
         cx.notify();
     }
 
@@ -677,4 +664,3 @@ impl Render for TextInput {
             )
     }
 }
-
