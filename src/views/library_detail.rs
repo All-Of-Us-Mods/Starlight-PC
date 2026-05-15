@@ -24,6 +24,8 @@ pub struct LibraryDetailView {
     bep_progress: Option<BepInExProgress>,
     confirming_delete: bool,
     launch_error: Option<String>,
+    rename_dialog: Option<Entity<crate::ui::text_input::TextInput>>,
+    export_dialog: Option<Entity<crate::ui::text_input::TextInput>>,
 }
 
 enum LoadState {
@@ -41,6 +43,8 @@ impl LibraryDetailView {
             bep_progress: None,
             confirming_delete: false,
             launch_error: None,
+            rename_dialog: None,
+            export_dialog: None,
         };
 
         view.spawn_load(cx);
@@ -137,6 +141,91 @@ impl LibraryDetailView {
                 } else {
                     cx.emit(LibraryDetailEvent::Close);
                 }
+            });
+        })
+        .detach();
+    }
+
+    fn open_rename_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = match &self.state {
+            LoadState::Loaded(profile) => profile.name.clone(),
+            _ => String::new(),
+        };
+        let input =
+            cx.new(|cx| crate::ui::text_input::TextInput::with_value(cx, "Profile name", name));
+        input.update(cx, |input, cx| input.focus(window, cx));
+        cx.subscribe(
+            &input,
+            |this, _, event: &crate::ui::text_input::TextInputEvent, cx| match event {
+                crate::ui::text_input::TextInputEvent::Submit(name) => {
+                    this.submit_rename(name.clone(), cx)
+                }
+            },
+        )
+        .detach();
+        self.rename_dialog = Some(input);
+        cx.notify();
+    }
+
+    fn submit_rename(&mut self, name: String, cx: &mut Context<Self>) {
+        let id = self.profile_id.clone();
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        self.rename_dialog = None;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { profile_service::rename_profile(&id, &name) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.launch_error = Some(format!("Rename failed: {e}"));
+                    cx.notify();
+                }
+                this.spawn_load(cx);
+            });
+        })
+        .detach();
+    }
+
+    fn open_export_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| crate::ui::text_input::TextInput::new(cx, "Destination .zip path"));
+        input.update(cx, |input, cx| input.focus(window, cx));
+        cx.subscribe(
+            &input,
+            |this, _, event: &crate::ui::text_input::TextInputEvent, cx| match event {
+                crate::ui::text_input::TextInputEvent::Submit(path) => {
+                    this.submit_export(path.clone(), cx)
+                }
+            },
+        )
+        .detach();
+        self.export_dialog = Some(input);
+        cx.notify();
+    }
+
+    fn submit_export(&mut self, path: String, cx: &mut Context<Self>) {
+        let id = self.profile_id.clone();
+        let path = path.trim().to_string();
+        if path.is_empty() {
+            return;
+        }
+        self.export_dialog = None;
+        let success_path = path.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { profile_service::export_profile_zip(&id, &path) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.launch_error = Some(format!("Export failed: {e}"));
+                } else {
+                    this.launch_error = Some(format!("Exported profile to {success_path}"));
+                }
+                cx.notify();
             });
         })
         .detach();
@@ -345,6 +434,8 @@ impl Render for LibraryDetailView {
                                 ),
                         )
                 });
+                let profile_log = profile_service::get_profile_log(&profile.path, "LogOutput.log");
+                let mod_files = profile_service::get_mod_files(&profile.path);
 
                 let mods_section = (!profile.mods.is_empty()).then(|| {
                     let entries: Vec<AnyElement> = profile
@@ -441,10 +532,43 @@ impl Render for LibraryDetailView {
                     .flex_col()
                     .gap_4()
                     .child(
+                        div().flex().items_center().justify_between().child(
+                            div()
+                                .text_2xl()
+                                .font_weight(FontWeight::BOLD)
+                                .child(profile.name.clone()),
+                        ),
+                    )
+                    .child(
                         div()
-                            .text_2xl()
-                            .font_weight(FontWeight::BOLD)
-                            .child(profile.name.clone()),
+                            .flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id("rename-profile-action")
+                                    .px_3()
+                                    .py_1p5()
+                                    .rounded_md()
+                                    .bg(theme.hover)
+                                    .cursor_pointer()
+                                    .child("Rename")
+                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                        this.open_rename_dialog(window, cx);
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("export-profile-action")
+                                    .px_3()
+                                    .py_1p5()
+                                    .rounded_md()
+                                    .bg(theme.hover)
+                                    .cursor_pointer()
+                                    .child("Export ZIP")
+                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                        this.open_export_dialog(window, cx);
+                                    })),
+                            ),
                     )
                     .child(
                         div()
@@ -461,7 +585,81 @@ impl Render for LibraryDetailView {
                     .children(install_btn)
                     .children(launch_btn)
                     .children(launch_err)
+                    .child(
+                        div()
+                            .grid()
+                            .grid_cols(3)
+                            .gap_3()
+                            .child(stat_card("Created", profile.created_at.to_string(), &theme))
+                            .child(stat_card(
+                                "Last launched",
+                                profile
+                                    .last_launched_at
+                                    .map(|v| v.to_string())
+                                    .unwrap_or_else(|| "Never".to_string()),
+                                &theme,
+                            ))
+                            .child(stat_card(
+                                "Play time",
+                                format!("{} min", profile.total_play_time.unwrap_or(0) / 60_000),
+                                &theme,
+                            )),
+                    )
                     .children(mods_section)
+                    .children((!mod_files.is_empty()).then(|| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Plugin files"),
+                            )
+                            .child(
+                                div()
+                                    .rounded_lg()
+                                    .bg(theme.sidebar_background)
+                                    .border_1()
+                                    .border_color(theme.border)
+                                    .children(mod_files.into_iter().map(|file| {
+                                        div()
+                                            .px_3()
+                                            .py_2()
+                                            .border_b_1()
+                                            .border_color(theme.border)
+                                            .child(file)
+                                    })),
+                            )
+                    }))
+                    .children((!profile_log.is_empty()).then(|| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child("Latest log"))
+                            .child(
+                                div()
+                                    .max_h(px(220.0))
+                                    .overflow_hidden()
+                                    .rounded_lg()
+                                    .bg(theme.sidebar_background)
+                                    .border_1()
+                                    .border_color(theme.border)
+                                    .p_3()
+                                    .text_xs()
+                                    .child(
+                                        profile_log
+                                            .chars()
+                                            .rev()
+                                            .take(4000)
+                                            .collect::<String>()
+                                            .chars()
+                                            .rev()
+                                            .collect::<String>(),
+                                    ),
+                            )
+                    }))
                     .child(delete_row)
                     .into_any_element()
             }
@@ -481,5 +679,116 @@ impl Render for LibraryDetailView {
             .pt(px(48.0))
             .child(back)
             .child(body)
+            .children(self.rename_dialog.clone().map(|input| {
+                dialog_overlay(
+                    input,
+                    "Rename Profile",
+                    "Save",
+                    theme.clone(),
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        if let Some(input) = this.rename_dialog.clone() {
+                            let name = input.read(cx).value().to_string();
+                            this.submit_rename(name, cx);
+                        }
+                    }),
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.rename_dialog = None;
+                        cx.notify();
+                    }),
+                )
+            }))
+            .children(self.export_dialog.clone().map(|input| {
+                dialog_overlay(
+                    input,
+                    "Export Profile ZIP",
+                    "Export",
+                    theme.clone(),
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        if let Some(input) = this.export_dialog.clone() {
+                            let path = input.read(cx).value().to_string();
+                            this.submit_export(path, cx);
+                        }
+                    }),
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.export_dialog = None;
+                        cx.notify();
+                    }),
+                )
+            }))
     }
+}
+
+fn stat_card(label: &'static str, value: String, theme: &crate::theme::Theme) -> impl IntoElement {
+    div()
+        .rounded_lg()
+        .bg(theme.sidebar_background)
+        .border_1()
+        .border_color(theme.border)
+        .p_3()
+        .child(div().text_xs().text_color(theme.text_muted).child(label))
+        .child(div().font_weight(FontWeight::SEMIBOLD).child(value))
+}
+
+fn dialog_overlay(
+    input: Entity<crate::ui::text_input::TextInput>,
+    title: &'static str,
+    confirm: &'static str,
+    theme: crate::theme::Theme,
+    on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    on_cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .absolute()
+        .inset_0()
+        .bg(Rgba {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.6,
+        })
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .w(px(420.0))
+                .p_5()
+                .rounded_lg()
+                .bg(theme.background)
+                .border_1()
+                .border_color(theme.border)
+                .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                .child(input)
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .justify_end()
+                        .child(
+                            div()
+                                .id("dialog-cancel")
+                                .px_4()
+                                .py_2()
+                                .rounded_md()
+                                .bg(theme.hover)
+                                .cursor_pointer()
+                                .child("Cancel")
+                                .on_click(on_cancel),
+                        )
+                        .child(
+                            div()
+                                .id("dialog-confirm")
+                                .px_4()
+                                .py_2()
+                                .rounded_md()
+                                .bg(theme.primary)
+                                .cursor_pointer()
+                                .child(confirm)
+                                .on_click(on_confirm),
+                        ),
+                ),
+        )
 }

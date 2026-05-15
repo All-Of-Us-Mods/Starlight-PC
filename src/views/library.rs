@@ -16,6 +16,8 @@ impl EventEmitter<LibraryEvent> for LibraryView {}
 pub struct LibraryView {
     state: LoadState,
     create_dialog: Option<Entity<TextInput>>,
+    import_dialog: Option<Entity<TextInput>>,
+    error: Option<String>,
 }
 
 enum LoadState {
@@ -29,6 +31,8 @@ impl LibraryView {
         let view = Self {
             state: LoadState::Loading,
             create_dialog: None,
+            import_dialog: None,
+            error: None,
         };
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -90,6 +94,18 @@ impl LibraryView {
         cx.notify();
     }
 
+    fn open_import_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| TextInput::new(cx, "Path to profile .zip"));
+        input.update(cx, |input, cx| input.focus(window, cx));
+        cx.subscribe(&input, |this, _, event: &TextInputEvent, cx| match event {
+            TextInputEvent::Submit(path) => this.submit_import(path.clone(), cx),
+        })
+        .detach();
+        self.import_dialog = Some(input);
+        self.error = None;
+        cx.notify();
+    }
+
     fn submit_create(&mut self, name: String, cx: &mut Context<Self>) {
         let trimmed = name.trim().to_string();
         if trimmed.is_empty() {
@@ -112,6 +128,30 @@ impl LibraryView {
         .detach();
     }
 
+    fn submit_import(&mut self, path: String, cx: &mut Context<Self>) {
+        let trimmed = path.trim().to_string();
+        if trimmed.is_empty() {
+            return;
+        }
+        self.import_dialog = None;
+        self.error = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { profile_service::import_profile_zip(&trimmed) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.error = Some(format!("Import failed: {e}"));
+                    cx.notify();
+                }
+                this.refresh(cx);
+            });
+        })
+        .detach();
+    }
+
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         div()
@@ -127,22 +167,45 @@ impl LibraryView {
             )
             .child(
                 div()
-                    .id("create-profile")
                     .flex()
-                    .items_center()
                     .gap_2()
-                    .px_4()
-                    .py_2()
-                    .rounded_md()
-                    .bg(theme.primary)
-                    .text_color(theme.text)
-                    .cursor_pointer()
-                    .hover(|s| s.opacity(0.85))
-                    .child(icon(IconName::Plus))
-                    .child("Create Profile")
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.open_create_dialog(window, cx);
-                    })),
+                    .child(
+                        div()
+                            .id("import-profile")
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .px_4()
+                            .py_2()
+                            .rounded_md()
+                            .bg(theme.hover)
+                            .cursor_pointer()
+                            .hover(|s| s.opacity(0.85))
+                            .child(icon(IconName::Download))
+                            .child("Import Profile")
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.open_import_dialog(window, cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("create-profile")
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .px_4()
+                            .py_2()
+                            .rounded_md()
+                            .bg(theme.primary)
+                            .text_color(theme.text)
+                            .cursor_pointer()
+                            .hover(|s| s.opacity(0.85))
+                            .child(icon(IconName::Plus))
+                            .child("Create Profile")
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.open_create_dialog(window, cx);
+                            })),
+                    ),
             )
     }
 
@@ -186,8 +249,16 @@ impl LibraryView {
                 div()
                     .text_xs()
                     .text_color(theme.text_muted)
-                    .child(format!("{} mods", profile.mods.len())),
+                    .child(format!("Path: {}", profile.path)),
             )
+            .child(div().text_xs().text_color(theme.text_muted).child(format!(
+                        "{} mods · {}",
+                        profile.mods.len(),
+                        profile
+                            .last_launched_at
+                            .map(|_| "played before")
+                            .unwrap_or("never launched")
+                    )))
     }
 }
 
@@ -221,7 +292,7 @@ impl Render for LibraryView {
             }
         };
 
-        let dialog = self.create_dialog.clone().map(|input| {
+        let create_dialog = self.create_dialog.clone().map(|input| {
             let theme = theme.clone();
             div()
                 .absolute()
@@ -286,6 +357,75 @@ impl Render for LibraryView {
                         ),
                 )
         });
+        let import_dialog = self.import_dialog.clone().map(|input| {
+            let theme = theme.clone();
+            div()
+                .absolute()
+                .inset_0()
+                .bg(Rgba {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.6,
+                })
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .w(px(420.0))
+                        .p_5()
+                        .rounded_lg()
+                        .bg(theme.background)
+                        .border_1()
+                        .border_color(theme.border)
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Import Profile ZIP"),
+                        )
+                        .child(input)
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .justify_end()
+                                .child(
+                                    div()
+                                        .id("cancel-import")
+                                        .px_4()
+                                        .py_2()
+                                        .rounded_md()
+                                        .bg(theme.hover)
+                                        .cursor_pointer()
+                                        .child("Cancel")
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            this.import_dialog = None;
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    div()
+                                        .id("confirm-import")
+                                        .px_4()
+                                        .py_2()
+                                        .rounded_md()
+                                        .bg(theme.primary)
+                                        .cursor_pointer()
+                                        .child("Import")
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            if let Some(input) = this.import_dialog.clone() {
+                                                let path = input.read(cx).value().to_string();
+                                                this.submit_import(path, cx);
+                                            }
+                                        })),
+                                ),
+                        ),
+                )
+        });
 
         div()
             .id("library-page")
@@ -300,7 +440,17 @@ impl Render for LibraryView {
             .p_8()
             .pt(px(48.0))
             .child(self.render_header(cx))
+            .children(self.error.clone().map(|message| {
+                div()
+                    .mb_4()
+                    .rounded_md()
+                    .bg(rgb(0x7f1d1d))
+                    .p_3()
+                    .text_color(theme.text)
+                    .child(message)
+            }))
             .child(body)
-            .children(dialog)
+            .children(create_dialog)
+            .children(import_dialog)
     }
 }

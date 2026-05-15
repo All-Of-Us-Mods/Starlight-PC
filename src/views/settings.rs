@@ -1,11 +1,17 @@
 use gpui::*;
 use log::warn;
 
-use crate::backend::services::core_service::{self, AppSettings, AppSettingsPatch, GamePlatform};
+use crate::backend::services::{
+    bepinex_service,
+    core_service::{self, AppSettings, AppSettingsPatch, GamePlatform},
+    finder_service,
+};
 use crate::theme::{self, ThemeExt};
+use crate::ui::icon::{IconName, icon};
 
 pub struct SettingsView {
     state: LoadState,
+    message: Option<String>,
 }
 
 enum LoadState {
@@ -18,6 +24,7 @@ impl SettingsView {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let view = Self {
             state: LoadState::Loading,
+            message: None,
         };
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -51,6 +58,107 @@ impl SettingsView {
             });
         })
         .detach();
+    }
+
+    fn set_message(&mut self, message: impl Into<String>, cx: &mut Context<Self>) {
+        self.message = Some(message.into());
+        cx.notify();
+    }
+
+    fn detect_among_us_path(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async { finder_service::detect_among_us_installation() })
+                .await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(Some(path)) => {
+                    this.apply_patch(
+                        AppSettingsPatch {
+                            among_us_path: Some(path.clone()),
+                            ..Default::default()
+                        },
+                        cx,
+                    );
+                    this.message = Some(format!("Detected Among Us at {path}"));
+                }
+                Ok(None) => this.set_message("Could not auto-detect Among Us", cx),
+                Err(e) => this.set_message(format!("Detection failed: {e}"), cx),
+            });
+        })
+        .detach();
+    }
+
+    fn download_bepinex_cache(&mut self, architecture: &'static str, cx: &mut Context<Self>) {
+        let settings = match &self.state {
+            LoadState::Loaded(settings) => settings.clone(),
+            _ => return,
+        };
+        let url = if architecture == "x86" {
+            settings.bepinex_url_x86
+        } else {
+            settings.bepinex_url_x64
+        };
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let cache_path = core_service::get_bepinex_cache_path(architecture)?;
+                    bepinex_service::download_bepinex_to_cache(
+                        url,
+                        cache_path,
+                        architecture.to_string(),
+                    )
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(_) => this.set_message(format!("Cached BepInEx {architecture}"), cx),
+                Err(e) => this.set_message(format!("Cache download failed: {e}"), cx),
+            });
+        })
+        .detach();
+    }
+
+    fn clear_bepinex_cache(&mut self, architecture: &'static str, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let path = core_service::get_bepinex_cache_path(architecture)?;
+                    bepinex_service::clear_cache(path)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(_) => this.set_message(format!("Cleared BepInEx {architecture} cache"), cx),
+                Err(e) => this.set_message(format!("Clear cache failed: {e}"), cx),
+            });
+        })
+        .detach();
+    }
+
+    fn action_button(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        icon_name: Option<IconName>,
+        theme: &crate::theme::Theme,
+        on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        div()
+            .id(id)
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .py_1p5()
+            .rounded_md()
+            .bg(theme.hover)
+            .cursor_pointer()
+            .hover(|s| s.opacity(0.85))
+            .children(icon_name.map(icon))
+            .child(label)
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
     }
 
     fn render_toggle(
@@ -153,6 +261,38 @@ fn section(
         .children(children)
 }
 
+fn readonly_row(
+    label: &'static str,
+    value: String,
+    theme: &crate::theme::Theme,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .py_2()
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(label),
+        )
+        .child(
+            div()
+                .rounded_md()
+                .bg(theme.hover)
+                .px_3()
+                .py_2()
+                .text_sm()
+                .text_color(theme.text_muted)
+                .child(if value.is_empty() {
+                    "Not configured".to_string()
+                } else {
+                    value
+                }),
+        )
+}
+
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
@@ -168,9 +308,29 @@ impl Render for SettingsView {
                 let cache = settings.cache_bepinex;
                 let platform = settings.game_platform;
                 let game_section = section(
-                    "Game",
+                    "Game Configuration",
                     vec![
+                        readonly_row("Among Us installation path", settings.among_us_path.clone(), &theme)
+                            .into_any_element(),
+                        self.action_button(
+                            "detect-among-us",
+                            "Auto-detect Among Us",
+                            Some(IconName::Compass),
+                            &theme,
+                            |this, cx| this.detect_among_us_path(cx),
+                            cx,
+                        )
+                        .into_any_element(),
                         self.render_platform_selector(platform, &theme, cx)
+                            .into_any_element(),
+                        div()
+                            .text_sm()
+                            .text_color(theme.text_muted)
+                            .child(match platform {
+                                GamePlatform::Steam => "Steam launches through the local Among Us install.",
+                                GamePlatform::Epic => "Epic Games launch requires an authenticated Epic account in the full app flow.",
+                                GamePlatform::Xbox => "Xbox launch uses the detected Xbox app id when available.",
+                            })
                             .into_any_element(),
                     ],
                     &theme,
@@ -216,8 +376,20 @@ impl Render for SettingsView {
                     &theme,
                 );
                 let bepinex_section = section(
-                    "BepInEx",
+                    "BepInEx Configuration",
                     vec![
+                        readonly_row(
+                            "BepInEx x64 download URL",
+                            settings.bepinex_url_x64.clone(),
+                            &theme,
+                        )
+                        .into_any_element(),
+                        readonly_row(
+                            "BepInEx x86 download URL",
+                            settings.bepinex_url_x86.clone(),
+                            &theme,
+                        )
+                        .into_any_element(),
                         self.render_toggle(
                             "cache-bepinex",
                             "Cache BepInEx downloads",
@@ -235,6 +407,68 @@ impl Render for SettingsView {
                             cx,
                         )
                         .into_any_element(),
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(self.action_button(
+                                "cache-x64",
+                                "Cache x64",
+                                Some(IconName::Download),
+                                &theme,
+                                |this, cx| this.download_bepinex_cache("x64", cx),
+                                cx,
+                            ))
+                            .child(self.action_button(
+                                "cache-x86",
+                                "Cache x86",
+                                Some(IconName::Download),
+                                &theme,
+                                |this, cx| this.download_bepinex_cache("x86", cx),
+                                cx,
+                            ))
+                            .child(self.action_button(
+                                "clear-x64",
+                                "Clear x64",
+                                Some(IconName::Trash),
+                                &theme,
+                                |this, cx| this.clear_bepinex_cache("x64", cx),
+                                cx,
+                            ))
+                            .child(self.action_button(
+                                "clear-x86",
+                                "Clear x86",
+                                Some(IconName::Trash),
+                                &theme,
+                                |this, cx| this.clear_bepinex_cache("x86", cx),
+                                cx,
+                            ))
+                            .into_any_element(),
+                    ],
+                    &theme,
+                );
+                let platform_section = section(
+                    "Platform Runtime",
+                    vec![
+                        readonly_row(
+                            "Linux runner",
+                            format!("{:?}", settings.linux_runner_kind),
+                            &theme,
+                        )
+                        .into_any_element(),
+                        readonly_row(
+                            "Runner binary",
+                            settings.linux_runner_binary.clone(),
+                            &theme,
+                        )
+                        .into_any_element(),
+                        readonly_row("Wine prefix", settings.linux_wine_prefix.clone(), &theme)
+                            .into_any_element(),
+                        readonly_row(
+                            "Proton compat data path",
+                            settings.linux_proton_compat_data_path.clone(),
+                            &theme,
+                        )
+                        .into_any_element(),
                     ],
                     &theme,
                 );
@@ -245,6 +479,7 @@ impl Render for SettingsView {
                     .child(game_section)
                     .child(launch_section)
                     .child(bepinex_section)
+                    .child(platform_section)
                     .into_any_element()
             }
         };
@@ -267,6 +502,16 @@ impl Render for SettingsView {
                     .font_weight(FontWeight::BOLD)
                     .child("Settings"),
             )
+            .children(self.message.clone().map(|message| {
+                div()
+                    .rounded_md()
+                    .bg(theme.hover)
+                    .border_1()
+                    .border_color(theme.border)
+                    .p_3()
+                    .text_sm()
+                    .child(message)
+            }))
             .child(body)
     }
 }

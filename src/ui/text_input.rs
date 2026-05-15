@@ -98,6 +98,26 @@ impl TextInput {
         }
     }
 
+    pub fn with_value(
+        cx: &mut Context<Self>,
+        placeholder: impl Into<SharedString>,
+        value: impl Into<SharedString>,
+    ) -> Self {
+        let content = value.into();
+        let cursor = content.len();
+        Self {
+            focus_handle: cx.focus_handle(),
+            content,
+            placeholder: placeholder.into(),
+            selected_range: cursor..cursor,
+            selection_reversed: false,
+            marked_range: None,
+            last_layout: None,
+            last_bounds: None,
+            is_selecting: false,
+        }
+    }
+
     pub fn value(&self) -> &str {
         &self.content
     }
