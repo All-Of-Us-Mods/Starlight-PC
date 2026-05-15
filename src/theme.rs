@@ -25,6 +25,8 @@ pub fn init(cx: &mut App) {
     });
 }
 
+pub const FONT_FAMILY: &str = ".SystemUIFont";
+
 pub trait ThemeExt {
     fn theme(&self) -> &Theme;
 }

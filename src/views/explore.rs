@@ -1,7 +1,7 @@
 use gpui::*;
 
 use crate::backend::api::{self, ModResponse};
-use crate::theme::ThemeExt;
+use crate::theme::{self, ThemeExt};
 
 pub struct ExploreView {
     state: LoadState,
@@ -93,6 +93,9 @@ impl Render for ExploreView {
             .flex()
             .flex_col()
             .size_full()
+            .font_family(theme::FONT_FAMILY)
+            .text_color(theme.text)
+            .text_size(px(14.0))
             .p_8()
             .pt(px(48.0))
             .gap_4()

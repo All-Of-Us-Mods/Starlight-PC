@@ -2,7 +2,7 @@ use gpui::*;
 use log::warn;
 
 use crate::backend::services::profile_service::{self, ProfileEntry};
-use crate::theme::ThemeExt;
+use crate::theme::{self, ThemeExt};
 
 pub struct LibraryDetailView {
     profile_id: String,
@@ -137,6 +137,9 @@ impl Render for LibraryDetailView {
             .flex()
             .flex_col()
             .size_full()
+            .font_family(theme::FONT_FAMILY)
+            .text_color(theme.text)
+            .text_size(px(14.0))
             .p_8()
             .pt(px(48.0))
             .child(body)

@@ -1,6 +1,6 @@
 use gpui::*;
 
-use crate::theme::ThemeExt;
+use crate::theme::{self, ThemeExt};
 use crate::views::explore::ExploreView;
 use crate::views::home::HomeView;
 use crate::views::library::{LibraryEvent, LibraryView};
@@ -150,8 +150,10 @@ impl Render for Workspace {
         div()
             .flex()
             .size_full()
-            .bg(theme.background)
+            .font_family(theme::FONT_FAMILY)
             .text_color(theme.text)
+            .text_size(px(14.0))
+            .bg(theme.background)
             .child(self.render_sidenav(cx))
             .child(
                 div()

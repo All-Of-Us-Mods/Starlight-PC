@@ -1,7 +1,7 @@
 use gpui::*;
 
 use crate::backend::api::{self, ModResponse, Post};
-use crate::theme::ThemeExt;
+use crate::theme::{self, ThemeExt};
 
 pub struct HomeView {
     news: Loading<Vec<Post>>,
@@ -147,6 +147,9 @@ impl Render for HomeView {
             .flex()
             .flex_col()
             .size_full()
+            .font_family(theme::FONT_FAMILY)
+            .text_color(theme.text)
+            .text_size(px(14.0))
             .p_8()
             .pt(px(48.0))
             .gap_8()
