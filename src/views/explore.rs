@@ -2,10 +2,15 @@ use gpui::*;
 
 use crate::backend::api::{self, ModResponse};
 use crate::theme::{self, ThemeExt};
-use crate::ui::mod_card;
+use crate::ui::mod_card::{self, MOD_CARD_HEIGHT};
 use crate::ui::text_input::{TextInput, TextInputEvent};
 
-const PAGE_SIZE: u32 = 12;
+const MIN_CARD_WIDTH: f32 = 360.0;
+const MAX_GRID_COLUMNS: u32 = 4;
+const GRID_GAP: f32 = 16.0;
+const SIDEBAR_WIDTH: f32 = 220.0;
+const PAGE_HORIZONTAL_PADDING: f32 = 64.0;
+const PAGE_FIXED_HEIGHT: f32 = 248.0;
 
 #[derive(Clone, Debug)]
 pub enum ExploreEvent {
@@ -43,6 +48,7 @@ pub struct ExploreView {
     state: LoadState,
     query: String,
     page: u32,
+    page_size: u32,
     sort: SortBy,
     search_input: Entity<TextInput>,
 }
@@ -65,6 +71,7 @@ impl ExploreView {
             state: LoadState::Loading,
             query: String::new(),
             page: 0,
+            page_size: 12,
             sort: SortBy::Downloads,
             search_input,
         };
@@ -74,15 +81,16 @@ impl ExploreView {
 
     fn fetch(&self, cx: &mut Context<Self>) {
         let query = self.query.clone();
-        let offset = self.page * PAGE_SIZE;
+        let page_size = self.page_size;
+        let offset = self.page * page_size;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
                     if query.is_empty() {
-                        api::fetch_mods(PAGE_SIZE, offset)
+                        api::fetch_mods(page_size, offset)
                     } else {
-                        api::search_mods(&query, PAGE_SIZE, offset)
+                        api::search_mods(&query, page_size, offset)
                     }
                 })
                 .await;
@@ -95,6 +103,19 @@ impl ExploreView {
             });
         })
         .detach();
+    }
+
+    fn update_page_size(&mut self, page_size: u32, cx: &mut Context<Self>) {
+        if page_size == self.page_size {
+            return;
+        }
+
+        let first_visible_index = self.page * self.page_size;
+        self.page_size = page_size;
+        self.page = first_visible_index / self.page_size;
+        self.state = LoadState::Loading;
+        cx.notify();
+        self.fetch(cx);
     }
 
     fn submit_search(&mut self, q: String, cx: &mut Context<Self>) {
@@ -120,7 +141,7 @@ impl ExploreView {
     }
 
     fn next_page(&mut self, cx: &mut Context<Self>) {
-        if matches!(&self.state, LoadState::Loaded(v) if v.len() as u32 == PAGE_SIZE) {
+        if matches!(&self.state, LoadState::Loaded(v) if v.len() as u32 == self.page_size) {
             self.page += 1;
             self.state = LoadState::Loading;
             cx.notify();
@@ -171,18 +192,41 @@ impl ExploreView {
 }
 
 impl Render for ExploreView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
+        let viewport_size = window.viewport_size();
+        let content_width =
+            (f32::from(viewport_size.width) - SIDEBAR_WIDTH - PAGE_HORIZONTAL_PADDING)
+                .max(MIN_CARD_WIDTH);
+        let middle_height =
+            (f32::from(viewport_size.height) - PAGE_FIXED_HEIGHT).max(MOD_CARD_HEIGHT);
+        let columns = (((content_width + GRID_GAP) / (MIN_CARD_WIDTH + GRID_GAP)).floor() as u32)
+            .clamp(1, MAX_GRID_COLUMNS);
+        let rows = (((middle_height + GRID_GAP) / (MOD_CARD_HEIGHT + GRID_GAP)).floor() as u32).max(1);
+        self.update_page_size(columns * rows, cx);
+
         let body: AnyElement = match &self.state {
             LoadState::Loading => div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
                 .text_color(theme.text_muted)
                 .child("Loading mods…")
                 .into_any_element(),
             LoadState::Failed(e) => div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
                 .text_color(rgb(0xef4444))
                 .child(format!("Failed to load mods: {e}"))
                 .into_any_element(),
             LoadState::Loaded(mods) if mods.is_empty() => div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
                 .text_color(theme.text_muted)
                 .child("No mods found.")
                 .into_any_element(),
@@ -195,21 +239,23 @@ impl Render for ExploreView {
                     .collect();
                 div()
                     .grid()
-                    .grid_cols(3)
+                    .grid_cols(columns as u16)
                     .gap_4()
+                    .flex_1()
+                    .overflow_hidden()
                     .children(cards)
                     .into_any_element()
             }
         };
 
         let can_prev = self.page > 0;
-        let can_next = matches!(&self.state, LoadState::Loaded(v) if v.len() as u32 == PAGE_SIZE);
+        let can_next = matches!(&self.state, LoadState::Loaded(v) if v.len() as u32 == self.page_size);
 
         let pagination = div()
             .flex()
             .items_center()
             .justify_between()
-            .pt_4()
+            .flex_none()
             .child(
                 div()
                     .id("prev")
@@ -265,6 +311,7 @@ impl Render for ExploreView {
             .flex()
             .items_center()
             .gap_3()
+            .flex_none()
             .child(div().flex_1().child(self.search_input.clone()))
             .child(self.sort_pill("sort-downloads", SortBy::Downloads, &theme, cx))
             .child(self.sort_pill("sort-updated", SortBy::Updated, &theme, cx))
@@ -275,7 +322,7 @@ impl Render for ExploreView {
             .flex()
             .flex_col()
             .size_full()
-            .overflow_y_scroll()
+            .overflow_hidden()
             .font_family(theme::FONT_FAMILY)
             .text_color(theme.text)
             .text_size(px(14.0))
@@ -284,12 +331,13 @@ impl Render for ExploreView {
             .gap_4()
             .child(
                 div()
+                    .flex_none()
                     .text_2xl()
                     .font_weight(FontWeight::BOLD)
                     .child("Explore"),
             )
             .child(controls)
-            .child(body)
+            .child(div().flex_1().overflow_hidden().child(body))
             .child(pagination)
     }
 }
