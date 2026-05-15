@@ -4,7 +4,7 @@ use crate::theme::{self, ThemeExt};
 use crate::views::explore::ExploreView;
 use crate::views::home::HomeView;
 use crate::views::library::{LibraryEvent, LibraryView};
-use crate::views::library_detail::LibraryDetailView;
+use crate::views::library_detail::{LibraryDetailEvent, LibraryDetailView};
 use crate::views::settings::SettingsView;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -53,9 +53,20 @@ impl Workspace {
         cx.subscribe(&library, |this, _, event: &LibraryEvent, cx| match event {
             LibraryEvent::Open(profile_id) => {
                 let id = profile_id.clone();
-                this.view = ActiveView::LibraryDetail(
-                    cx.new(|cx| LibraryDetailView::new(id, cx)),
-                );
+                let detail = cx.new(|cx| LibraryDetailView::new(id, cx));
+                cx.subscribe(
+                    &detail,
+                    |this, _, ev: &LibraryDetailEvent, cx| match ev {
+                        LibraryDetailEvent::Close => {
+                            this.library
+                                .update(cx, |lib, cx| lib.refresh(cx));
+                            this.view = ActiveView::Library;
+                            cx.notify();
+                        }
+                    },
+                )
+                .detach();
+                this.view = ActiveView::LibraryDetail(detail);
                 cx.notify();
             }
         })

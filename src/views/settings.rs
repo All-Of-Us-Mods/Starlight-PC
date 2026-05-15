@@ -113,20 +113,8 @@ impl SettingsView {
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.apply_patch(
                         AppSettingsPatch {
-                            bepinex_url_x86: None,
-                            bepinex_url_x64: None,
-                            among_us_path: None,
-                            close_on_launch: None,
-                            allow_multi_instance_launch: None,
                             game_platform: Some(platform),
-                            cache_bepinex: None,
-                            xbox_app_id: None,
-                            linux_runner_kind: None,
-                            linux_runner_binary: None,
-                            linux_wine_prefix: None,
-                            linux_proton_compat_data_path: None,
-                            linux_proton_steam_client_path: None,
-                            linux_proton_use_steam_run: None,
+                            ..Default::default()
                         },
                         cx,
                     );
@@ -200,20 +188,8 @@ impl Render for SettingsView {
                             move |this, v, cx| {
                                 this.apply_patch(
                                     AppSettingsPatch {
-                                        bepinex_url_x86: None,
-                                        bepinex_url_x64: None,
-                                        among_us_path: None,
                                         close_on_launch: Some(v),
-                                        allow_multi_instance_launch: None,
-                                        game_platform: None,
-                                        cache_bepinex: None,
-                                        xbox_app_id: None,
-                                        linux_runner_kind: None,
-                                        linux_runner_binary: None,
-                                        linux_wine_prefix: None,
-                                        linux_proton_compat_data_path: None,
-                                        linux_proton_steam_client_path: None,
-                                        linux_proton_use_steam_run: None,
+                                        ..Default::default()
                                     },
                                     cx,
                                 );
@@ -229,20 +205,8 @@ impl Render for SettingsView {
                             move |this, v, cx| {
                                 this.apply_patch(
                                     AppSettingsPatch {
-                                        bepinex_url_x86: None,
-                                        bepinex_url_x64: None,
-                                        among_us_path: None,
-                                        close_on_launch: None,
                                         allow_multi_instance_launch: Some(v),
-                                        game_platform: None,
-                                        cache_bepinex: None,
-                                        xbox_app_id: None,
-                                        linux_runner_kind: None,
-                                        linux_runner_binary: None,
-                                        linux_wine_prefix: None,
-                                        linux_proton_compat_data_path: None,
-                                        linux_proton_steam_client_path: None,
-                                        linux_proton_use_steam_run: None,
+                                        ..Default::default()
                                     },
                                     cx,
                                 );
@@ -264,20 +228,8 @@ impl Render for SettingsView {
                             move |this, v, cx| {
                                 this.apply_patch(
                                     AppSettingsPatch {
-                                        bepinex_url_x86: None,
-                                        bepinex_url_x64: None,
-                                        among_us_path: None,
-                                        close_on_launch: None,
-                                        allow_multi_instance_launch: None,
-                                        game_platform: None,
                                         cache_bepinex: Some(v),
-                                        xbox_app_id: None,
-                                        linux_runner_kind: None,
-                                        linux_runner_binary: None,
-                                        linux_wine_prefix: None,
-                                        linux_proton_compat_data_path: None,
-                                        linux_proton_steam_client_path: None,
-                                        linux_proton_use_steam_run: None,
+                                        ..Default::default()
                                     },
                                     cx,
                                 );

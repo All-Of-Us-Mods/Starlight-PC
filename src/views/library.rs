@@ -49,7 +49,7 @@ impl LibraryView {
         view
     }
 
-    fn refresh(&mut self, cx: &mut Context<Self>) {
+    pub fn refresh(&mut self, cx: &mut Context<Self>) {
         self.state = LoadState::Loading;
         cx.notify();
         cx.spawn(async move |this, cx| {

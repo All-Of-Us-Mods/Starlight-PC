@@ -69,7 +69,7 @@ impl Default for AppSettings {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct AppSettingsPatch {
     pub bepinex_url_x86: Option<String>,
     pub bepinex_url_x64: Option<String>,
