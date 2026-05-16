@@ -6,6 +6,7 @@ use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::skeleton::Skeleton;
 use gpui_component::{Icon, IconName};
 
 #[derive(Clone, Debug)]
@@ -253,14 +254,37 @@ impl LibraryView {
     }
 }
 
+fn profile_card_skeleton(theme: &crate::theme::Theme) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .p_4()
+        .rounded_lg()
+        .bg(theme.sidebar_background)
+        .border_1()
+        .border_color(theme.border)
+        .child(Skeleton::new().w_2_3().h_5().rounded_md())
+        .child(Skeleton::new().w_1_2().h_4().rounded_md())
+        .child(Skeleton::new().w_5_6().h_3().rounded_md())
+        .child(Skeleton::new().w_1_3().h_3().rounded_md())
+}
+
 impl Render for LibraryView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let body: AnyElement = match &self.state {
-            LoadState::Loading => div()
-                .text_color(theme.text_muted)
-                .child("Loading profiles…")
-                .into_any_element(),
+            LoadState::Loading => {
+                let placeholders: Vec<AnyElement> = (0..4)
+                    .map(|_| profile_card_skeleton(&theme).into_any_element())
+                    .collect();
+                div()
+                    .grid()
+                    .grid_cols(2)
+                    .gap_4()
+                    .children(placeholders)
+                    .into_any_element()
+            }
             LoadState::Failed(message) => div()
                 .text_color(rgb(0xef4444))
                 .child(format!("Failed to load profiles: {message}"))

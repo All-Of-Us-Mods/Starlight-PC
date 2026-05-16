@@ -3,6 +3,7 @@ use gpui::*;
 use crate::backend::api::{self, ModResponse, Post};
 use crate::theme::{self, ThemeExt};
 use crate::ui::mod_card;
+use gpui_component::skeleton::Skeleton;
 
 #[derive(Clone, Debug)]
 pub enum HomeEvent {
@@ -79,6 +80,24 @@ fn carousel(id: &'static str, items: Vec<AnyElement>) -> impl IntoElement {
         .children(items)
 }
 
+fn news_card_skeleton(theme: &crate::theme::Theme) -> impl IntoElement {
+    div()
+        .w(px(NEWS_CARD_WIDTH))
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .p_4()
+        .rounded_lg()
+        .bg(theme.sidebar_background)
+        .border_1()
+        .border_color(theme.border)
+        .child(Skeleton::new().w_2_3().h_4().rounded_md())
+        .child(Skeleton::new().w_1_3().h_3().rounded_md())
+        .child(Skeleton::new().w_full().h_3().rounded_md())
+        .child(Skeleton::new().w_5_6().h_3().rounded_md())
+}
+
 fn news_card(post: &Post, theme: &crate::theme::Theme, cx: &mut Context<HomeView>) -> AnyElement {
     let post_for_click = post.clone();
     div()
@@ -141,8 +160,12 @@ impl Render for HomeView {
 
         let news_body: AnyElement = match &self.news {
             Loading::Pending => div()
-                .text_color(theme.text_muted)
-                .child("Loading news…")
+                .flex()
+                .gap_3()
+                .pb_2()
+                .children(
+                    (0..4).map(|_| news_card_skeleton(&theme).into_any_element()),
+                )
                 .into_any_element(),
             Loading::Failed(e) => div()
                 .text_color(rgb(0xef4444))
@@ -157,8 +180,12 @@ impl Render for HomeView {
 
         let trending_body: AnyElement = match &self.trending {
             Loading::Pending => div()
-                .text_color(theme.text_muted)
-                .child("Loading mods…")
+                .flex()
+                .gap_3()
+                .pb_2()
+                .children((0..3).map(|_| {
+                    mod_card::mod_card_skeleton(Some(px(CARD_WIDTH)), &theme).into_any_element()
+                }))
                 .into_any_element(),
             Loading::Failed(e) => div()
                 .text_color(rgb(0xef4444))

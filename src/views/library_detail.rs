@@ -13,6 +13,7 @@ use crate::ui::icon::AppIcon;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::progress::Progress;
+use gpui_component::skeleton::Skeleton;
 use gpui_component::{Icon, IconName};
 
 #[derive(Clone, Debug)]
@@ -348,7 +349,15 @@ impl Render for LibraryDetailView {
             }));
 
         let body: AnyElement = match &self.state {
-            LoadState::Loading => div().child("Loading…").into_any_element(),
+            LoadState::Loading => div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(Skeleton::new().w_1_3().h(px(28.0)).rounded_md())
+                .child(Skeleton::new().w_2_3().h_4().rounded_md())
+                .child(Skeleton::new().w_1_2().h_4().rounded_md())
+                .child(Skeleton::new().w_full().h(px(120.0)).rounded_lg())
+                .into_any_element(),
             LoadState::NotFound => div()
                 .text_color(rgb(0xef4444))
                 .child("Profile not found")

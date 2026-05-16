@@ -215,14 +215,19 @@ impl Render for ExploreView {
         self.update_page_size(columns * rows, cx);
 
         let body: AnyElement = match &self.state {
-            LoadState::Loading => div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(theme.text_muted)
-                .child("Loading mods…")
-                .into_any_element(),
+            LoadState::Loading => {
+                let placeholders: Vec<AnyElement> = (0..(columns * rows))
+                    .map(|_| mod_card::mod_card_skeleton(None, &theme).into_any_element())
+                    .collect();
+                div()
+                    .grid()
+                    .grid_cols(columns as u16)
+                    .gap_4()
+                    .flex_1()
+                    .overflow_hidden()
+                    .children(placeholders)
+                    .into_any_element()
+            }
             LoadState::Failed(e) => div()
                 .flex_1()
                 .flex()

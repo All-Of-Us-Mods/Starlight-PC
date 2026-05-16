@@ -4,6 +4,7 @@ use crate::backend::api::{self, ModResponse};
 use crate::theme::Theme;
 use crate::ui::icon::AppIcon;
 use gpui_component::Icon;
+use gpui_component::skeleton::Skeleton;
 
 pub const MOD_CARD_HEIGHT: f32 = 160.0;
 pub const MOD_CARD_IMAGE_SIZE: f32 = 160.0;
@@ -89,6 +90,40 @@ pub fn mod_card(
                         .child(Icon::new(AppIcon::Download).text_color(theme.primary))
                         .child(format_count(m.downloads)),
                 ),
+        );
+
+    if let Some(width) = width {
+        card = card.w(width).flex_shrink_0();
+    }
+
+    card
+}
+
+/// Placeholder card matching the layout of [`mod_card`], for loading
+/// grids and carousels.
+pub fn mod_card_skeleton(width: Option<Pixels>, theme: &Theme) -> Div {
+    let mut card = div()
+        .flex()
+        .h(px(MOD_CARD_HEIGHT))
+        .rounded_lg()
+        .overflow_hidden()
+        .bg(theme.sidebar_background)
+        .border_1()
+        .border_color(theme.border)
+        .child(Skeleton::new().w(px(MOD_CARD_IMAGE_SIZE)).h_full())
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .p_3()
+                .child(Skeleton::new().w_3_4().h_4().rounded_md())
+                .child(Skeleton::new().w_1_2().h_3().rounded_md())
+                .child(Skeleton::new().w_full().h_3().rounded_md())
+                .child(Skeleton::new().w_5_6().h_3().rounded_md())
+                .child(div().mt_auto().child(Skeleton::new().w(px(80.0)).h_4().rounded_md())),
         );
 
     if let Some(width) = width {

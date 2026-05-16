@@ -4,6 +4,7 @@ use gpui::*;
 use crate::backend::api::{self, ModResponse, ModVersion, ModVersionInfo};
 use crate::theme::{self, ThemeExt};
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::skeleton::Skeleton;
 use gpui_component::tag::Tag;
 use gpui_component::{Icon, IconName};
 use crate::ui::mod_card::format_count;
@@ -98,8 +99,33 @@ impl Render for ModDetailView {
 
         let body: AnyElement = match &self.state {
             LoadState::Loading => div()
-                .text_color(theme.text_muted)
-                .child("Loading…")
+                .flex()
+                .flex_col()
+                .gap_6()
+                .child(
+                    div().flex().justify_center().child(
+                        Skeleton::new().w(px(176.0)).h(px(176.0)).rounded_lg(),
+                    ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap_2()
+                        .child(Skeleton::new().w(px(220.0)).h(px(28.0)).rounded_md())
+                        .child(Skeleton::new().w(px(120.0)).h_4().rounded_md()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(Skeleton::new().w_full().h_3().rounded_md())
+                        .child(Skeleton::new().w_full().h_3().rounded_md())
+                        .child(Skeleton::new().w_5_6().h_3().rounded_md())
+                        .child(Skeleton::new().w_3_4().h_3().rounded_md()),
+                )
                 .into_any_element(),
             LoadState::Failed(e) => div()
                 .text_color(rgb(0xef4444))
