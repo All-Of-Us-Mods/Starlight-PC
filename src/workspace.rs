@@ -230,8 +230,15 @@ impl Workspace {
 }
 
 impl Render for Workspace {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
+        // gpui-component requires the window's root view to mount these
+        // layers; without them, modals / sheets / notifications won't
+        // render anywhere.
+        let sheet_layer = gpui_component::Root::render_sheet_layer(window, cx);
+        let dialog_layer = gpui_component::Root::render_dialog_layer(window, cx);
+        let notification_layer = gpui_component::Root::render_notification_layer(window, cx);
+
         div()
             .flex()
             .size_full()
@@ -247,5 +254,8 @@ impl Render for Workspace {
                     .overflow_hidden()
                     .child(self.render_content()),
             )
+            .children(sheet_layer)
+            .children(dialog_layer)
+            .children(notification_layer)
     }
 }

@@ -23,6 +23,8 @@ fn main() {
         .with_assets(assets::EmbeddedAssets)
         .with_http_client(http)
         .run(|cx: &mut App| {
+            gpui_component::init(cx);
+            gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
             theme::init(cx);
             settings::init(cx);
             backend::init(cx);
