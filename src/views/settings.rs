@@ -1,462 +1,444 @@
 use gpui::*;
+use gpui_component::{
+    Icon, IconName, WindowExt,
+    button::{Button, ButtonVariants},
+    notification::Notification,
+    setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
+};
 use log::warn;
 
 use crate::backend::services::{
     bepinex_service,
-    core_service::{self, AppSettings, AppSettingsPatch, GamePlatform},
+    core_service::{self, AppSettingsPatch, GamePlatform, LinuxRunnerKind},
     finder_service,
 };
+use crate::settings as app_settings;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
-use gpui_component::Selectable;
-use gpui_component::button::Button;
-use gpui_component::switch::Switch;
-use gpui_component::{Icon, IconName};
 
-pub struct SettingsView {
-    state: LoadState,
-    message: Option<String>,
-}
-
-enum LoadState {
-    Loading,
-    Loaded(AppSettings),
-    Failed(String),
-}
+pub struct SettingsView;
 
 impl SettingsView {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let view = Self {
-            state: LoadState::Loading,
-            message: None,
-        };
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async { core_service::get_settings() })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.state = match result {
-                    Ok(s) => LoadState::Loaded(s),
-                    Err(e) => LoadState::Failed(e.to_string()),
-                };
-                cx.notify();
-            });
-        })
-        .detach();
-        view
+        // Re-render whenever the settings global changes so the
+        // SettingField value closures pick up new values.
+        cx.observe_global::<app_settings::SettingsGlobal>(|_, cx| cx.notify())
+            .detach();
+        Self
     }
+}
 
-    fn apply_patch(&mut self, patch: AppSettingsPatch, cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { core_service::update_settings(patch) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                match result {
-                    Ok(s) => this.state = LoadState::Loaded(s),
-                    Err(e) => warn!("update_settings failed: {e}"),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
+// ---------- patch helpers (used by setter closures) ----------
 
-    fn set_message(&mut self, message: impl Into<String>, cx: &mut Context<Self>) {
-        self.message = Some(message.into());
-        cx.notify();
-    }
+fn patch_among_us_path(value: SharedString, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            among_us_path: Some(value.to_string()),
+            ..Default::default()
+        },
+    );
+}
 
-    fn detect_among_us_path(&mut self, cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async { finder_service::detect_among_us_installation() })
-                .await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(Some(path)) => {
-                    this.apply_patch(
-                        AppSettingsPatch {
-                            among_us_path: Some(path.clone()),
-                            ..Default::default()
-                        },
-                        cx,
-                    );
-                    this.message = Some(format!("Detected Among Us at {path}"));
-                }
-                Ok(None) => this.set_message("Could not auto-detect Among Us", cx),
-                Err(e) => this.set_message(format!("Detection failed: {e}"), cx),
-            });
-        })
-        .detach();
-    }
+fn patch_close_on_launch(value: bool, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            close_on_launch: Some(value),
+            ..Default::default()
+        },
+    );
+}
 
-    fn download_bepinex_cache(&mut self, architecture: &'static str, cx: &mut Context<Self>) {
-        let settings = match &self.state {
-            LoadState::Loaded(settings) => settings.clone(),
-            _ => return,
-        };
-        let url = if architecture == "x86" {
-            settings.bepinex_url_x86
-        } else {
-            settings.bepinex_url_x64
-        };
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let cache_path = core_service::get_bepinex_cache_path(architecture)?;
-                    bepinex_service::download_bepinex_to_cache(
-                        url,
-                        cache_path,
-                        architecture.to_string(),
-                    )
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(_) => this.set_message(format!("Cached BepInEx {architecture}"), cx),
-                Err(e) => this.set_message(format!("Cache download failed: {e}"), cx),
-            });
-        })
-        .detach();
-    }
+fn patch_multi_instance(value: bool, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            allow_multi_instance_launch: Some(value),
+            ..Default::default()
+        },
+    );
+}
 
-    fn clear_bepinex_cache(&mut self, architecture: &'static str, cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let path = core_service::get_bepinex_cache_path(architecture)?;
-                    bepinex_service::clear_cache(path)
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(_) => this.set_message(format!("Cleared BepInEx {architecture} cache"), cx),
-                Err(e) => this.set_message(format!("Clear cache failed: {e}"), cx),
-            });
-        })
-        .detach();
-    }
+fn patch_cache_bepinex(value: bool, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            cache_bepinex: Some(value),
+            ..Default::default()
+        },
+    );
+}
 
-    fn action_button(
-        &self,
-        id: &'static str,
-        label: &'static str,
-        leading: Option<Icon>,
-        _theme: &crate::theme::Theme,
-        on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
-        cx: &mut Context<Self>,
-    ) -> Button {
-        let mut btn = Button::new(id).label(label);
-        if let Some(icon) = leading {
-            btn = btn.icon(icon);
+fn patch_platform(value: SharedString, cx: &mut App) {
+    let platform = match value.as_ref() {
+        "epic" => GamePlatform::Epic,
+        "xbox" => GamePlatform::Xbox,
+        _ => GamePlatform::Steam,
+    };
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            game_platform: Some(platform),
+            ..Default::default()
+        },
+    );
+}
+
+fn patch_bepinex_url_x64(value: SharedString, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            bepinex_url_x64: Some(value.to_string()),
+            ..Default::default()
+        },
+    );
+}
+
+fn patch_bepinex_url_x86(value: SharedString, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            bepinex_url_x86: Some(value.to_string()),
+            ..Default::default()
+        },
+    );
+}
+
+fn patch_linux_runner_kind(value: SharedString, cx: &mut App) {
+    let kind = match value.as_ref() {
+        "wine" => LinuxRunnerKind::Wine,
+        _ => LinuxRunnerKind::Proton,
+    };
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            linux_runner_kind: Some(kind),
+            ..Default::default()
+        },
+    );
+}
+
+fn patch_linux_runner_binary(value: SharedString, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            linux_runner_binary: Some(value.to_string()),
+            ..Default::default()
+        },
+    );
+}
+
+fn patch_linux_wine_prefix(value: SharedString, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            linux_wine_prefix: Some(value.to_string()),
+            ..Default::default()
+        },
+    );
+}
+
+fn patch_linux_proton_compat_data_path(value: SharedString, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            linux_proton_compat_data_path: Some(value.to_string()),
+            ..Default::default()
+        },
+    );
+}
+
+// ---------- action handlers (Detect / Cache / Clear) ----------
+
+fn detect_among_us(window: &mut Window, cx: &mut App) {
+    match finder_service::detect_among_us_installation() {
+        Ok(Some(path)) => {
+            app_settings::update(
+                cx,
+                AppSettingsPatch {
+                    among_us_path: Some(path.clone()),
+                    ..Default::default()
+                },
+            );
+            window.push_notification(
+                Notification::success(format!("Among Us detected at {path}")),
+                cx,
+            );
         }
-        btn.on_click(cx.listener(move |this, _, _window, cx| on_click(this, cx)))
-    }
-
-    fn render_toggle(
-        &self,
-        id: &'static str,
-        label: &'static str,
-        value: bool,
-        _theme: &crate::theme::Theme,
-        on_toggle: impl Fn(&mut Self, bool, &mut Context<Self>) + 'static,
-        _cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .py_2()
-            .child(div().child(label))
-            .child(
-                Switch::new(id).checked(value).on_click(_cx.listener(
-                    move |this, checked: &bool, _window, cx| {
-                        on_toggle(this, *checked, cx);
-                    },
-                )),
-            )
-    }
-
-    fn render_platform_selector(
-        &self,
-        current: GamePlatform,
-        _theme: &crate::theme::Theme,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let make_btn = |id: &'static str, label: &'static str, platform: GamePlatform| {
-            Button::new(id)
-                .selected(current == platform)
-                .label(label)
-                .on_click(cx.listener(move |this, _, _window, cx| {
-                    this.apply_patch(
-                        AppSettingsPatch {
-                            game_platform: Some(platform),
-                            ..Default::default()
-                        },
-                        cx,
-                    );
-                }))
-        };
-
-        div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .py_2()
-            .child(div().child("Game platform"))
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(make_btn("plat-steam", "Steam", GamePlatform::Steam))
-                    .child(make_btn("plat-epic", "Epic", GamePlatform::Epic))
-                    .child(make_btn("plat-xbox", "Xbox", GamePlatform::Xbox)),
-            )
+        Ok(None) => {
+            window.push_notification(
+                Notification::warning("Could not auto-detect Among Us installation"),
+                cx,
+            );
+        }
+        Err(e) => {
+            warn!("detect_among_us failed: {e}");
+            window.push_notification(
+                Notification::error(format!("Detection failed: {e}")),
+                cx,
+            );
+        }
     }
 }
 
-fn section(
-    title: &'static str,
-    children: Vec<AnyElement>,
-    theme: &crate::theme::Theme,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .p_4()
-        .rounded_lg()
-        .bg(theme.sidebar_background)
-        .border_1()
-        .border_color(theme.border)
-        .child(div().font_weight(FontWeight::SEMIBOLD).pb_2().child(title))
-        .children(children)
+fn download_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App) {
+    let settings = app_settings::get(cx).clone();
+    let cache_path = match core_service::get_bepinex_cache_path(arch) {
+        Ok(p) => p,
+        Err(e) => {
+            window.push_notification(
+                Notification::error(format!("Cache path resolution failed: {e}")),
+                cx,
+            );
+            return;
+        }
+    };
+    let url = if arch == "x64" {
+        settings.bepinex_url_x64
+    } else {
+        settings.bepinex_url_x86
+    };
+    let arch_owned = arch.to_string();
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(e) =
+                bepinex_service::download_bepinex_to_cache(url, cache_path, arch_owned.clone())
+            {
+                warn!("BepInEx cache download ({arch_owned}) failed: {e}");
+            }
+        })
+        .detach();
+    window.push_notification(
+        Notification::info(format!("Downloading BepInEx {arch}…")),
+        cx,
+    );
 }
 
-fn readonly_row(
-    label: &'static str,
-    value: String,
-    theme: &crate::theme::Theme,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .py_2()
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(label),
-        )
-        .child(
-            div()
-                .rounded_md()
-                .bg(theme.hover)
-                .px_3()
-                .py_2()
-                .text_sm()
-                .text_color(theme.text_muted)
-                .child(if value.is_empty() {
-                    "Not configured".to_string()
-                } else {
-                    value
-                }),
-        )
+fn clear_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App) {
+    match core_service::get_bepinex_cache_path(arch) {
+        Ok(path) => match bepinex_service::clear_cache(path) {
+            Ok(()) => window
+                .push_notification(Notification::success(format!("Cleared BepInEx {arch} cache")), cx),
+            Err(e) => {
+                warn!("clear_bepinex_cache failed: {e}");
+                window.push_notification(Notification::error(format!("Clear failed: {e}")), cx);
+            }
+        },
+        Err(e) => {
+            window.push_notification(Notification::error(format!("Cache path: {e}")), cx);
+        }
+    }
 }
+
+// ---------- view ----------
 
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let body: AnyElement = match &self.state {
-            LoadState::Loading => div().child("Loading settings…").into_any_element(),
-            LoadState::Failed(e) => div()
-                .text_color(rgb(0xef4444))
-                .child(format!("Failed: {e}"))
-                .into_any_element(),
-            LoadState::Loaded(settings) => {
-                let close = settings.close_on_launch;
-                let multi = settings.allow_multi_instance_launch;
-                let cache = settings.cache_bepinex;
-                let platform = settings.game_platform;
-                let game_section = section(
-                    "Game Configuration",
-                    vec![
-                        readonly_row("Among Us installation path", settings.among_us_path.clone(), &theme)
-                            .into_any_element(),
-                        self.action_button(
-                            "detect-among-us",
-                            "Auto-detect Among Us",
-                            Some(Icon::new(AppIcon::Compass)),
-                            &theme,
-                            |this, cx| this.detect_among_us_path(cx),
-                            cx,
+
+        let game_page = SettingPage::new("Game")
+            .default_open(true)
+            .groups(vec![
+                SettingGroup::new()
+                    .title("Installation")
+                    .items(vec![
+                        SettingItem::new(
+                            "Among Us path",
+                            SettingField::input(
+                                |cx| app_settings::get(cx).among_us_path.clone().into(),
+                                patch_among_us_path,
+                            ),
                         )
-                        .into_any_element(),
-                        self.render_platform_selector(platform, &theme, cx)
-                            .into_any_element(),
-                        div()
-                            .text_sm()
-                            .text_color(theme.text_muted)
-                            .child(match platform {
-                                GamePlatform::Steam => "Steam launches through the local Among Us install.",
-                                GamePlatform::Epic => "Epic Games launch requires an authenticated Epic account in the full app flow.",
-                                GamePlatform::Xbox => "Xbox launch uses the detected Xbox app id when available.",
-                            })
-                            .into_any_element(),
-                    ],
-                    &theme,
-                );
-                let launch_section = section(
-                    "Launch",
-                    vec![
-                        self.render_toggle(
-                            "close-on-launch",
-                            "Close Starlight when launching the game",
-                            close,
-                            &theme,
-                            move |this, v, cx| {
-                                this.apply_patch(
-                                    AppSettingsPatch {
-                                        close_on_launch: Some(v),
-                                        ..Default::default()
-                                    },
-                                    cx,
-                                );
+                        .description("Folder containing Among Us.exe."),
+                        SettingItem::new(
+                            "Auto-detect",
+                            SettingField::render(|_, _, _| {
+                                Button::new("detect-among-us")
+                                    .icon(Icon::new(AppIcon::Compass))
+                                    .label("Auto-detect Among Us")
+                                    .on_click(|_, window, cx| detect_among_us(window, cx))
+                            }),
+                        )
+                        .description("Search known install locations and set the path above."),
+                    ]),
+                SettingGroup::new()
+                    .title("Platform")
+                    .items(vec![
+                        SettingItem::new(
+                            "Game platform",
+                            SettingField::dropdown(
+                                vec![
+                                    ("steam".into(), "Steam".into()),
+                                    ("epic".into(), "Epic".into()),
+                                    ("xbox".into(), "Xbox".into()),
+                                ],
+                                |cx| match app_settings::get(cx).game_platform {
+                                    GamePlatform::Steam => "steam".into(),
+                                    GamePlatform::Epic => "epic".into(),
+                                    GamePlatform::Xbox => "xbox".into(),
+                                },
+                                patch_platform,
+                            ),
+                        )
+                        .description("Which storefront the game was installed from."),
+                    ]),
+            ]);
+
+        let launch_page = SettingPage::new("Launch").group(
+            SettingGroup::new()
+                .title("Behavior")
+                .items(vec![
+                    SettingItem::new(
+                        "Close Starlight when launching",
+                        SettingField::switch(
+                            |cx| app_settings::get(cx).close_on_launch,
+                            patch_close_on_launch,
+                        ),
+                    )
+                    .description("Quit the app after starting the game."),
+                    SettingItem::new(
+                        "Allow multiple instances",
+                        SettingField::switch(
+                            |cx| app_settings::get(cx).allow_multi_instance_launch,
+                            patch_multi_instance,
+                        ),
+                    )
+                    .description("Permit launching more than one game window at a time."),
+                ]),
+        );
+
+        let bepinex_page = SettingPage::new("BepInEx").groups(vec![
+            SettingGroup::new()
+                .title("Cache")
+                .items(vec![
+                    SettingItem::new(
+                        "Cache BepInEx downloads",
+                        SettingField::switch(
+                            |cx| app_settings::get(cx).cache_bepinex,
+                            patch_cache_bepinex,
+                        ),
+                    )
+                    .description("Reuse cached archives across profile installs."),
+                    SettingItem::new(
+                        "x64 cache",
+                        SettingField::render(|_, _, _| {
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("cache-x64")
+                                        .icon(Icon::new(AppIcon::Download))
+                                        .label("Download")
+                                        .on_click(|_, window, cx| {
+                                            download_bepinex_cache("x64", window, cx)
+                                        }),
+                                )
+                                .child(
+                                    Button::new("clear-x64")
+                                        .danger()
+                                        .icon(Icon::new(IconName::Delete))
+                                        .label("Clear")
+                                        .on_click(|_, window, cx| {
+                                            clear_bepinex_cache("x64", window, cx)
+                                        }),
+                                )
+                        }),
+                    ),
+                    SettingItem::new(
+                        "x86 cache",
+                        SettingField::render(|_, _, _| {
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("cache-x86")
+                                        .icon(Icon::new(AppIcon::Download))
+                                        .label("Download")
+                                        .on_click(|_, window, cx| {
+                                            download_bepinex_cache("x86", window, cx)
+                                        }),
+                                )
+                                .child(
+                                    Button::new("clear-x86")
+                                        .danger()
+                                        .icon(Icon::new(IconName::Delete))
+                                        .label("Clear")
+                                        .on_click(|_, window, cx| {
+                                            clear_bepinex_cache("x86", window, cx)
+                                        }),
+                                )
+                        }),
+                    ),
+                ]),
+            SettingGroup::new()
+                .title("Download URLs")
+                .description("Override the default release archive locations.")
+                .items(vec![
+                    SettingItem::new(
+                        "BepInEx x64 URL",
+                        SettingField::input(
+                            |cx| app_settings::get(cx).bepinex_url_x64.clone().into(),
+                            patch_bepinex_url_x64,
+                        ),
+                    ),
+                    SettingItem::new(
+                        "BepInEx x86 URL",
+                        SettingField::input(
+                            |cx| app_settings::get(cx).bepinex_url_x86.clone().into(),
+                            patch_bepinex_url_x86,
+                        ),
+                    ),
+                ]),
+        ]);
+
+        let linux_page = SettingPage::new("Linux runtime").group(
+            SettingGroup::new()
+                .title("Wine / Proton")
+                .description("Used when launching the game on Linux.")
+                .items(vec![
+                    SettingItem::new(
+                        "Runner",
+                        SettingField::dropdown(
+                            vec![
+                                ("proton".into(), "Proton".into()),
+                                ("wine".into(), "Wine".into()),
+                            ],
+                            |cx| match app_settings::get(cx).linux_runner_kind {
+                                LinuxRunnerKind::Wine => "wine".into(),
+                                LinuxRunnerKind::Proton => "proton".into(),
                             },
-                            cx,
-                        )
-                        .into_any_element(),
-                        self.render_toggle(
-                            "multi-instance",
-                            "Allow multiple instances of the game",
-                            multi,
-                            &theme,
-                            move |this, v, cx| {
-                                this.apply_patch(
-                                    AppSettingsPatch {
-                                        allow_multi_instance_launch: Some(v),
-                                        ..Default::default()
-                                    },
-                                    cx,
-                                );
+                            patch_linux_runner_kind,
+                        ),
+                    ),
+                    SettingItem::new(
+                        "Runner binary",
+                        SettingField::input(
+                            |cx| app_settings::get(cx).linux_runner_binary.clone().into(),
+                            patch_linux_runner_binary,
+                        ),
+                    ),
+                    SettingItem::new(
+                        "Wine prefix",
+                        SettingField::input(
+                            |cx| app_settings::get(cx).linux_wine_prefix.clone().into(),
+                            patch_linux_wine_prefix,
+                        ),
+                    ),
+                    SettingItem::new(
+                        "Proton compat data path",
+                        SettingField::input(
+                            |cx| {
+                                app_settings::get(cx)
+                                    .linux_proton_compat_data_path
+                                    .clone()
+                                    .into()
                             },
-                            cx,
-                        )
-                        .into_any_element(),
-                    ],
-                    &theme,
-                );
-                let bepinex_section = section(
-                    "BepInEx Configuration",
-                    vec![
-                        readonly_row(
-                            "BepInEx x64 download URL",
-                            settings.bepinex_url_x64.clone(),
-                            &theme,
-                        )
-                        .into_any_element(),
-                        readonly_row(
-                            "BepInEx x86 download URL",
-                            settings.bepinex_url_x86.clone(),
-                            &theme,
-                        )
-                        .into_any_element(),
-                        self.render_toggle(
-                            "cache-bepinex",
-                            "Cache BepInEx downloads",
-                            cache,
-                            &theme,
-                            move |this, v, cx| {
-                                this.apply_patch(
-                                    AppSettingsPatch {
-                                        cache_bepinex: Some(v),
-                                        ..Default::default()
-                                    },
-                                    cx,
-                                );
-                            },
-                            cx,
-                        )
-                        .into_any_element(),
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(self.action_button(
-                                "cache-x64",
-                                "Cache x64",
-                                Some(Icon::new(AppIcon::Download)),
-                                &theme,
-                                |this, cx| this.download_bepinex_cache("x64", cx),
-                                cx,
-                            ))
-                            .child(self.action_button(
-                                "cache-x86",
-                                "Cache x86",
-                                Some(Icon::new(AppIcon::Download)),
-                                &theme,
-                                |this, cx| this.download_bepinex_cache("x86", cx),
-                                cx,
-                            ))
-                            .child(self.action_button(
-                                "clear-x64",
-                                "Clear x64",
-                                Some(Icon::new(IconName::Delete)),
-                                &theme,
-                                |this, cx| this.clear_bepinex_cache("x64", cx),
-                                cx,
-                            ))
-                            .child(self.action_button(
-                                "clear-x86",
-                                "Clear x86",
-                                Some(Icon::new(IconName::Delete)),
-                                &theme,
-                                |this, cx| this.clear_bepinex_cache("x86", cx),
-                                cx,
-                            ))
-                            .into_any_element(),
-                    ],
-                    &theme,
-                );
-                let platform_section = section(
-                    "Platform Runtime",
-                    vec![
-                        readonly_row(
-                            "Linux runner",
-                            format!("{:?}", settings.linux_runner_kind),
-                            &theme,
-                        )
-                        .into_any_element(),
-                        readonly_row(
-                            "Runner binary",
-                            settings.linux_runner_binary.clone(),
-                            &theme,
-                        )
-                        .into_any_element(),
-                        readonly_row("Wine prefix", settings.linux_wine_prefix.clone(), &theme)
-                            .into_any_element(),
-                        readonly_row(
-                            "Proton compat data path",
-                            settings.linux_proton_compat_data_path.clone(),
-                            &theme,
-                        )
-                        .into_any_element(),
-                    ],
-                    &theme,
-                );
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_4()
-                    .child(game_section)
-                    .child(launch_section)
-                    .child(bepinex_section)
-                    .child(platform_section)
-                    .into_any_element()
-            }
-        };
+                            patch_linux_proton_compat_data_path,
+                        ),
+                    ),
+                ]),
+        );
 
         div()
             .id("settings-page")
@@ -476,16 +458,9 @@ impl Render for SettingsView {
                     .font_weight(FontWeight::BOLD)
                     .child("Settings"),
             )
-            .children(self.message.clone().map(|message| {
-                div()
-                    .rounded_md()
-                    .bg(theme.hover)
-                    .border_1()
-                    .border_color(theme.border)
-                    .p_3()
-                    .text_sm()
-                    .child(message)
-            }))
-            .child(body)
+            .child(
+                Settings::new("starlight-settings")
+                    .pages(vec![game_page, launch_page, bepinex_page, linux_page]),
+            )
     }
 }
