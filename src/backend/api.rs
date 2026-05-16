@@ -85,6 +85,14 @@ pub fn fetch_trending_mods() -> AppResult<Vec<ModResponse>> {
         .map_err(|e| AppError::Http(e.to_string()))
 }
 
+pub fn fetch_mods_total() -> AppResult<u32> {
+    let url = format!("{}/api/v3/mods/total", DEFAULT_API_BASE_URL);
+    ureq::get(&url)
+        .call()?
+        .into_json::<u32>()
+        .map_err(|e| AppError::Http(e.to_string()))
+}
+
 pub fn fetch_mods(limit: u32, offset: u32) -> AppResult<Vec<ModResponse>> {
     let url = format!(
         "{}/api/v3/mods?limit={}&offset={}",

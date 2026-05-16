@@ -7,6 +7,7 @@ use gpui_component::Selectable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::pagination::Pagination;
+use gpui_component::{Icon, IconName};
 
 const MIN_CARD_WIDTH: f32 = 360.0;
 const MAX_GRID_COLUMNS: u32 = 4;
@@ -52,6 +53,11 @@ pub struct ExploreView {
     query: String,
     page: u32,
     page_size: u32,
+    /// Total mods for the current query (the API exposes a `/total`
+    /// endpoint only for the unfiltered listing). `None` while we
+    /// haven't fetched the count yet or when searching (no count
+    /// available).
+    total: Option<u32>,
     sort: SortBy,
     search_input: Entity<InputState>,
 }
@@ -82,6 +88,7 @@ impl ExploreView {
             query: String::new(),
             page: 0,
             page_size: 12,
+            total: None,
             sort: SortBy::Downloads,
             search_input,
         };
@@ -93,22 +100,33 @@ impl ExploreView {
         let query = self.query.clone();
         let page_size = self.page_size;
         let offset = self.page * page_size;
+        let want_total = query.is_empty();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
                     if query.is_empty() {
-                        api::fetch_mods(page_size, offset)
+                        let total = api::fetch_mods_total().ok();
+                        api::fetch_mods(page_size, offset).map(|mods| (mods, total))
                     } else {
-                        api::search_mods(&query, page_size, offset)
+                        api::search_mods(&query, page_size, offset).map(|mods| (mods, None))
                     }
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.state = match result {
-                    Ok(v) => LoadState::Loaded(v),
-                    Err(e) => LoadState::Failed(e.to_string()),
-                };
+                match result {
+                    Ok((mods, total)) => {
+                        this.state = LoadState::Loaded(mods);
+                        if want_total {
+                            this.total = total;
+                        } else {
+                            this.total = None;
+                        }
+                    }
+                    Err(e) => {
+                        this.state = LoadState::Failed(e.to_string());
+                    }
+                }
                 cx.notify();
             });
         })
@@ -239,33 +257,45 @@ impl Render for ExploreView {
             }
         };
 
-        // The API has no total-count endpoint. We model pages
-        // optimistically: current page + 1 when this page is full
-        // (more might exist), or `current` when the page is short
-        // (definitely the last one).
-        let on_last_page =
-            matches!(&self.state, LoadState::Loaded(v) if (v.len() as u32) < self.page_size);
+        // Prefer the real total from /api/v3/mods/total. When searching
+        // the API has no count endpoint, so fall back to "current + 1
+        // when this page is full, current otherwise."
         let current = (self.page + 1) as usize;
-        let total = if on_last_page {
-            current
-        } else {
-            current + 1
+        let total = match self.total {
+            Some(total) => {
+                let page_size = self.page_size.max(1) as usize;
+                ((total as usize).div_ceil(page_size)).max(1)
+            }
+            None => {
+                let full =
+                    matches!(&self.state, LoadState::Loaded(v) if (v.len() as u32) == self.page_size);
+                if full {
+                    current + 1
+                } else {
+                    current
+                }
+            }
         };
 
-        let pagination = div().flex_none().flex().justify_center().child(
-            Pagination::new("explore-pagination")
-                .current_page(current)
-                .total_pages(total)
-                .compact()
-                .on_click(cx.listener(|this, page: &usize, _, cx| this.goto_page(*page, cx))),
-        );
+        let pagination = (total > 1).then(|| {
+            div().flex_none().flex().justify_center().child(
+                Pagination::new("explore-pagination")
+                    .current_page(current)
+                    .total_pages(total)
+                    .on_click(cx.listener(|this, page: &usize, _, cx| this.goto_page(*page, cx))),
+            )
+        });
 
         let controls = div()
             .flex()
             .items_center()
             .gap_3()
             .flex_none()
-            .child(div().flex_1().child(Input::new(&self.search_input)))
+            .child(
+                div()
+                    .flex_1()
+                    .child(Input::new(&self.search_input).prefix(Icon::new(IconName::Search))),
+            )
             .child(self.sort_pill("sort-downloads", SortBy::Downloads, &theme, cx))
             .child(self.sort_pill("sort-updated", SortBy::Updated, &theme, cx))
             .child(self.sort_pill("sort-created", SortBy::Created, &theme, cx));
@@ -291,6 +321,6 @@ impl Render for ExploreView {
             )
             .child(controls)
             .child(div().flex_1().overflow_hidden().child(body))
-            .child(pagination)
+            .children(pagination)
     }
 }
