@@ -52,7 +52,9 @@ fn main() {
             };
 
             cx.open_window(options, |window, cx| {
-                cx.new(|cx| workspace::Workspace::new(window, cx))
+                let workspace = cx.new(|cx| workspace::Workspace::new(window, cx));
+                let workspace_view: AnyView = workspace.into();
+                cx.new(|cx| gpui_component::Root::new(workspace_view, window, cx))
             })
             .unwrap();
         });
