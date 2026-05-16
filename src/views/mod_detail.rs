@@ -3,6 +3,8 @@ use gpui::*;
 
 use crate::backend::api::{self, ModResponse, ModVersion, ModVersionInfo};
 use crate::theme::{self, ThemeExt};
+use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::tag::Tag;
 use gpui_component::{Icon, IconName};
 use crate::ui::mod_card::format_count;
 
@@ -78,35 +80,19 @@ fn section_label(text: &'static str, theme: &crate::theme::Theme) -> impl IntoEl
         .child(text)
 }
 
-fn chip(text: String, theme: &crate::theme::Theme) -> impl IntoElement {
-    div()
-        .px_2()
-        .py_1()
-        .rounded_md()
-        .bg(theme.hover)
-        .text_xs()
-        .text_color(theme.text)
-        .child(text)
+fn chip(text: String) -> impl IntoElement {
+    Tag::new().child(text)
 }
 
 impl Render for ModDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let back = div()
-            .id("back")
-            .flex()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .py_2()
-            .rounded_md()
-            .bg(theme.hover)
-            .cursor_pointer()
-            .hover(|s| s.opacity(0.85))
-            .child(Icon::new(IconName::ArrowLeft))
-            .child("Back")
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+        let back = Button::new("back")
+            .ghost()
+            .icon(Icon::new(IconName::ArrowLeft))
+            .label("Back")
+            .on_click(cx.listener(|_, _, _window, cx| {
                 cx.emit(ModDetailEvent::Close);
             }));
 
@@ -174,7 +160,7 @@ impl Render for ModDetailView {
                             .flex_wrap()
                             .justify_center()
                             .gap_2()
-                            .children(tags.into_iter().map(|tag| chip(tag, &theme)))
+                            .children(tags.into_iter().map(chip))
                     }))
                     .child(
                         div()
@@ -295,10 +281,7 @@ impl Render for ModDetailView {
                                     .child(section_label("Links", &theme))
                                     .child(div().flex().flex_wrap().gap_2().children(
                                         links.into_iter().map(|link| {
-                                            chip(
-                                                format!("{}: {}", link.link_type, link.url),
-                                                &theme,
-                                            )
+                                            chip(format!("{}: {}", link.link_type, link.url))
                                         }),
                                     ))
                             }),

@@ -3,7 +3,10 @@ use gpui::*;
 use crate::backend::api::{self, ModResponse};
 use crate::theme::{self, ThemeExt};
 use crate::ui::mod_card::{self, MOD_CARD_HEIGHT};
+use gpui_component::Selectable;
+use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::pagination::Pagination;
 
 const MIN_CARD_WIDTH: f32 = 360.0;
 const MAX_GRID_COLUMNS: u32 = 4;
@@ -138,49 +141,29 @@ impl ExploreView {
         cx.notify();
     }
 
-    fn prev_page(&mut self, cx: &mut Context<Self>) {
-        if self.page > 0 {
-            self.page -= 1;
-            self.state = LoadState::Loading;
-            cx.notify();
-            self.fetch(cx);
+    fn goto_page(&mut self, one_based_page: usize, cx: &mut Context<Self>) {
+        let new_page = (one_based_page.saturating_sub(1)) as u32;
+        if new_page == self.page {
+            return;
         }
-    }
-
-    fn next_page(&mut self, cx: &mut Context<Self>) {
-        if matches!(&self.state, LoadState::Loaded(v) if v.len() as u32 == self.page_size) {
-            self.page += 1;
-            self.state = LoadState::Loading;
-            cx.notify();
-            self.fetch(cx);
-        }
+        self.page = new_page;
+        self.state = LoadState::Loading;
+        cx.notify();
+        self.fetch(cx);
     }
 
     fn sort_pill(
         &self,
         id: &'static str,
         sort: SortBy,
-        theme: &crate::theme::Theme,
+        _theme: &crate::theme::Theme,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let active = self.sort == sort;
-        let text_color = if active { theme.text } else { theme.text_muted };
-        div()
-            .id(id)
-            .px_3()
-            .py_1p5()
-            .rounded_md()
-            .bg(if active {
-                theme.hover
-            } else {
-                theme.sidebar_background
-            })
-            .border_1()
-            .border_color(theme.border)
-            .text_color(text_color)
-            .cursor_pointer()
-            .child(sort.label())
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_sort(sort, cx)))
+        Button::new(id)
+            .ghost()
+            .selected(self.sort == sort)
+            .label(sort.label())
+            .on_click(cx.listener(move |this, _, _window, cx| this.set_sort(sort, cx)))
     }
 
     fn mod_card(
@@ -256,65 +239,26 @@ impl Render for ExploreView {
             }
         };
 
-        let can_prev = self.page > 0;
-        let can_next =
-            matches!(&self.state, LoadState::Loaded(v) if v.len() as u32 == self.page_size);
+        // The API has no total-count endpoint. We model pages
+        // optimistically: current page + 1 when this page is full
+        // (more might exist), or `current` when the page is short
+        // (definitely the last one).
+        let on_last_page =
+            matches!(&self.state, LoadState::Loaded(v) if (v.len() as u32) < self.page_size);
+        let current = (self.page + 1) as usize;
+        let total = if on_last_page {
+            current
+        } else {
+            current + 1
+        };
 
-        let pagination = div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .flex_none()
-            .child(
-                div()
-                    .id("prev")
-                    .px_3()
-                    .py_1p5()
-                    .rounded_md()
-                    .bg(if can_prev {
-                        theme.hover
-                    } else {
-                        theme.sidebar_background
-                    })
-                    .text_color(if can_prev {
-                        theme.text
-                    } else {
-                        theme.text_muted
-                    })
-                    .border_1()
-                    .border_color(theme.border)
-                    .cursor_pointer()
-                    .child("← Prev")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.prev_page(cx))),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme.text_muted)
-                    .child(format!("Page {}", self.page + 1)),
-            )
-            .child(
-                div()
-                    .id("next")
-                    .px_3()
-                    .py_1p5()
-                    .rounded_md()
-                    .bg(if can_next {
-                        theme.hover
-                    } else {
-                        theme.sidebar_background
-                    })
-                    .text_color(if can_next {
-                        theme.text
-                    } else {
-                        theme.text_muted
-                    })
-                    .border_1()
-                    .border_color(theme.border)
-                    .cursor_pointer()
-                    .child("Next →")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.next_page(cx))),
-            );
+        let pagination = div().flex_none().flex().justify_center().child(
+            Pagination::new("explore-pagination")
+                .current_page(current)
+                .total_pages(total)
+                .compact()
+                .on_click(cx.listener(|this, page: &usize, _, cx| this.goto_page(*page, cx))),
+        );
 
         let controls = div()
             .flex()

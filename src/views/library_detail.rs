@@ -10,7 +10,9 @@ use crate::backend::services::launch_service::{self, LaunchModdedArgs};
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
+use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::progress::Progress;
 use gpui_component::{Icon, IconName};
 
 #[derive(Clone, Debug)]
@@ -239,32 +241,6 @@ impl LibraryDetailView {
         .detach();
     }
 
-    fn button(
-        id: &'static str,
-        label: SharedString,
-        leading: Option<Icon>,
-        bg: Rgba,
-        theme: &crate::theme::Theme,
-        on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        let fg = theme.text;
-        div()
-            .id(id)
-            .flex()
-            .items_center()
-            .gap_2()
-            .px_4()
-            .py_2()
-            .rounded_md()
-            .bg(bg)
-            .text_color(fg)
-            .cursor_pointer()
-            .hover(|s| s.opacity(0.85))
-            .children(leading.map(|icon| icon.text_color(fg)))
-            .child(label)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
-    }
 }
 
 fn run_launch(profile: ProfileEntry) -> Result<(), String> {
@@ -363,15 +339,13 @@ impl Render for LibraryDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let back = Self::button(
-            "back",
-            "Back".into(),
-            Some(Icon::new(IconName::ArrowLeft)),
-            theme.hover,
-            &theme,
-            |_, cx| cx.emit(LibraryDetailEvent::Close),
-            cx,
-        );
+        let back = Button::new("back")
+            .ghost()
+            .icon(Icon::new(IconName::ArrowLeft))
+            .label("Back")
+            .on_click(cx.listener(|_, _, _window, cx| {
+                cx.emit(LibraryDetailEvent::Close);
+            }));
 
         let body: AnyElement = match &self.state {
             LoadState::Loading => div().child("Loading…").into_any_element(),
@@ -388,27 +362,19 @@ impl Render for LibraryDetailView {
                 let installing = self.bep_progress.is_some();
 
                 let install_btn = (!bep_installed && !installing).then(|| {
-                    Self::button(
-                        "install-bepinex",
-                        "Install BepInEx".into(),
-                        Some(Icon::new(AppIcon::Download)),
-                        theme.primary,
-                        &theme,
-                        |this, cx| this.install_bepinex(cx),
-                        cx,
-                    )
+                    Button::new("install-bepinex")
+                        .primary()
+                        .icon(Icon::new(AppIcon::Download))
+                        .label("Install BepInEx")
+                        .on_click(cx.listener(|this, _, _window, cx| this.install_bepinex(cx)))
                 });
 
                 let launch_btn = bep_installed.then(|| {
-                    Self::button(
-                        "launch",
-                        "Launch".into(),
-                        Some(Icon::new(IconName::Play)),
-                        rgb(0x16a34a),
-                        &theme,
-                        |this, cx| this.launch(cx),
-                        cx,
-                    )
+                    Button::new("launch")
+                        .success()
+                        .icon(Icon::new(IconName::Play))
+                        .label("Launch")
+                        .on_click(cx.listener(|this, _, _window, cx| this.launch(cx)))
                 });
 
                 let launch_err = self
@@ -427,20 +393,7 @@ impl Render for LibraryDetailView {
                                 .text_color(theme.text_muted)
                                 .child(format!("{} — {:.0}%", p.message, p.progress)),
                         )
-                        .child(
-                            div()
-                                .w_full()
-                                .h(px(6.0))
-                                .rounded_full()
-                                .bg(theme.hover)
-                                .child(
-                                    div()
-                                        .h_full()
-                                        .w(relative((p.progress as f32 / 100.0).clamp(0.0, 1.0)))
-                                        .rounded_full()
-                                        .bg(theme.primary),
-                                ),
-                        )
+                        .child(Progress::new("bep-progress").value(p.progress as f32))
                 });
                 let profile_log = profile_service::get_profile_log(&profile.path, "LogOutput.log");
                 let mod_files = profile_service::get_mod_files(&profile.path);
@@ -492,6 +445,7 @@ impl Render for LibraryDetailView {
                     div()
                         .flex()
                         .gap_2()
+                        .items_center()
                         .child(
                             div()
                                 .px_2()
@@ -499,40 +453,32 @@ impl Render for LibraryDetailView {
                                 .text_color(theme.text_muted)
                                 .child("Delete this profile?"),
                         )
-                        .child(Self::button(
-                            "confirm-delete",
-                            "Delete".into(),
-                            Some(Icon::new(IconName::Delete)),
-                            rgb(0xdc2626),
-                            &theme,
-                            |this, cx| this.delete_profile(cx),
-                            cx,
-                        ))
-                        .child(Self::button(
-                            "cancel-delete",
-                            "Cancel".into(),
-                            None,
-                            theme.hover,
-                            &theme,
-                            |this, cx| {
+                        .child(
+                            Button::new("confirm-delete")
+                                .danger()
+                                .icon(Icon::new(IconName::Delete))
+                                .label("Delete")
+                                .on_click(cx.listener(|this, _, _window, cx| {
+                                    this.delete_profile(cx)
+                                })),
+                        )
+                        .child(Button::new("cancel-delete").label("Cancel").on_click(
+                            cx.listener(|this, _, _window, cx| {
                                 this.confirming_delete = false;
                                 cx.notify();
-                            },
-                            cx,
+                            }),
                         ))
                 } else {
-                    div().child(Self::button(
-                        "delete-profile",
-                        "Delete Profile".into(),
-                        Some(Icon::new(IconName::Delete)),
-                        rgb(0xdc2626),
-                        &theme,
-                        |this, cx| {
-                            this.confirming_delete = true;
-                            cx.notify();
-                        },
-                        cx,
-                    ))
+                    div().child(
+                        Button::new("delete-profile")
+                            .danger()
+                            .icon(Icon::new(IconName::Delete))
+                            .label("Delete Profile")
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.confirming_delete = true;
+                                cx.notify();
+                            })),
+                    )
                 };
 
                 div()
@@ -551,29 +497,15 @@ impl Render for LibraryDetailView {
                         div()
                             .flex()
                             .gap_2()
+                            .child(Button::new("rename-profile-action").label("Rename").on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.open_rename_dialog(window, cx);
+                                }),
+                            ))
                             .child(
-                                div()
-                                    .id("rename-profile-action")
-                                    .px_3()
-                                    .py_1p5()
-                                    .rounded_md()
-                                    .bg(theme.hover)
-                                    .cursor_pointer()
-                                    .child("Rename")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.open_rename_dialog(window, cx);
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id("export-profile-action")
-                                    .px_3()
-                                    .py_1p5()
-                                    .rounded_md()
-                                    .bg(theme.hover)
-                                    .cursor_pointer()
-                                    .child("Export ZIP")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                Button::new("export-profile-action")
+                                    .label("Export ZIP")
+                                    .on_click(cx.listener(|this, _, window, cx| {
                                         this.open_export_dialog(window, cx);
                                     })),
                             ),
@@ -776,25 +708,14 @@ fn dialog_overlay(
                         .gap_2()
                         .justify_end()
                         .child(
-                            div()
-                                .id("dialog-cancel")
-                                .px_4()
-                                .py_2()
-                                .rounded_md()
-                                .bg(theme.hover)
-                                .cursor_pointer()
-                                .child("Cancel")
+                            Button::new("dialog-cancel")
+                                .label("Cancel")
                                 .on_click(on_cancel),
                         )
                         .child(
-                            div()
-                                .id("dialog-confirm")
-                                .px_4()
-                                .py_2()
-                                .rounded_md()
-                                .bg(theme.primary)
-                                .cursor_pointer()
-                                .child(confirm)
+                            Button::new("dialog-confirm")
+                                .primary()
+                                .label(confirm)
                                 .on_click(on_confirm),
                         ),
                 ),

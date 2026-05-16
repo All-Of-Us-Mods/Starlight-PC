@@ -2,6 +2,7 @@ use gpui::*;
 
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
+use gpui_component::sidebar::{Sidebar, SidebarHeader, SidebarMenu, SidebarMenuItem};
 use gpui_component::{Icon, IconName};
 use crate::views::explore::ExploreView;
 use crate::views::home::HomeView;
@@ -120,74 +121,32 @@ impl Workspace {
         cx.notify();
     }
 
-    fn nav_button(&self, tab: Tab, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme().clone();
-        let is_active = self.tab == tab;
-        let text_color = if is_active {
-            theme.text
-        } else {
-            theme.text_muted
-        };
-        div()
-            .id(SharedString::from(tab.label()))
-            .flex()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_2()
-            .rounded_md()
-            .text_color(text_color)
-            .bg(if is_active {
-                theme.hover
-            } else {
-                rgba(0x00000000).into()
-            })
-            .hover(|s| s.bg(theme.hover))
-            .cursor_pointer()
-            .child(tab.icon().text_color(text_color))
-            .child(tab.label())
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.switch_tab(tab, cx);
-            }))
+    fn menu_item(&self, tab: Tab, cx: &mut Context<Self>) -> SidebarMenuItem {
+        SidebarMenuItem::new(tab.label())
+            .icon(tab.icon())
+            .active(self.tab == tab)
+            .on_click(cx.listener(move |this, _, _window, cx| this.switch_tab(tab, cx)))
     }
 
     fn render_sidenav(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme().clone();
-        div()
-            .flex()
-            .flex_col()
-            .w(px(220.0))
-            .h_full()
-            .bg(theme.sidebar_background)
-            .border_r_1()
-            .border_color(theme.border)
-            .pt(px(40.0))
-            .px_3()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_2()
-                    .pb_4()
+        Sidebar::new("starlight-sidebar")
+            .collapsible(false)
+            .header(
+                SidebarHeader::new()
                     .child(img("icons/starlight.svg").w(px(28.0)).h(px(28.0)))
                     .child(
                         div()
                             .text_xl()
                             .font_weight(FontWeight::BOLD)
-                            .text_color(theme.text)
                             .child("Starlight"),
                     ),
             )
             .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(self.nav_button(Tab::Home, cx))
-                    .child(self.nav_button(Tab::Explore, cx))
-                    .child(self.nav_button(Tab::Library, cx))
-                    .child(self.nav_button(Tab::Settings, cx)),
+                SidebarMenu::new()
+                    .child(self.menu_item(Tab::Home, cx))
+                    .child(self.menu_item(Tab::Explore, cx))
+                    .child(self.menu_item(Tab::Library, cx))
+                    .child(self.menu_item(Tab::Settings, cx)),
             )
     }
 

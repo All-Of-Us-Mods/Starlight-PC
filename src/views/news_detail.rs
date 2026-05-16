@@ -3,6 +3,7 @@ use gpui::*;
 
 use crate::backend::api::Post;
 use crate::theme::{self, ThemeExt};
+use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{Icon, IconName};
 
 #[derive(Clone, Debug)]
@@ -40,20 +41,11 @@ impl Render for NewsDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let back = div()
-            .id("back")
-            .flex()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .py_2()
-            .rounded_md()
-            .bg(theme.hover)
-            .cursor_pointer()
-            .hover(|s| s.opacity(0.85))
-            .child(Icon::new(IconName::ArrowLeft))
-            .child("Back")
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+        let back = Button::new("back")
+            .ghost()
+            .icon(Icon::new(IconName::ArrowLeft))
+            .label("Back")
+            .on_click(cx.listener(|_, _, _window, cx| {
                 cx.emit(NewsDetailEvent::Close);
             }));
 

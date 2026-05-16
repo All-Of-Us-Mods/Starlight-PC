@@ -8,6 +8,9 @@ use crate::backend::services::{
 };
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
+use gpui_component::Selectable;
+use gpui_component::button::Button;
+use gpui_component::switch::Switch;
 use gpui_component::{Icon, IconName};
 
 pub struct SettingsView {
@@ -142,24 +145,15 @@ impl SettingsView {
         id: &'static str,
         label: &'static str,
         leading: Option<Icon>,
-        theme: &crate::theme::Theme,
+        _theme: &crate::theme::Theme,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        div()
-            .id(id)
-            .flex()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .py_1p5()
-            .rounded_md()
-            .bg(theme.hover)
-            .cursor_pointer()
-            .hover(|s| s.opacity(0.85))
-            .children(leading)
-            .child(label)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
+    ) -> Button {
+        let mut btn = Button::new(id).label(label);
+        if let Some(icon) = leading {
+            btn = btn.icon(icon);
+        }
+        btn.on_click(cx.listener(move |this, _, _window, cx| on_click(this, cx)))
     }
 
     fn render_toggle(
@@ -167,57 +161,36 @@ impl SettingsView {
         id: &'static str,
         label: &'static str,
         value: bool,
-        theme: &crate::theme::Theme,
+        _theme: &crate::theme::Theme,
         on_toggle: impl Fn(&mut Self, bool, &mut Context<Self>) + 'static,
-        cx: &mut Context<Self>,
+        _cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let knob_color = if value { theme.primary } else { theme.hover };
         div()
-            .id(id)
             .flex()
             .items_center()
             .justify_between()
             .py_2()
-            .cursor_pointer()
             .child(div().child(label))
             .child(
-                div()
-                    .w(px(40.0))
-                    .h(px(22.0))
-                    .rounded_full()
-                    .bg(knob_color)
-                    .p(px(2.0))
-                    .child(
-                        div()
-                            .w(px(18.0))
-                            .h(px(18.0))
-                            .rounded_full()
-                            .bg(theme.text)
-                            .ml(if value { px(18.0) } else { px(0.0) }),
-                    ),
+                Switch::new(id).checked(value).on_click(_cx.listener(
+                    move |this, checked: &bool, _window, cx| {
+                        on_toggle(this, *checked, cx);
+                    },
+                )),
             )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                on_toggle(this, !value, cx);
-            }))
     }
 
     fn render_platform_selector(
         &self,
         current: GamePlatform,
-        theme: &crate::theme::Theme,
+        _theme: &crate::theme::Theme,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let make_btn = |id: &'static str, label: &'static str, platform: GamePlatform| {
-            let active = current == platform;
-            div()
-                .id(id)
-                .px_3()
-                .py_1p5()
-                .rounded_md()
-                .bg(if active { theme.primary } else { theme.hover })
-                .cursor_pointer()
-                .child(label)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            Button::new(id)
+                .selected(current == platform)
+                .label(label)
+                .on_click(cx.listener(move |this, _, _window, cx| {
                     this.apply_patch(
                         AppSettingsPatch {
                             game_platform: Some(platform),

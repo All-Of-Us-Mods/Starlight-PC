@@ -4,6 +4,7 @@ use log::warn;
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
+use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{Icon, IconName};
 
@@ -100,8 +101,7 @@ impl LibraryView {
     }
 
     fn open_import_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let state =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Path to profile .zip"));
+        let state = cx.new(|cx| InputState::new(window, cx).placeholder("Path to profile .zip"));
         state.read(cx).focus_handle(cx).focus(window, cx);
         cx.subscribe_in(
             &state,
@@ -165,7 +165,6 @@ impl LibraryView {
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme().clone();
         div()
             .flex()
             .items_center()
@@ -182,39 +181,19 @@ impl LibraryView {
                     .flex()
                     .gap_2()
                     .child(
-                        div()
-                            .id("import-profile")
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .px_4()
-                            .py_2()
-                            .rounded_md()
-                            .bg(theme.hover)
-                            .cursor_pointer()
-                            .hover(|s| s.opacity(0.85))
-                            .child(Icon::new(AppIcon::Download))
-                            .child("Import Profile")
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        Button::new("import-profile")
+                            .icon(Icon::new(AppIcon::Download))
+                            .label("Import Profile")
+                            .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_import_dialog(window, cx);
                             })),
                     )
                     .child(
-                        div()
-                            .id("create-profile")
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .px_4()
-                            .py_2()
-                            .rounded_md()
-                            .bg(theme.primary)
-                            .text_color(theme.text)
-                            .cursor_pointer()
-                            .hover(|s| s.opacity(0.85))
-                            .child(Icon::new(IconName::Plus))
-                            .child("Create Profile")
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        Button::new("create-profile")
+                            .primary()
+                            .icon(Icon::new(IconName::Plus))
+                            .label("Create Profile")
+                            .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_create_dialog(window, cx);
                             })),
                     ),
@@ -336,30 +315,17 @@ impl Render for LibraryView {
                                 .flex()
                                 .gap_2()
                                 .justify_end()
+                                .child(Button::new("cancel-create").label("Cancel").on_click(
+                                    cx.listener(|this, _, _window, cx| {
+                                        this.create_dialog = None;
+                                        cx.notify();
+                                    }),
+                                ))
                                 .child(
-                                    div()
-                                        .id("cancel-create")
-                                        .px_4()
-                                        .py_2()
-                                        .rounded_md()
-                                        .bg(theme.hover)
-                                        .cursor_pointer()
-                                        .child("Cancel")
-                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                            this.create_dialog = None;
-                                            cx.notify();
-                                        })),
-                                )
-                                .child(
-                                    div()
-                                        .id("confirm-create")
-                                        .px_4()
-                                        .py_2()
-                                        .rounded_md()
-                                        .bg(theme.primary)
-                                        .cursor_pointer()
-                                        .child("Create")
-                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    Button::new("confirm-create")
+                                        .primary()
+                                        .label("Create")
+                                        .on_click(cx.listener(|this, _, _window, cx| {
                                             if let Some(input) = this.create_dialog.clone() {
                                                 let name = input.read(cx).value().to_string();
                                                 this.submit_create(name, cx);
@@ -405,30 +371,17 @@ impl Render for LibraryView {
                                 .flex()
                                 .gap_2()
                                 .justify_end()
+                                .child(Button::new("cancel-import").label("Cancel").on_click(
+                                    cx.listener(|this, _, _window, cx| {
+                                        this.import_dialog = None;
+                                        cx.notify();
+                                    }),
+                                ))
                                 .child(
-                                    div()
-                                        .id("cancel-import")
-                                        .px_4()
-                                        .py_2()
-                                        .rounded_md()
-                                        .bg(theme.hover)
-                                        .cursor_pointer()
-                                        .child("Cancel")
-                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                            this.import_dialog = None;
-                                            cx.notify();
-                                        })),
-                                )
-                                .child(
-                                    div()
-                                        .id("confirm-import")
-                                        .px_4()
-                                        .py_2()
-                                        .rounded_md()
-                                        .bg(theme.primary)
-                                        .cursor_pointer()
-                                        .child("Import")
-                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    Button::new("confirm-import")
+                                        .primary()
+                                        .label("Import")
+                                        .on_click(cx.listener(|this, _, _window, cx| {
                                             if let Some(input) = this.import_dialog.clone() {
                                                 let path = input.read(cx).value().to_string();
                                                 this.submit_import(path, cx);
