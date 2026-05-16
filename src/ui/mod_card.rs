@@ -2,7 +2,8 @@ use gpui::*;
 
 use crate::backend::api::{self, ModResponse};
 use crate::theme::Theme;
-use crate::ui::icon::{IconName, icon};
+use crate::ui::icon::AppIcon;
+use gpui_component::Icon;
 
 pub const MOD_CARD_HEIGHT: f32 = 160.0;
 pub const MOD_CARD_IMAGE_SIZE: f32 = 160.0;
@@ -85,7 +86,7 @@ pub fn mod_card(
                         .gap_1p5()
                         .text_sm()
                         .font_weight(FontWeight::MEDIUM)
-                        .child(icon(IconName::Download).text_color(theme.primary))
+                        .child(Icon::new(AppIcon::Download).text_color(theme.primary))
                         .child(format_count(m.downloads)),
                 ),
         );

@@ -3,7 +3,7 @@ use gpui::*;
 
 use crate::backend::api::{self, ModResponse, ModVersion, ModVersionInfo};
 use crate::theme::{self, ThemeExt};
-use crate::ui::icon::{IconName, icon};
+use gpui_component::{Icon, IconName};
 use crate::ui::mod_card::format_count;
 
 #[derive(Clone, Debug)]
@@ -104,7 +104,7 @@ impl Render for ModDetailView {
             .bg(theme.hover)
             .cursor_pointer()
             .hover(|s| s.opacity(0.85))
-            .child(icon(IconName::ArrowLeft))
+            .child(Icon::new(IconName::ArrowLeft))
             .child("Back")
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
                 cx.emit(ModDetailEvent::Close);

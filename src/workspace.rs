@@ -1,7 +1,8 @@
 use gpui::*;
 
 use crate::theme::{self, ThemeExt};
-use crate::ui::icon::{IconName, icon};
+use crate::ui::icon::AppIcon;
+use gpui_component::{Icon, IconName};
 use crate::views::explore::ExploreView;
 use crate::views::home::HomeView;
 use crate::views::library::{LibraryEvent, LibraryView};
@@ -28,12 +29,12 @@ impl Tab {
         }
     }
 
-    fn icon(self) -> IconName {
+    fn icon(self) -> Icon {
         match self {
-            Tab::Home => IconName::Home,
-            Tab::Explore => IconName::Compass,
-            Tab::Library => IconName::Library,
-            Tab::Settings => IconName::Settings,
+            Tab::Home => Icon::new(AppIcon::Home),
+            Tab::Explore => Icon::new(AppIcon::Compass),
+            Tab::Library => Icon::new(AppIcon::Library),
+            Tab::Settings => Icon::new(IconName::Settings),
         }
     }
 }
@@ -58,10 +59,10 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn new(cx: &mut Context<Self>) -> Self {
-        let library = cx.new(|cx| LibraryView::new(cx));
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let library = cx.new(|cx| LibraryView::new(window, cx));
         let home = cx.new(|cx| HomeView::new(cx));
-        let explore = cx.new(|cx| ExploreView::new(cx));
+        let explore = cx.new(|cx| ExploreView::new(window, cx));
         let settings = cx.new(|cx| SettingsView::new(cx));
 
         cx.subscribe(
@@ -80,10 +81,10 @@ impl Workspace {
         )
         .detach();
 
-        cx.subscribe(&library, |this, _, event: &LibraryEvent, cx| match event {
+        cx.subscribe_in(&library, window, |this, _, event: &LibraryEvent, window, cx| match event {
             LibraryEvent::Open(profile_id) => {
                 let id = profile_id.clone();
-                let detail = cx.new(|cx| LibraryDetailView::new(id, cx));
+                let detail = cx.new(|cx| LibraryDetailView::new(id, window, cx));
                 cx.subscribe(&detail, |this, _, ev: &LibraryDetailEvent, cx| match ev {
                     LibraryDetailEvent::Close => {
                         this.library.update(cx, |lib, cx| lib.refresh(cx));
@@ -143,7 +144,7 @@ impl Workspace {
             })
             .hover(|s| s.bg(theme.hover))
             .cursor_pointer()
-            .child(icon(tab.icon()).text_color(text_color))
+            .child(tab.icon().text_color(text_color))
             .child(tab.label())
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.switch_tab(tab, cx);

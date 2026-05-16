@@ -7,7 +7,8 @@ use crate::backend::services::{
     finder_service,
 };
 use crate::theme::{self, ThemeExt};
-use crate::ui::icon::{IconName, icon};
+use crate::ui::icon::AppIcon;
+use gpui_component::{Icon, IconName};
 
 pub struct SettingsView {
     state: LoadState,
@@ -140,7 +141,7 @@ impl SettingsView {
         &self,
         id: &'static str,
         label: &'static str,
-        icon_name: Option<IconName>,
+        leading: Option<Icon>,
         theme: &crate::theme::Theme,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
@@ -156,7 +157,7 @@ impl SettingsView {
             .bg(theme.hover)
             .cursor_pointer()
             .hover(|s| s.opacity(0.85))
-            .children(icon_name.map(icon))
+            .children(leading)
             .child(label)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
     }
@@ -315,7 +316,7 @@ impl Render for SettingsView {
                         self.action_button(
                             "detect-among-us",
                             "Auto-detect Among Us",
-                            Some(IconName::Compass),
+                            Some(Icon::new(AppIcon::Compass)),
                             &theme,
                             |this, cx| this.detect_among_us_path(cx),
                             cx,
@@ -413,7 +414,7 @@ impl Render for SettingsView {
                             .child(self.action_button(
                                 "cache-x64",
                                 "Cache x64",
-                                Some(IconName::Download),
+                                Some(Icon::new(AppIcon::Download)),
                                 &theme,
                                 |this, cx| this.download_bepinex_cache("x64", cx),
                                 cx,
@@ -421,7 +422,7 @@ impl Render for SettingsView {
                             .child(self.action_button(
                                 "cache-x86",
                                 "Cache x86",
-                                Some(IconName::Download),
+                                Some(Icon::new(AppIcon::Download)),
                                 &theme,
                                 |this, cx| this.download_bepinex_cache("x86", cx),
                                 cx,
@@ -429,7 +430,7 @@ impl Render for SettingsView {
                             .child(self.action_button(
                                 "clear-x64",
                                 "Clear x64",
-                                Some(IconName::Trash),
+                                Some(Icon::new(IconName::Delete)),
                                 &theme,
                                 |this, cx| this.clear_bepinex_cache("x64", cx),
                                 cx,
@@ -437,7 +438,7 @@ impl Render for SettingsView {
                             .child(self.action_button(
                                 "clear-x86",
                                 "Clear x86",
-                                Some(IconName::Trash),
+                                Some(Icon::new(IconName::Delete)),
                                 &theme,
                                 |this, cx| this.clear_bepinex_cache("x86", cx),
                                 cx,

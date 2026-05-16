@@ -1,44 +1,30 @@
-use gpui::*;
+//! App-specific icons that have no built-in equivalent in gpui-component.
+//!
+//! Use `gpui_component::IconName` first; only reach for `AppIcon` when no
+//! built-in icon fits (sidebar nav glyphs, the app logo, etc.). Both enums
+//! implement [`gpui_component::IconNamed`], so they're interchangeable in
+//! any API that takes `impl Into<Icon>`.
+
+use gpui::SharedString;
+use gpui_component::IconNamed;
 
 #[derive(Clone, Copy)]
-pub enum IconName {
+pub enum AppIcon {
     Home,
     Compass,
     Library,
-    Settings,
-    ArrowLeft,
-    Plus,
-    Play,
     Download,
-    Trash,
-    Image,
     Starlight,
 }
 
-impl IconName {
-    fn path(self) -> &'static str {
+impl IconNamed for AppIcon {
+    fn path(self) -> SharedString {
         match self {
-            IconName::Home => "icons/home.svg",
-            IconName::Compass => "icons/compass.svg",
-            IconName::Library => "icons/library.svg",
-            IconName::Settings => "icons/settings.svg",
-            IconName::ArrowLeft => "icons/arrow-left.svg",
-            IconName::Plus => "icons/plus.svg",
-            IconName::Play => "icons/play.svg",
-            IconName::Download => "icons/download.svg",
-            IconName::Trash => "icons/trash.svg",
-            IconName::Image => "icons/image.svg",
-            IconName::Starlight => "icons/starlight.svg",
+            AppIcon::Home => "icons/home.svg".into(),
+            AppIcon::Compass => "icons/compass.svg".into(),
+            AppIcon::Library => "icons/library.svg".into(),
+            AppIcon::Download => "icons/download.svg".into(),
+            AppIcon::Starlight => "icons/starlight.svg".into(),
         }
     }
-}
-
-/// Render an SVG icon at 16px square in the current text color. Use
-/// `icon_sized` for non-default sizes.
-pub fn icon(name: IconName) -> Svg {
-    icon_sized(name, px(16.0))
-}
-
-pub fn icon_sized(name: IconName, size: Pixels) -> Svg {
-    svg().path(name.path()).w(size).h(size).flex_none()
 }

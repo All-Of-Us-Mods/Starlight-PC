@@ -35,12 +35,6 @@ icons!(
     "icons/home.svg",
     "icons/compass.svg",
     "icons/library.svg",
-    "icons/settings.svg",
-    "icons/arrow-left.svg",
-    "icons/plus.svg",
-    "icons/play.svg",
     "icons/download.svg",
-    "icons/trash.svg",
-    "icons/image.svg",
     "icons/starlight.svg",
 );

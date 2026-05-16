@@ -3,8 +3,9 @@ use log::warn;
 
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::theme::{self, ThemeExt};
-use crate::ui::icon::{IconName, icon};
-use crate::ui::text_input::{TextInput, TextInputEvent};
+use crate::ui::icon::AppIcon;
+use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::{Icon, IconName};
 
 #[derive(Clone, Debug)]
 pub enum LibraryEvent {
@@ -15,8 +16,8 @@ impl EventEmitter<LibraryEvent> for LibraryView {}
 
 pub struct LibraryView {
     state: LoadState,
-    create_dialog: Option<Entity<TextInput>>,
-    import_dialog: Option<Entity<TextInput>>,
+    create_dialog: Option<Entity<InputState>>,
+    import_dialog: Option<Entity<InputState>>,
     error: Option<String>,
 }
 
@@ -27,7 +28,7 @@ enum LoadState {
 }
 
 impl LibraryView {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let view = Self {
             state: LoadState::Loading,
             create_dialog: None,
@@ -82,26 +83,37 @@ impl LibraryView {
     }
 
     fn open_create_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let input = cx.new(|cx| TextInput::new(cx, "Profile name"));
-        input.update(cx, |input, cx| input.focus(window, cx));
-        cx.subscribe(&input, |this, _, event: &TextInputEvent, cx| match event {
-            TextInputEvent::Submit(name) => {
-                this.submit_create(name.clone(), cx);
-            }
-        })
+        let state = cx.new(|cx| InputState::new(window, cx).placeholder("Profile name"));
+        state.read(cx).focus_handle(cx).focus(window, cx);
+        cx.subscribe_in(
+            &state,
+            window,
+            |this, state, event: &InputEvent, _window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.submit_create(state.read(cx).value().to_string(), cx);
+                }
+            },
+        )
         .detach();
-        self.create_dialog = Some(input);
+        self.create_dialog = Some(state);
         cx.notify();
     }
 
     fn open_import_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let input = cx.new(|cx| TextInput::new(cx, "Path to profile .zip"));
-        input.update(cx, |input, cx| input.focus(window, cx));
-        cx.subscribe(&input, |this, _, event: &TextInputEvent, cx| match event {
-            TextInputEvent::Submit(path) => this.submit_import(path.clone(), cx),
-        })
+        let state =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Path to profile .zip"));
+        state.read(cx).focus_handle(cx).focus(window, cx);
+        cx.subscribe_in(
+            &state,
+            window,
+            |this, state, event: &InputEvent, _window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.submit_import(state.read(cx).value().to_string(), cx);
+                }
+            },
+        )
         .detach();
-        self.import_dialog = Some(input);
+        self.import_dialog = Some(state);
         self.error = None;
         cx.notify();
     }
@@ -181,7 +193,7 @@ impl LibraryView {
                             .bg(theme.hover)
                             .cursor_pointer()
                             .hover(|s| s.opacity(0.85))
-                            .child(icon(IconName::Download))
+                            .child(Icon::new(AppIcon::Download))
                             .child("Import Profile")
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.open_import_dialog(window, cx);
@@ -200,7 +212,7 @@ impl LibraryView {
                             .text_color(theme.text)
                             .cursor_pointer()
                             .hover(|s| s.opacity(0.85))
-                            .child(icon(IconName::Plus))
+                            .child(Icon::new(IconName::Plus))
                             .child("Create Profile")
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.open_create_dialog(window, cx);
@@ -318,7 +330,7 @@ impl Render for LibraryView {
                         .border_1()
                         .border_color(theme.border)
                         .child(div().font_weight(FontWeight::SEMIBOLD).child("New Profile"))
-                        .child(input)
+                        .child(Input::new(&input))
                         .child(
                             div()
                                 .flex()
@@ -387,7 +399,7 @@ impl Render for LibraryView {
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child("Import Profile ZIP"),
                         )
-                        .child(input)
+                        .child(Input::new(&input))
                         .child(
                             div()
                                 .flex()

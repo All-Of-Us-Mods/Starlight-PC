@@ -9,7 +9,9 @@ use crate::backend::services::core_service;
 use crate::backend::services::launch_service::{self, LaunchModdedArgs};
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::theme::{self, ThemeExt};
-use crate::ui::icon::{IconName, icon};
+use crate::ui::icon::AppIcon;
+use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::{Icon, IconName};
 
 #[derive(Clone, Debug)]
 pub enum LibraryDetailEvent {
@@ -24,8 +26,8 @@ pub struct LibraryDetailView {
     bep_progress: Option<BepInExProgress>,
     confirming_delete: bool,
     launch_error: Option<String>,
-    rename_dialog: Option<Entity<crate::ui::text_input::TextInput>>,
-    export_dialog: Option<Entity<crate::ui::text_input::TextInput>>,
+    rename_dialog: Option<Entity<InputState>>,
+    export_dialog: Option<Entity<InputState>>,
 }
 
 enum LoadState {
@@ -36,7 +38,7 @@ enum LoadState {
 }
 
 impl LibraryDetailView {
-    pub fn new(profile_id: String, cx: &mut Context<Self>) -> Self {
+    pub fn new(profile_id: String, _window: &mut Window, cx: &mut Context<Self>) -> Self {
         let view = Self {
             profile_id: profile_id.clone(),
             state: LoadState::Loading,
@@ -151,19 +153,23 @@ impl LibraryDetailView {
             LoadState::Loaded(profile) => profile.name.clone(),
             _ => String::new(),
         };
-        let input =
-            cx.new(|cx| crate::ui::text_input::TextInput::with_value(cx, "Profile name", name));
-        input.update(cx, |input, cx| input.focus(window, cx));
-        cx.subscribe(
-            &input,
-            |this, _, event: &crate::ui::text_input::TextInputEvent, cx| match event {
-                crate::ui::text_input::TextInputEvent::Submit(name) => {
-                    this.submit_rename(name.clone(), cx)
+        let state = cx.new(|cx| {
+            let mut s = InputState::new(window, cx).placeholder("Profile name");
+            s.set_value(name, window, cx);
+            s
+        });
+        state.read(cx).focus_handle(cx).focus(window, cx);
+        cx.subscribe_in(
+            &state,
+            window,
+            |this, state, event: &InputEvent, _window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.submit_rename(state.read(cx).value().to_string(), cx);
                 }
             },
         )
         .detach();
-        self.rename_dialog = Some(input);
+        self.rename_dialog = Some(state);
         cx.notify();
     }
 
@@ -191,18 +197,20 @@ impl LibraryDetailView {
     }
 
     fn open_export_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let input = cx.new(|cx| crate::ui::text_input::TextInput::new(cx, "Destination .zip path"));
-        input.update(cx, |input, cx| input.focus(window, cx));
-        cx.subscribe(
-            &input,
-            |this, _, event: &crate::ui::text_input::TextInputEvent, cx| match event {
-                crate::ui::text_input::TextInputEvent::Submit(path) => {
-                    this.submit_export(path.clone(), cx)
+        let state =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Destination .zip path"));
+        state.read(cx).focus_handle(cx).focus(window, cx);
+        cx.subscribe_in(
+            &state,
+            window,
+            |this, state, event: &InputEvent, _window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.submit_export(state.read(cx).value().to_string(), cx);
                 }
             },
         )
         .detach();
-        self.export_dialog = Some(input);
+        self.export_dialog = Some(state);
         cx.notify();
     }
 
@@ -234,7 +242,7 @@ impl LibraryDetailView {
     fn button(
         id: &'static str,
         label: SharedString,
-        leading: Option<IconName>,
+        leading: Option<Icon>,
         bg: Rgba,
         theme: &crate::theme::Theme,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
@@ -253,7 +261,7 @@ impl LibraryDetailView {
             .text_color(fg)
             .cursor_pointer()
             .hover(|s| s.opacity(0.85))
-            .children(leading.map(|name| icon(name).text_color(fg)))
+            .children(leading.map(|icon| icon.text_color(fg)))
             .child(label)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
     }
@@ -358,7 +366,7 @@ impl Render for LibraryDetailView {
         let back = Self::button(
             "back",
             "Back".into(),
-            Some(IconName::ArrowLeft),
+            Some(Icon::new(IconName::ArrowLeft)),
             theme.hover,
             &theme,
             |_, cx| cx.emit(LibraryDetailEvent::Close),
@@ -383,7 +391,7 @@ impl Render for LibraryDetailView {
                     Self::button(
                         "install-bepinex",
                         "Install BepInEx".into(),
-                        Some(IconName::Download),
+                        Some(Icon::new(AppIcon::Download)),
                         theme.primary,
                         &theme,
                         |this, cx| this.install_bepinex(cx),
@@ -395,7 +403,7 @@ impl Render for LibraryDetailView {
                     Self::button(
                         "launch",
                         "Launch".into(),
-                        Some(IconName::Play),
+                        Some(Icon::new(IconName::Play)),
                         rgb(0x16a34a),
                         &theme,
                         |this, cx| this.launch(cx),
@@ -494,7 +502,7 @@ impl Render for LibraryDetailView {
                         .child(Self::button(
                             "confirm-delete",
                             "Delete".into(),
-                            Some(IconName::Trash),
+                            Some(Icon::new(IconName::Delete)),
                             rgb(0xdc2626),
                             &theme,
                             |this, cx| this.delete_profile(cx),
@@ -516,7 +524,7 @@ impl Render for LibraryDetailView {
                     div().child(Self::button(
                         "delete-profile",
                         "Delete Profile".into(),
-                        Some(IconName::Trash),
+                        Some(Icon::new(IconName::Delete)),
                         rgb(0xdc2626),
                         &theme,
                         |this, cx| {
@@ -730,7 +738,7 @@ fn stat_card(label: &'static str, value: String, theme: &crate::theme::Theme) ->
 }
 
 fn dialog_overlay(
-    input: Entity<crate::ui::text_input::TextInput>,
+    input: Entity<InputState>,
     title: &'static str,
     confirm: &'static str,
     theme: crate::theme::Theme,
@@ -761,7 +769,7 @@ fn dialog_overlay(
                 .border_1()
                 .border_color(theme.border)
                 .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
-                .child(input)
+                .child(Input::new(&input))
                 .child(
                     div()
                         .flex()

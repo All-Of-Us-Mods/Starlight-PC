@@ -3,7 +3,7 @@ use gpui::*;
 use crate::backend::api::{self, ModResponse};
 use crate::theme::{self, ThemeExt};
 use crate::ui::mod_card::{self, MOD_CARD_HEIGHT};
-use crate::ui::text_input::{TextInput, TextInputEvent};
+use gpui_component::input::{Input, InputEvent, InputState};
 
 const MIN_CARD_WIDTH: f32 = 360.0;
 const MAX_GRID_COLUMNS: u32 = 4;
@@ -50,7 +50,7 @@ pub struct ExploreView {
     page: u32,
     page_size: u32,
     sort: SortBy,
-    search_input: Entity<TextInput>,
+    search_input: Entity<InputState>,
 }
 
 enum LoadState {
@@ -60,11 +60,18 @@ enum LoadState {
 }
 
 impl ExploreView {
-    pub fn new(cx: &mut Context<Self>) -> Self {
-        let search_input = cx.new(|cx| TextInput::new(cx, "Search mods..."));
-        cx.subscribe(&search_input, |this, _, ev: &TextInputEvent, cx| match ev {
-            TextInputEvent::Submit(q) => this.submit_search(q.clone(), cx),
-        })
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let search_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search mods..."));
+        cx.subscribe_in(
+            &search_input,
+            window,
+            |this, state, ev: &InputEvent, _window, cx| {
+                if let InputEvent::PressEnter { .. } = ev {
+                    this.submit_search(state.read(cx).value().to_string(), cx);
+                }
+            },
+        )
         .detach();
 
         let view = Self {
@@ -314,7 +321,7 @@ impl Render for ExploreView {
             .items_center()
             .gap_3()
             .flex_none()
-            .child(div().flex_1().child(self.search_input.clone()))
+            .child(div().flex_1().child(Input::new(&self.search_input)))
             .child(self.sort_pill("sort-downloads", SortBy::Downloads, &theme, cx))
             .child(self.sort_pill("sort-updated", SortBy::Updated, &theme, cx))
             .child(self.sort_pill("sort-created", SortBy::Created, &theme, cx));

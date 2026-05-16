@@ -3,7 +3,7 @@ use gpui::*;
 
 use crate::backend::api::Post;
 use crate::theme::{self, ThemeExt};
-use crate::ui::icon::{IconName, icon};
+use gpui_component::{Icon, IconName};
 
 #[derive(Clone, Debug)]
 pub enum NewsDetailEvent {
@@ -51,7 +51,7 @@ impl Render for NewsDetailView {
             .bg(theme.hover)
             .cursor_pointer()
             .hover(|s| s.opacity(0.85))
-            .child(icon(IconName::ArrowLeft))
+            .child(Icon::new(IconName::ArrowLeft))
             .child("Back")
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
                 cx.emit(NewsDetailEvent::Close);
