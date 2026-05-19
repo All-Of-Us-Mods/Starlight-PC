@@ -6,6 +6,7 @@ use gpui_component::{
     checkbox::Checkbox,
     input::{Input, InputState},
     notification::Notification,
+    progress::Progress,
     skeleton::Skeleton,
     tag::Tag,
 };
@@ -14,7 +15,9 @@ use crate::ui::icon::AppIcon;
 use log::warn;
 
 use crate::backend::api::{self, ModResponse, ModVersion, ModVersionInfo};
+use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::{
+    bepinex_service::BepInExTargetType,
     mod_install_service::{self, InstallModInput, ResolvedDependency},
     profile_service::{self, ProfileEntry},
 };
@@ -74,7 +77,10 @@ struct DepRow {
 enum InstallStatus {
     Resolving,
     Ready,
-    Installing(String),
+    Installing {
+        message: String,
+        progress: f32,
+    },
     Done,
     Failed(String),
 }
@@ -119,6 +125,20 @@ impl ModDetailView {
             });
         })
         .detach();
+
+        // Feed BepInEx + mod download progress into the install panel while
+        // an install is in flight.
+        let mut rx = events::subscribe();
+        cx.spawn(async move |this, cx| {
+            while let Ok(event) = rx.recv().await {
+                let _ = this.update(cx, |this, cx| {
+                    apply_progress_event(this, event);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+
         view
     }
 
@@ -346,14 +366,15 @@ impl ModDetailView {
             .map(|p| p.bepinex_installed != Some(true))
             .unwrap_or(true);
         if let Some(panel) = self.install.as_mut() {
-            panel.status = InstallStatus::Installing(
-                if needs_bepinex {
+            panel.status = InstallStatus::Installing {
+                message: if needs_bepinex {
                     "Installing BepInEx + mods…"
                 } else {
                     "Installing mods…"
                 }
                 .into(),
-            );
+                progress: 0.0,
+            };
         }
         cx.notify();
 
@@ -387,6 +408,29 @@ impl ModDetailView {
             });
         })
         .detach();
+    }
+}
+
+fn apply_progress_event(this: &mut ModDetailView, event: BackendEvent) {
+    let Some(panel) = this.install.as_mut() else {
+        return;
+    };
+    let InstallStatus::Installing { message, progress } = &mut panel.status else {
+        return;
+    };
+    match event {
+        BackendEvent::BepInExProgress(p)
+            if matches!(p.target_type, BepInExTargetType::Profile)
+                && Some(p.target_id.as_str()) == panel.selected_profile_id.as_deref() =>
+        {
+            *message = format!("BepInEx: {}", p.message);
+            *progress = p.progress as f32;
+        }
+        BackendEvent::ModDownloadProgress(p) => {
+            *message = format!("{} ({})", p.mod_id, p.stage);
+            *progress = p.progress as f32;
+        }
+        _ => {}
     }
 }
 
@@ -657,11 +701,18 @@ fn render_install_panel(
                 .child("Resolving dependencies…")
                 .into_any_element(),
         ),
-        InstallStatus::Installing(msg) => Some(
+        InstallStatus::Installing { message, progress } => Some(
             div()
-                .text_xs()
-                .text_color(theme.text_muted)
-                .child(msg.clone())
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.text_muted)
+                        .child(message.clone()),
+                )
+                .child(Progress::new("install-progress").value(*progress))
                 .into_any_element(),
         ),
         InstallStatus::Done => Some(
@@ -681,7 +732,10 @@ fn render_install_panel(
         InstallStatus::Ready => None,
     };
 
-    let busy = matches!(panel.status, InstallStatus::Installing(_) | InstallStatus::Resolving);
+    let busy = matches!(
+        panel.status,
+        InstallStatus::Installing { .. } | InstallStatus::Resolving
+    );
 
     let profile_rows = profiles.iter().enumerate().map(|(ix, p)| {
         let selected = panel.selected_profile_id.as_deref() == Some(p.id.as_str());
