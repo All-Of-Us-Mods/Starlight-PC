@@ -1,7 +1,10 @@
-use gpui::*;
+use std::rc::Rc;
+
+use gpui::{prelude::FluentBuilder as _, *};
 use gpui_component::{
-    Icon, IconName, WindowExt,
+    AxisExt as _, Icon, IconName, Sizable as _, WindowExt,
     button::{Button, ButtonVariants},
+    input::{Input, InputEvent, InputState},
     notification::Notification,
     setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
 };
@@ -20,8 +23,6 @@ pub struct SettingsView;
 
 impl SettingsView {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        // Re-render whenever the settings global changes so the
-        // SettingField value closures pick up new values.
         cx.observe_global::<app_settings::SettingsGlobal>(|_, cx| cx.notify())
             .detach();
         Self
@@ -149,6 +150,100 @@ fn patch_linux_proton_compat_data_path(value: SharedString, cx: &mut App) {
     );
 }
 
+// ---------- path input field (Input + Browse button, two-way bound) ----------
+
+struct PathFieldState {
+    input: Entity<InputState>,
+    _sub: Subscription,
+}
+
+/// File-path setting field. The input mirrors the global in real time (so an
+/// external write like Auto-detect updates the visible text), edits write back
+/// through `set`, and the Browse button opens the platform file picker.
+fn path_field(
+    key: &'static str,
+    directories_only: bool,
+    get: fn(&App) -> SharedString,
+    set: fn(SharedString, &mut App),
+) -> SettingField<SharedString> {
+    SettingField::render(move |options, window, cx| {
+        let value = get(cx);
+
+        let state_key: SharedString = format!(
+            "path-field-{}-{}-{}-{}",
+            key, options.page_ix, options.group_ix, options.item_ix
+        )
+        .into();
+
+        let value_for_init = value.clone();
+        let state = window.use_keyed_state(state_key, cx, move |window, cx| {
+            let input =
+                cx.new(|cx| InputState::new(window, cx).default_value(value_for_init.clone()));
+            let _sub = cx.subscribe(&input, move |_, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let v = input.read(cx).value();
+                    set(v, cx);
+                }
+            });
+            PathFieldState { input, _sub }
+        });
+
+        let input_entity = state.read(cx).input.clone();
+        if input_entity.read(cx).value() != value {
+            let val = value.clone();
+            input_entity.update(cx, |s, cx| s.set_value(val, window, cx));
+        }
+
+        let prompt: SharedString = if directories_only {
+            "Select folder".into()
+        } else {
+            "Select file".into()
+        };
+        let button_id: SharedString = format!(
+            "path-browse-{}-{}-{}-{}",
+            key, options.page_ix, options.group_ix, options.item_ix
+        )
+        .into();
+        let setter: Rc<dyn Fn(SharedString, &mut App)> = Rc::new(move |v, cx| set(v, cx));
+
+        let input_el = Input::new(&input_entity).with_size(options.size).map(|this| {
+            if options.layout.is_horizontal() {
+                this.w_64()
+            } else {
+                this.w_full()
+            }
+        });
+
+        div().flex().gap_2().child(input_el).child(
+            Button::new(button_id)
+                .icon(Icon::new(IconName::FolderOpen))
+                .label("Browse")
+                .with_size(options.size)
+                .on_click(move |_, window, cx| {
+                    let receiver = cx.prompt_for_paths(PathPromptOptions {
+                        files: !directories_only,
+                        directories: directories_only,
+                        multiple: false,
+                        prompt: Some(prompt.clone()),
+                    });
+                    let setter = setter.clone();
+                    window
+                        .spawn(cx, async move |cx| {
+                            let Ok(Ok(Some(paths))) = receiver.await else {
+                                return;
+                            };
+                            let Some(path) = paths.into_iter().next() else {
+                                return;
+                            };
+                            let s: SharedString = path.to_string_lossy().into_owned().into();
+                            let _ = cx.update(|_, cx| setter(s, cx));
+                        })
+                        .detach();
+                }),
+        )
+    })
+}
+
 // ---------- action handlers (Detect / Cache / Clear) ----------
 
 fn detect_among_us(window: &mut Window, cx: &mut App) {
@@ -218,8 +313,10 @@ fn download_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App)
 fn clear_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App) {
     match core_service::get_bepinex_cache_path(arch) {
         Ok(path) => match bepinex_service::clear_cache(path) {
-            Ok(()) => window
-                .push_notification(Notification::success(format!("Cleared BepInEx {arch} cache")), cx),
+            Ok(()) => window.push_notification(
+                Notification::success(format!("Cleared BepInEx {arch} cache")),
+                cx,
+            ),
             Err(e) => {
                 warn!("clear_bepinex_cache failed: {e}");
                 window.push_notification(Notification::error(format!("Clear failed: {e}")), cx);
@@ -237,140 +334,132 @@ impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let game_page = SettingPage::new("Game")
-            .default_open(true)
-            .groups(vec![
-                SettingGroup::new()
-                    .title("Installation")
-                    .items(vec![
-                        SettingItem::new(
-                            "Among Us path",
-                            SettingField::input(
-                                |cx| app_settings::get(cx).among_us_path.clone().into(),
-                                patch_among_us_path,
-                            ),
-                        )
-                        .description("Folder containing Among Us.exe."),
-                        SettingItem::new(
-                            "Auto-detect",
-                            SettingField::render(|_, _, _| {
-                                Button::new("detect-among-us")
-                                    .icon(Icon::new(AppIcon::Compass))
-                                    .label("Auto-detect Among Us")
-                                    .on_click(|_, window, cx| detect_among_us(window, cx))
-                            }),
-                        )
-                        .description("Search known install locations and set the path above."),
-                    ]),
-                SettingGroup::new()
-                    .title("Platform")
-                    .items(vec![
-                        SettingItem::new(
-                            "Game platform",
-                            SettingField::dropdown(
-                                vec![
-                                    ("steam".into(), "Steam".into()),
-                                    ("epic".into(), "Epic".into()),
-                                    ("xbox".into(), "Xbox".into()),
-                                ],
-                                |cx| match app_settings::get(cx).game_platform {
-                                    GamePlatform::Steam => "steam".into(),
-                                    GamePlatform::Epic => "epic".into(),
-                                    GamePlatform::Xbox => "xbox".into(),
-                                },
-                                patch_platform,
-                            ),
-                        )
-                        .description("Which storefront the game was installed from."),
-                    ]),
-            ]);
+        let game_page = SettingPage::new("Game").default_open(true).groups(vec![
+            SettingGroup::new().title("Installation").items(vec![
+                SettingItem::new(
+                    "Among Us path",
+                    path_field(
+                        "among-us",
+                        true,
+                        |cx| app_settings::get(cx).among_us_path.clone().into(),
+                        patch_among_us_path,
+                    ),
+                )
+                .description("Folder containing Among Us.exe."),
+                SettingItem::new(
+                    "Auto-detect",
+                    SettingField::render(|_, _, _| {
+                        Button::new("detect-among-us")
+                            .icon(Icon::new(AppIcon::Compass))
+                            .label("Auto-detect Among Us")
+                            .on_click(|_, window, cx| detect_among_us(window, cx))
+                    }),
+                )
+                .description("Search known install locations and set the path above."),
+            ]),
+            SettingGroup::new().title("Platform").items(vec![
+                SettingItem::new(
+                    "Game platform",
+                    SettingField::dropdown(
+                        vec![
+                            ("steam".into(), "Steam".into()),
+                            ("epic".into(), "Epic".into()),
+                            ("xbox".into(), "Xbox".into()),
+                        ],
+                        |cx| match app_settings::get(cx).game_platform {
+                            GamePlatform::Steam => "steam".into(),
+                            GamePlatform::Epic => "epic".into(),
+                            GamePlatform::Xbox => "xbox".into(),
+                        },
+                        patch_platform,
+                    ),
+                )
+                .description("Which storefront the game was installed from."),
+            ]),
+        ]);
 
         let launch_page = SettingPage::new("Launch").group(
-            SettingGroup::new()
-                .title("Behavior")
-                .items(vec![
-                    SettingItem::new(
-                        "Close Starlight when launching",
-                        SettingField::switch(
-                            |cx| app_settings::get(cx).close_on_launch,
-                            patch_close_on_launch,
-                        ),
-                    )
-                    .description("Quit the app after starting the game."),
-                    SettingItem::new(
-                        "Allow multiple instances",
-                        SettingField::switch(
-                            |cx| app_settings::get(cx).allow_multi_instance_launch,
-                            patch_multi_instance,
-                        ),
-                    )
-                    .description("Permit launching more than one game window at a time."),
-                ]),
+            SettingGroup::new().title("Behavior").items(vec![
+                SettingItem::new(
+                    "Close Starlight when launching",
+                    SettingField::switch(
+                        |cx| app_settings::get(cx).close_on_launch,
+                        patch_close_on_launch,
+                    ),
+                )
+                .description("Quit the app after starting the game."),
+                SettingItem::new(
+                    "Allow multiple instances",
+                    SettingField::switch(
+                        |cx| app_settings::get(cx).allow_multi_instance_launch,
+                        patch_multi_instance,
+                    ),
+                )
+                .description("Permit launching more than one game window at a time."),
+            ]),
         );
 
         let bepinex_page = SettingPage::new("BepInEx").groups(vec![
-            SettingGroup::new()
-                .title("Cache")
-                .items(vec![
-                    SettingItem::new(
-                        "Cache BepInEx downloads",
-                        SettingField::switch(
-                            |cx| app_settings::get(cx).cache_bepinex,
-                            patch_cache_bepinex,
-                        ),
-                    )
-                    .description("Reuse cached archives across profile installs."),
-                    SettingItem::new(
-                        "x64 cache",
-                        SettingField::render(|_, _, _| {
-                            div()
-                                .flex()
-                                .gap_2()
-                                .child(
-                                    Button::new("cache-x64")
-                                        .icon(Icon::new(AppIcon::Download))
-                                        .label("Download")
-                                        .on_click(|_, window, cx| {
-                                            download_bepinex_cache("x64", window, cx)
-                                        }),
-                                )
-                                .child(
-                                    Button::new("clear-x64")
-                                        .danger()
-                                        .icon(Icon::new(IconName::Delete))
-                                        .label("Clear")
-                                        .on_click(|_, window, cx| {
-                                            clear_bepinex_cache("x64", window, cx)
-                                        }),
-                                )
-                        }),
+            SettingGroup::new().title("Cache").items(vec![
+                SettingItem::new(
+                    "Cache BepInEx downloads",
+                    SettingField::switch(
+                        |cx| app_settings::get(cx).cache_bepinex,
+                        patch_cache_bepinex,
                     ),
-                    SettingItem::new(
-                        "x86 cache",
-                        SettingField::render(|_, _, _| {
-                            div()
-                                .flex()
-                                .gap_2()
-                                .child(
-                                    Button::new("cache-x86")
-                                        .icon(Icon::new(AppIcon::Download))
-                                        .label("Download")
-                                        .on_click(|_, window, cx| {
-                                            download_bepinex_cache("x86", window, cx)
-                                        }),
-                                )
-                                .child(
-                                    Button::new("clear-x86")
-                                        .danger()
-                                        .icon(Icon::new(IconName::Delete))
-                                        .label("Clear")
-                                        .on_click(|_, window, cx| {
-                                            clear_bepinex_cache("x86", window, cx)
-                                        }),
-                                )
-                        }),
-                    ),
-                ]),
+                )
+                .description("Reuse cached archives across profile installs."),
+                SettingItem::new(
+                    "x64 cache",
+                    SettingField::render(|_, _, _| {
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                Button::new("cache-x64")
+                                    .icon(Icon::new(AppIcon::Download))
+                                    .label("Download")
+                                    .on_click(|_, window, cx| {
+                                        download_bepinex_cache("x64", window, cx)
+                                    }),
+                            )
+                            .child(
+                                Button::new("clear-x64")
+                                    .danger()
+                                    .icon(Icon::new(IconName::Delete))
+                                    .label("Clear")
+                                    .on_click(|_, window, cx| {
+                                        clear_bepinex_cache("x64", window, cx)
+                                    }),
+                            )
+                    }),
+                ),
+                SettingItem::new(
+                    "x86 cache",
+                    SettingField::render(|_, _, _| {
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                Button::new("cache-x86")
+                                    .icon(Icon::new(AppIcon::Download))
+                                    .label("Download")
+                                    .on_click(|_, window, cx| {
+                                        download_bepinex_cache("x86", window, cx)
+                                    }),
+                            )
+                            .child(
+                                Button::new("clear-x86")
+                                    .danger()
+                                    .icon(Icon::new(IconName::Delete))
+                                    .label("Clear")
+                                    .on_click(|_, window, cx| {
+                                        clear_bepinex_cache("x86", window, cx)
+                                    }),
+                            )
+                    }),
+                ),
+            ]),
             SettingGroup::new()
                 .title("Download URLs")
                 .description("Override the default release archive locations.")
@@ -413,21 +502,27 @@ impl Render for SettingsView {
                     ),
                     SettingItem::new(
                         "Runner binary",
-                        SettingField::input(
+                        path_field(
+                            "linux-runner-binary",
+                            false,
                             |cx| app_settings::get(cx).linux_runner_binary.clone().into(),
                             patch_linux_runner_binary,
                         ),
                     ),
                     SettingItem::new(
                         "Wine prefix",
-                        SettingField::input(
+                        path_field(
+                            "linux-wine-prefix",
+                            true,
                             |cx| app_settings::get(cx).linux_wine_prefix.clone().into(),
                             patch_linux_wine_prefix,
                         ),
                     ),
                     SettingItem::new(
                         "Proton compat data path",
-                        SettingField::input(
+                        path_field(
+                            "linux-proton-compat",
+                            true,
                             |cx| {
                                 app_settings::get(cx)
                                     .linux_proton_compat_data_path
