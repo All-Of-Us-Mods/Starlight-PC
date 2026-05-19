@@ -58,6 +58,15 @@ pub struct ModDependency {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PlatformDownload {
+    pub platform: String,
+    pub architecture: String,
+    pub file_name: Option<String>,
+    pub checksum: Option<String>,
+    pub download_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModVersionInfo {
     pub status: Option<String>,
     pub name: String,
@@ -67,6 +76,10 @@ pub struct ModVersionInfo {
     pub created_at: i64,
     pub changelog: Option<String>,
     pub dependencies: Vec<ModDependency>,
+    pub file_name: Option<String>,
+    pub checksum: Option<String>,
+    pub download_url: Option<String>,
+    pub platforms: Option<Vec<PlatformDownload>>,
 }
 
 fn get_json<T: for<'de> Deserialize<'de>>(url: &str) -> AppResult<T> {
