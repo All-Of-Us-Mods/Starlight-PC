@@ -69,68 +69,50 @@ pub struct ModVersionInfo {
     pub dependencies: Vec<ModDependency>,
 }
 
-pub fn fetch_news() -> AppResult<Vec<Post>> {
-    let url = format!("{}/api/v3/news/posts", DEFAULT_API_BASE_URL);
-    ureq::get(&url)
-        .call()?
-        .into_json::<Vec<Post>>()
+fn get_json<T: for<'de> Deserialize<'de>>(url: &str) -> AppResult<T> {
+    reqwest::blocking::get(url)?
+        .error_for_status()?
+        .json::<T>()
         .map_err(|e| AppError::Http(e.to_string()))
+}
+
+pub fn fetch_news() -> AppResult<Vec<Post>> {
+    get_json(&format!("{}/api/v3/news/posts", DEFAULT_API_BASE_URL))
 }
 
 pub fn fetch_trending_mods() -> AppResult<Vec<ModResponse>> {
-    let url = format!("{}/api/v3/mods/trending", DEFAULT_API_BASE_URL);
-    ureq::get(&url)
-        .call()?
-        .into_json::<Vec<ModResponse>>()
-        .map_err(|e| AppError::Http(e.to_string()))
+    get_json(&format!("{}/api/v3/mods/trending", DEFAULT_API_BASE_URL))
 }
 
 pub fn fetch_mods_total() -> AppResult<u32> {
-    let url = format!("{}/api/v3/mods/total", DEFAULT_API_BASE_URL);
-    ureq::get(&url)
-        .call()?
-        .into_json::<u32>()
-        .map_err(|e| AppError::Http(e.to_string()))
+    get_json(&format!("{}/api/v3/mods/total", DEFAULT_API_BASE_URL))
 }
 
 pub fn fetch_mods(limit: u32, offset: u32) -> AppResult<Vec<ModResponse>> {
-    let url = format!(
+    get_json(&format!(
         "{}/api/v3/mods?limit={}&offset={}",
         DEFAULT_API_BASE_URL, limit, offset
-    );
-    ureq::get(&url)
-        .call()?
-        .into_json::<Vec<ModResponse>>()
-        .map_err(|e| AppError::Http(e.to_string()))
+    ))
 }
 
 pub fn fetch_mod(id: &str) -> AppResult<ModResponse> {
-    let url = format!("{}/api/v3/mods/{}", DEFAULT_API_BASE_URL, id);
-    ureq::get(&url)
-        .call()?
-        .into_json::<ModResponse>()
-        .map_err(|e| AppError::Http(e.to_string()))
+    get_json(&format!("{}/api/v3/mods/{}", DEFAULT_API_BASE_URL, id))
 }
 
 pub fn fetch_mod_versions(id: &str) -> AppResult<Vec<ModVersion>> {
-    let url = format!("{}/api/v3/mods/{}/versions", DEFAULT_API_BASE_URL, id);
-    ureq::get(&url)
-        .call()?
-        .into_json::<Vec<ModVersion>>()
-        .map_err(|e| AppError::Http(e.to_string()))
+    get_json(&format!(
+        "{}/api/v3/mods/{}/versions",
+        DEFAULT_API_BASE_URL, id
+    ))
 }
 
 pub fn fetch_mod_version_info(id: &str, version: &str) -> AppResult<ModVersionInfo> {
-    let url = format!(
+    get_json(&format!(
         "{}/api/v3/mods/{}/versions/{}",
         DEFAULT_API_BASE_URL,
         id,
         urlencoding::encode(version)
-    );
-    ureq::get(&url)
-        .call()?
-        .into_json::<ModVersionInfo>()
-        .map_err(|e| AppError::Http(e.to_string()))
+    ))
 }
 
 pub fn mod_thumbnail_url(id: &str) -> String {
@@ -138,15 +120,11 @@ pub fn mod_thumbnail_url(id: &str) -> String {
 }
 
 pub fn search_mods(query: &str, limit: u32, offset: u32) -> AppResult<Vec<ModResponse>> {
-    let url = format!(
+    get_json(&format!(
         "{}/api/v3/mods/search?q={}&limit={}&offset={}",
         DEFAULT_API_BASE_URL,
         urlencoding::encode(query),
         limit,
         offset,
-    );
-    ureq::get(&url)
-        .call()?
-        .into_json::<Vec<ModResponse>>()
-        .map_err(|e| AppError::Http(e.to_string()))
+    ))
 }

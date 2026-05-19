@@ -47,18 +47,20 @@ pub fn download_mod(
 
     let tracking_id = get_tracking_id()?;
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(CONNECT_TIMEOUT)
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)
-        .build();
+        .build()?;
 
     emit_progress(&mod_id, 0, None, "connecting");
 
-    let response = agent.get(&url).set("X-Starlight-ID", &tracking_id).call()?;
+    let mut response = client
+        .get(&url)
+        .header("X-Starlight-ID", &tracking_id)
+        .send()?
+        .error_for_status()?;
 
-    let total_size: Option<u64> = response
-        .header("Content-Length")
-        .and_then(|s| s.parse().ok());
+    let total_size: Option<u64> = response.content_length();
     debug!("Download size: {:?}", total_size);
 
     let mut hasher = Sha256::new();
@@ -68,9 +70,8 @@ pub fn download_mod(
 
     emit_progress(&mod_id, 0, total_size, "downloading");
 
-    let mut reader = response.into_reader();
     loop {
-        let n = reader.read(&mut chunk)?;
+        let n = response.read(&mut chunk)?;
         if n == 0 {
             break;
         }

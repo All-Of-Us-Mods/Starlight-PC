@@ -22,23 +22,21 @@ https://github.com/All-Of-Us-Mods/Starlight-PC/releases/latest
 
 ## Development Prerequisites
 
-- Install VitePlus: https://viteplus.dev/guide/
 - Install Rust: https://www.rust-lang.org/tools/install
-- Install dev dependencies: `vp install`
+- Or use the provided Nix flake: `nix develop`
 
 ## Development
 
 ```bash
-vp install        # Install dependencies
-vpr tauri dev      # Start in development mode
-vpr tauri build    # Build for production
+cargo run            # Start in development mode
+cargo build --release # Build for production
 ```
 
 ## Tech Stack
 
-- **Framework**: [Tauri](https://tauri.app/) + [SvelteKit](https://kit.svelte.dev/)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/) + [shadcn-svelte](https://www.shadcn-svelte.com/)
-- **State**: [TanStack Query](https://tanstack.com/query)
+- **UI**: [GPUI](https://www.gpui.rs/) (the Rust UI framework from [Zed](https://zed.dev/))
+- **Components**: [gpui-component](https://github.com/longbridge/gpui-component)
+- **HTTP**: [reqwest](https://github.com/seanmonstar/reqwest) (with rustls)
 
 ## Disclaimer
 

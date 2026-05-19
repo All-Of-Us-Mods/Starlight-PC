@@ -2,9 +2,9 @@ use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::storage_service::KeyringStorage;
 use base64::Engine;
 use log::{debug, error, info};
+use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-use ureq::Agent;
 
 const OAUTH_HOST: &str = "account-public-service-prod03.ol.epicgames.com";
 const LAUNCHER_CLIENT_ID: &str = "34a02cf8f4414e29b15921876da36f9a";
@@ -29,13 +29,16 @@ struct GameTokenResponse {
 }
 
 pub struct EpicAuthService {
-    agent: Agent,
+    client: Client,
 }
 
 impl EpicAuthService {
     pub fn new() -> AppResult<Self> {
-        let agent = ureq::AgentBuilder::new().user_agent(USER_AGENT).build();
-        Ok(Self { agent })
+        let client = Client::builder()
+            .user_agent(USER_AGENT)
+            .build()
+            .map_err(AppError::from)?;
+        Ok(Self { client })
     }
 
     fn get_basic_auth() -> String {
@@ -71,50 +74,47 @@ impl EpicAuthService {
     }
 
     fn oauth_request(&self, params: &[(&str, &str)]) -> AppResult<EpicSession> {
-        let response = match self
-            .agent
-            .post(&format!("https://{OAUTH_HOST}/account/api/oauth/token"))
-            .set(
+        let response = self
+            .client
+            .post(format!("https://{OAUTH_HOST}/account/api/oauth/token"))
+            .header(
                 "Authorization",
-                &format!("Basic {}", Self::get_basic_auth()),
+                format!("Basic {}", Self::get_basic_auth()),
             )
-            .send_form(params)
-        {
-            Ok(r) => r,
-            Err(ureq::Error::Status(status, response)) => {
-                let body = response.into_string().unwrap_or_default();
-                error!("Epic OAuth request failed ({}): {}", status, body);
-                return Err(AppError::auth(format!(
-                    "OAuth request failed ({status}): {body}"
-                )));
-            }
-            Err(e) => return Err(AppError::from(e)),
-        };
+            .form(params)
+            .send()?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().unwrap_or_default();
+            error!("Epic OAuth request failed ({}): {}", status, body);
+            return Err(AppError::auth(format!(
+                "OAuth request failed ({status}): {body}"
+            )));
+        }
 
         response
-            .into_json()
+            .json()
             .map_err(|e| AppError::Http(e.to_string()))
     }
 
     pub fn get_game_token(&self, session: &EpicSession) -> AppResult<String> {
-        let response = match self
-            .agent
-            .get(&format!("https://{OAUTH_HOST}/account/api/oauth/exchange"))
-            .set("Authorization", &format!("Bearer {}", session.access_token))
-            .call()
-        {
-            Ok(r) => r,
-            Err(ureq::Error::Status(status, response)) => {
-                let body = response.into_string().unwrap_or_default();
-                return Err(AppError::auth(format!(
-                    "Failed to get game token ({status}): {body}"
-                )));
-            }
-            Err(e) => return Err(AppError::from(e)),
-        };
+        let response = self
+            .client
+            .get(format!("https://{OAUTH_HOST}/account/api/oauth/exchange"))
+            .header("Authorization", format!("Bearer {}", session.access_token))
+            .send()?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().unwrap_or_default();
+            return Err(AppError::auth(format!(
+                "Failed to get game token ({status}): {body}"
+            )));
+        }
 
         let token: GameTokenResponse = response
-            .into_json()
+            .json()
             .map_err(|e| AppError::Http(e.to_string()))?;
         Ok(token.code)
     }

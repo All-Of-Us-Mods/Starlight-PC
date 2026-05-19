@@ -1,4 +1,4 @@
-use crate::backend::error::{AppError, AppResult};
+use crate::backend::error::AppResult;
 use log::debug;
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -18,23 +18,20 @@ where
         fs::create_dir_all(parent)?;
     }
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(CONNECT_TIMEOUT)
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)
-        .build();
+        .build()?;
 
-    let response = agent.get(url).call()?;
-    let total: Option<u64> = response
-        .header("Content-Length")
-        .and_then(|s| s.parse().ok());
+    let mut response = client.get(url).send()?.error_for_status()?;
+    let total: Option<u64> = response.content_length();
 
     let mut file = File::create(dest_path)?;
-    let mut reader = response.into_reader();
     let mut buf = vec![0u8; READ_CHUNK];
     let mut downloaded = 0u64;
 
     loop {
-        let n = reader.read(&mut buf)?;
+        let n = response.read(&mut buf)?;
         if n == 0 {
             break;
         }
