@@ -4,6 +4,7 @@ use gpui_component::{
     Disableable as _, Icon, IconName, WindowExt,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
+    input::{Input, InputState},
     notification::Notification,
     skeleton::Skeleton,
     tag::Tag,
@@ -47,8 +48,15 @@ struct ModDetailData {
 
 struct InstallPanel {
     selected_profile_id: Option<String>,
+    selected_version: String,
     deps: Vec<DepRow>,
     status: InstallStatus,
+    new_profile: Option<NewProfileInput>,
+}
+
+struct NewProfileInput {
+    name_input: Entity<InputState>,
+    busy: bool,
 }
 
 struct DepRow {
@@ -115,27 +123,55 @@ impl ModDetailView {
     }
 
     fn open_install_panel(&mut self, cx: &mut Context<Self>) {
-        let Some((mod_id, latest_version, deps)) = self.current_install_target() else {
+        let LoadState::Loaded(data) = &self.state else {
             return;
         };
+        let Some(latest) = data.versions.first() else {
+            return;
+        };
+        let mod_id = data.mod_info.id.clone();
+        let latest_version = latest.version.clone();
         let default_profile = self.profiles.first().map(|p| p.id.clone());
         self.install = Some(InstallPanel {
-            selected_profile_id: default_profile.clone(),
+            selected_profile_id: default_profile,
+            selected_version: latest_version.clone(),
             deps: Vec::new(),
             status: InstallStatus::Resolving,
+            new_profile: None,
         });
         cx.notify();
+        self.resolve_for_selected_version(mod_id, latest_version, cx);
+    }
 
+    fn resolve_for_selected_version(
+        &mut self,
+        mod_id: String,
+        version: String,
+        cx: &mut Context<Self>,
+    ) {
+        let id_for_task = mod_id.clone();
+        let version_for_task = version.clone();
         cx.spawn(async move |this, cx| {
             let resolved = cx
                 .background_executor()
-                .spawn(async move { mod_install_service::resolve_dependencies(&deps).ok() })
+                .spawn(async move {
+                    let info = api::fetch_mod_version_info(&id_for_task, &version_for_task).ok();
+                    let deps = info.map(|i| i.dependencies).unwrap_or_default();
+                    mod_install_service::resolve_dependencies(&deps).ok()
+                })
                 .await
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
-                // Resolution may have raced the user picking a different profile;
-                // use whatever's currently selected on the panel, not the snapshot
-                // we captured when the panel opened.
+                // Stale-callback guards: only apply if the panel still exists and
+                // is still showing the same version we resolved for.
+                let still_relevant = this
+                    .install
+                    .as_ref()
+                    .map(|p| p.selected_version == version)
+                    .unwrap_or(false);
+                if !still_relevant {
+                    return;
+                }
                 let selected = this
                     .install
                     .as_ref()
@@ -151,26 +187,10 @@ impl ModDetailView {
                     panel.deps = rows;
                     panel.status = InstallStatus::Ready;
                 }
-                let _ = (mod_id, latest_version, default_profile);
                 cx.notify();
             });
         })
         .detach();
-    }
-
-    fn current_install_target(
-        &self,
-    ) -> Option<(String, String, Vec<api::ModDependency>)> {
-        let LoadState::Loaded(data) = &self.state else {
-            return None;
-        };
-        let version = data.versions.first()?;
-        let deps = data
-            .version_info
-            .as_ref()
-            .map(|v| v.dependencies.clone())
-            .unwrap_or_default();
-        Some((data.mod_info.id.clone(), version.version.clone(), deps))
     }
 
     fn close_install_panel(&mut self, cx: &mut Context<Self>) {
@@ -194,6 +214,95 @@ impl ModDetailView {
         cx.notify();
     }
 
+    fn select_version(&mut self, version: String, cx: &mut Context<Self>) {
+        let mod_id = match &self.state {
+            LoadState::Loaded(data) => data.mod_info.id.clone(),
+            _ => return,
+        };
+        let Some(panel) = self.install.as_mut() else {
+            return;
+        };
+        if panel.selected_version == version {
+            return;
+        }
+        panel.selected_version = version.clone();
+        panel.deps.clear();
+        panel.status = InstallStatus::Resolving;
+        cx.notify();
+        self.resolve_for_selected_version(mod_id, version, cx);
+    }
+
+    fn toggle_new_profile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(panel) = self.install.as_mut() else {
+            return;
+        };
+        if panel.new_profile.is_some() {
+            panel.new_profile = None;
+        } else {
+            let name_input = cx.new(|cx| {
+                InputState::new(window, cx).placeholder("New profile name")
+            });
+            panel.new_profile = Some(NewProfileInput {
+                name_input,
+                busy: false,
+            });
+        }
+        cx.notify();
+    }
+
+    fn submit_new_profile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(panel) = self.install.as_mut() else {
+            return;
+        };
+        let Some(new_profile) = panel.new_profile.as_mut() else {
+            return;
+        };
+        if new_profile.busy {
+            return;
+        }
+        let name = new_profile.name_input.read(cx).value().to_string();
+        let trimmed = name.trim().to_string();
+        if trimmed.is_empty() {
+            window.push_notification(
+                Notification::warning("Profile name cannot be empty"),
+                cx,
+            );
+            return;
+        }
+        new_profile.busy = true;
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { profile_service::create_profile(&trimmed) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(profile) => {
+                        this.profiles = profile_service::get_profiles().unwrap_or_default();
+                        if let Some(panel) = this.install.as_mut() {
+                            panel.new_profile = None;
+                        }
+                        // Select the newly created profile (this also re-evaluates
+                        // dep checkboxes against its empty mod list).
+                        this.select_profile(profile.id, cx);
+                    }
+                    Err(e) => {
+                        warn!("create_profile failed: {e}");
+                        if let Some(panel) = this.install.as_mut() {
+                            if let Some(np) = panel.new_profile.as_mut() {
+                                np.busy = false;
+                            }
+                        }
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
     fn toggle_dep(&mut self, ix: usize, checked: bool, cx: &mut Context<Self>) {
         if let Some(panel) = self.install.as_mut() {
             if let Some(row) = panel.deps.get_mut(ix) {
@@ -211,9 +320,11 @@ impl ModDetailView {
             window.push_notification(Notification::warning("Pick a profile first"), cx);
             return;
         };
-        let Some((mod_id, version, _)) = self.current_install_target() else {
-            return;
+        let mod_id = match &self.state {
+            LoadState::Loaded(data) => data.mod_info.id.clone(),
+            _ => return,
         };
+        let version = panel.selected_version.clone();
 
         // Install transitive deps first (already ordered deepest-first by the
         // resolver), then the root mod the user picked.
@@ -372,7 +483,7 @@ impl Render for ModDetailView {
                     }));
 
                 let install_panel = self.install.as_ref().map(|panel| {
-                    render_install_panel(panel, &self.profiles, &theme, cx)
+                    render_install_panel(panel, &self.profiles, &data.versions, &theme, cx)
                 });
 
                 div()
@@ -519,6 +630,7 @@ impl Render for ModDetailView {
 fn render_install_panel(
     panel: &InstallPanel,
     profiles: &[ProfileEntry],
+    versions: &[ModVersion],
     theme: &crate::theme::Theme,
     cx: &mut Context<ModDetailView>,
 ) -> AnyElement {
@@ -574,6 +686,74 @@ fn render_install_panel(
                 cx.listener(move |this, _, _window, cx| {
                     this.select_profile(id.clone(), cx);
                 }),
+            )
+            .into_any_element()
+    });
+    let new_profile_chip = div()
+        .id("install-profile-new")
+        .px_3()
+        .py_2()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.background)
+        .cursor_pointer()
+        .child("+ New profile")
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _, window, cx| {
+                this.toggle_new_profile(window, cx);
+            }),
+        )
+        .into_any_element();
+    let profile_chips: Vec<AnyElement> = profile_rows.chain(std::iter::once(new_profile_chip)).collect();
+
+    let version_rows = versions.iter().enumerate().map(|(ix, v)| {
+        let selected = panel.selected_version == v.version;
+        let version = v.version.clone();
+        div()
+            .id(SharedString::from(format!("install-version-{ix}")))
+            .px_3()
+            .py_1()
+            .rounded_md()
+            .border_1()
+            .border_color(if selected { theme.primary } else { theme.border })
+            .bg(if selected { theme.hover } else { theme.background })
+            .cursor_pointer()
+            .text_xs()
+            .child(format!("v{}", v.version))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _window, cx| {
+                    this.select_version(version.clone(), cx);
+                }),
+            )
+    });
+
+    let new_profile_row = panel.new_profile.as_ref().map(|np| {
+        let busy = np.busy;
+        div()
+            .flex()
+            .gap_2()
+            .items_center()
+            .child(Input::new(&np.name_input).w(px(220.0)))
+            .child(
+                Button::new("new-profile-create")
+                    .primary()
+                    .label(if busy { "Creating…" } else { "Create" })
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.submit_new_profile(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("new-profile-cancel")
+                    .ghost()
+                    .label("Cancel")
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_new_profile(window, cx);
+                    })),
             )
     });
 
@@ -649,20 +829,22 @@ fn render_install_panel(
         .border_color(theme.border)
         .bg(theme.hover)
         .child(section_label("Install into profile", theme))
-        .child(if profiles.is_empty() {
-            div()
-                .text_sm()
-                .text_color(theme.text_muted)
-                .child("No profiles yet. Create one from the Library tab first.")
-                .into_any_element()
-        } else {
+        .child(
             div()
                 .flex()
                 .flex_wrap()
                 .gap_2()
-                .children(profile_rows)
-                .into_any_element()
-        })
+                .children(profile_chips),
+        )
+        .children(new_profile_row)
+        .child(section_label("Version", theme))
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_2()
+                .children(version_rows),
+        )
         .children(if panel.deps.is_empty() {
             None
         } else {
