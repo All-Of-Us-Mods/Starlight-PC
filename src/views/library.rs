@@ -230,13 +230,12 @@ impl LibraryView {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(profile.name.clone()),
             )
-            .child(div().text_sm().text_color(theme.text_muted).child(
-                if profile.bepinex_installed == Some(true) {
-                    "BepInEx installed"
-                } else {
-                    "BepInEx not installed"
-                },
-            ))
+            .children((profile.bepinex_installed != Some(true)).then(|| {
+                div()
+                    .text_xs()
+                    .text_color(rgb(0xf59e0b))
+                    .child("BepInEx not installed")
+            }))
             .child(
                 div()
                     .text_xs()

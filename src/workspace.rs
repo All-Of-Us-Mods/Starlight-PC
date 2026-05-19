@@ -115,7 +115,12 @@ impl Workspace {
         self.view = match tab {
             Tab::Home => ActiveView::Home(self.home.clone()),
             Tab::Explore => ActiveView::Explore(self.explore.clone()),
-            Tab::Library => ActiveView::Library,
+            Tab::Library => {
+                // Profiles can change from anywhere (mod install, BepInEx install,
+                // …); pull a fresh list whenever the user navigates back here.
+                self.library.update(cx, |lib, cx| lib.refresh(cx));
+                ActiveView::Library
+            }
             Tab::Settings => ActiveView::Settings(self.settings.clone()),
         };
         cx.notify();

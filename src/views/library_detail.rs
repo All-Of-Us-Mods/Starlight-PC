@@ -525,10 +525,11 @@ impl Render for LibraryDetailView {
                             .text_color(theme.text_muted)
                             .child(profile.path.clone()),
                     )
-                    .child(div().text_sm().child(if bep_installed {
-                        "BepInEx installed"
-                    } else {
-                        "BepInEx not installed"
+                    .children((!bep_installed).then(|| {
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0xf59e0b))
+                            .child("BepInEx not installed")
                     }))
                     .children(progress_row)
                     .children(install_btn)
