@@ -246,6 +246,46 @@ fn path_field(
 
 // ---------- action handlers (Detect / Cache / Clear) ----------
 
+fn detect_linux_runtime(window: &mut Window, cx: &mut App) {
+    let among_us_path = app_settings::get(cx).among_us_path.clone();
+    let path_arg = (!among_us_path.trim().is_empty()).then(|| among_us_path);
+    match finder_service::detect_linux_runner(path_arg) {
+        Ok(detection) => {
+            let kind = match detection.runner_kind.as_str() {
+                "wine" => LinuxRunnerKind::Wine,
+                _ => LinuxRunnerKind::Proton,
+            };
+            app_settings::update(
+                cx,
+                AppSettingsPatch {
+                    linux_runner_kind: Some(kind),
+                    linux_runner_binary: Some(detection.runner_binary.unwrap_or_default()),
+                    linux_wine_prefix: Some(detection.wine_prefix.unwrap_or_default()),
+                    linux_proton_compat_data_path: Some(
+                        detection.proton_compat_data_path.unwrap_or_default(),
+                    ),
+                    linux_proton_steam_client_path: Some(
+                        detection.proton_steam_client_path.unwrap_or_default(),
+                    ),
+                    linux_proton_use_steam_run: Some(detection.proton_use_steam_run),
+                    ..Default::default()
+                },
+            );
+            window.push_notification(
+                Notification::success("Linux runtime detected"),
+                cx,
+            );
+        }
+        Err(e) => {
+            warn!("detect_linux_runner failed: {e}");
+            window.push_notification(
+                Notification::error(format!("Detection failed: {e}")),
+                cx,
+            );
+        }
+    }
+}
+
 fn detect_among_us(window: &mut Window, cx: &mut App) {
     match finder_service::detect_among_us_installation() {
         Ok(Some(path)) => {
@@ -486,6 +526,16 @@ impl Render for SettingsView {
                 .title("Wine / Proton")
                 .description("Used when launching the game on Linux.")
                 .items(vec![
+                    SettingItem::new(
+                        "Auto-detect",
+                        SettingField::render(|_, _, _| {
+                            Button::new("detect-linux-runtime")
+                                .icon(Icon::new(AppIcon::Compass))
+                                .label("Auto-detect Linux runtime")
+                                .on_click(|_, window, cx| detect_linux_runtime(window, cx))
+                        }),
+                    )
+                    .description("Probe Steam/Proton + Wine prefixes from the Among Us path."),
                     SettingItem::new(
                         "Runner",
                         SettingField::dropdown(

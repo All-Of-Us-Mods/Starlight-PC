@@ -149,9 +149,78 @@ fn linux_steam_roots() -> Vec<PathBuf> {
     if let Some(home) = home::home_dir() {
         roots.push(home.join(".local/share/Steam"));
         roots.push(home.join(".steam/steam"));
+        roots.push(home.join(".steam/root"));
         roots.push(home.join(".var/app/com.valvesoftware.Steam/data/Steam"));
+        roots.push(home.join("snap/steam/common/.local/share/Steam"));
     }
     roots
+}
+
+/// Directories Steam scans for community Proton builds (GE-Proton, Proton-tkg, etc.).
+#[cfg(target_os = "linux")]
+fn linux_compatibility_tool_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(home) = home::home_dir() {
+        roots.push(home.join(".steam/root/compatibilitytools.d"));
+        roots.push(home.join(".local/share/Steam/compatibilitytools.d"));
+        roots.push(
+            home.join(".var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d"),
+        );
+    }
+    roots
+}
+
+#[cfg(target_os = "linux")]
+fn linux_wine_binary() -> Option<PathBuf> {
+    for candidate in ["/usr/bin/wine", "/usr/local/bin/wine"] {
+        let path = PathBuf::from(candidate);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in path.split(':') {
+            let candidate = PathBuf::from(dir).join("wine");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn linux_wine_prefix() -> Option<PathBuf> {
+    if let Ok(env) = std::env::var("WINEPREFIX") {
+        let p = PathBuf::from(env);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+    if let Some(home) = home::home_dir() {
+        let default = home.join(".wine");
+        if default.is_dir() {
+            return Some(default);
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn collect_proton_binaries_from(dir: &Path, candidates: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let binary = path.join("proton");
+        if binary.is_file() {
+            candidates.push(binary);
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -163,23 +232,11 @@ fn proton_binary_candidates(steam_root: &Path) -> Vec<PathBuf> {
     if preferred.is_file() {
         candidates.push(preferred);
     }
+    collect_proton_binaries_from(&proton_common, &mut candidates);
 
-    if let Ok(entries) = std::fs::read_dir(&proton_common) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let Some(name) = path.file_name().and_then(|v| v.to_str()) else {
-                continue;
-            };
-            if name.starts_with("Proton") {
-                let binary = path.join("proton");
-                if binary.is_file() {
-                    candidates.push(binary);
-                }
-            }
-        }
+    // Community Proton builds (GE-Proton, Proton-tkg, etc.) live outside steamapps/common.
+    for tools_root in linux_compatibility_tool_roots() {
+        collect_proton_binaries_from(&tools_root, &mut candidates);
     }
 
     candidates
@@ -212,6 +269,63 @@ fn steamapps_root_from_among_us_path(path: &Path) -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
+fn build_linux_detection(
+    steam_root: Option<PathBuf>,
+    compat_data: Option<PathBuf>,
+) -> LinuxRunnerDetection {
+    // Proton may not live under the detected steam_root — e.g. when Among Us
+    // sits in a secondary Steam library (`/mnt/games/SteamLibrary/...`) the
+    // detected root is that library folder, but the Proton install lives in
+    // the main Steam client at `~/.local/share/Steam`. Search both.
+    let mut proton_candidates = Vec::new();
+    if let Some(root) = steam_root.as_ref() {
+        proton_candidates.extend(proton_binary_candidates(root));
+    }
+    for client_root in linux_steam_roots() {
+        if !client_root.exists() {
+            continue;
+        }
+        if steam_root.as_deref() == Some(client_root.as_path()) {
+            continue;
+        }
+        proton_candidates.extend(proton_binary_candidates(&client_root));
+    }
+    let proton_binary = proton_candidates.into_iter().max_by_key(|path| {
+        std::fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    });
+
+    let wine_binary = linux_wine_binary();
+    // When Proton runs a game, its wine prefix is `<compat_data>/pfx` — prefer
+    // that over `$WINEPREFIX` / `~/.wine` so the detected prefix actually
+    // matches the install the user is launching.
+    let wine_prefix = compat_data
+        .as_ref()
+        .map(|p| p.join("pfx"))
+        .filter(|p| p.is_dir())
+        .or_else(linux_wine_prefix);
+
+    let (runner_kind, runner_binary) = match (proton_binary, wine_binary) {
+        (Some(p), _) => ("proton", Some(p)),
+        (None, Some(w)) => ("wine", Some(w)),
+        (None, None) => ("proton", None),
+    };
+
+    LinuxRunnerDetection {
+        runner_kind: runner_kind.to_string(),
+        runner_binary: runner_binary.map(|p| p.to_string_lossy().to_string()),
+        wine_prefix: wine_prefix.map(|p| p.to_string_lossy().to_string()),
+        proton_compat_data_path: compat_data.map(|p| p.to_string_lossy().to_string()),
+        proton_steam_client_path: steam_root.map(|p| p.to_string_lossy().to_string()),
+        proton_use_steam_run: true,
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn detect_linux_runner_from_among_us(path: &Path) -> LinuxRunnerDetection {
     let steamapps_root = steamapps_root_from_among_us_path(path);
     let compat_data = steamapps_root
@@ -223,44 +337,26 @@ fn detect_linux_runner_from_among_us(path: &Path) -> LinuxRunnerDetection {
         .and_then(|root| root.parent().map(|p| p.to_path_buf()))
         .or_else(|| linux_steam_roots().into_iter().find(|p| p.exists()));
 
-    let proton_binary = steam_root
-        .as_ref()
-        .and_then(|root| pick_proton_binary(root))
-        .map(|p| p.to_string_lossy().to_string());
+    let compat_data = compat_data.or_else(|| {
+        steam_root.as_ref().map(|root| {
+            root.join("steamapps")
+                .join("compatdata")
+                .join(AMONG_US_STEAM_APP_ID)
+        })
+    });
 
-    LinuxRunnerDetection {
-        runner_kind: "proton".to_string(),
-        runner_binary: proton_binary,
-        wine_prefix: None,
-        proton_compat_data_path: compat_data.map(|p| p.to_string_lossy().to_string()),
-        proton_steam_client_path: steam_root.map(|p| p.to_string_lossy().to_string()),
-        proton_use_steam_run: true,
-    }
+    build_linux_detection(steam_root, compat_data)
 }
 
 #[cfg(target_os = "linux")]
 fn detect_linux_runner_fallback() -> LinuxRunnerDetection {
     let steam_root = linux_steam_roots().into_iter().find(|p| p.exists());
-    let proton_binary = steam_root
-        .as_ref()
-        .and_then(|root| pick_proton_binary(root))
-        .map(|p| p.to_string_lossy().to_string());
-
-    LinuxRunnerDetection {
-        runner_kind: "proton".to_string(),
-        runner_binary: proton_binary,
-        wine_prefix: None,
-        proton_compat_data_path: steam_root
-            .as_ref()
-            .map(|root| {
-                root.join("steamapps")
-                    .join("compatdata")
-                    .join(AMONG_US_STEAM_APP_ID)
-            })
-            .map(|p| p.to_string_lossy().to_string()),
-        proton_steam_client_path: steam_root.map(|p| p.to_string_lossy().to_string()),
-        proton_use_steam_run: true,
-    }
+    let compat_data = steam_root.as_ref().map(|root| {
+        root.join("steamapps")
+            .join("compatdata")
+            .join(AMONG_US_STEAM_APP_ID)
+    });
+    build_linux_detection(steam_root, compat_data)
 }
 
 pub fn detect_among_us_installation() -> AppResult<Option<String>> {
