@@ -339,8 +339,21 @@ impl ModDetailView {
             .collect();
         items.push(InstallModInput { mod_id, version });
 
+        let needs_bepinex = self
+            .profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .map(|p| p.bepinex_installed != Some(true))
+            .unwrap_or(true);
         if let Some(panel) = self.install.as_mut() {
-            panel.status = InstallStatus::Installing("Installing BepInEx + mods…".into());
+            panel.status = InstallStatus::Installing(
+                if needs_bepinex {
+                    "Installing BepInEx + mods…"
+                } else {
+                    "Installing mods…"
+                }
+                .into(),
+            );
         }
         cx.notify();
 
@@ -349,7 +362,9 @@ impl ModDetailView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    profile_service::install_bepinex_for_profile(&profile_id_for_task)?;
+                    if needs_bepinex {
+                        profile_service::install_bepinex_for_profile(&profile_id_for_task)?;
+                    }
                     mod_install_service::install_mods_for_profile(&profile_id_for_task, &items)
                 })
                 .await;
