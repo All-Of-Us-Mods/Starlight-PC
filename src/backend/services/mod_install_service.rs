@@ -6,7 +6,7 @@
 //! failure the partial install is rolled back so the profile manifest reflects
 //! what's actually on disk.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use semver::{Version, VersionReq};
@@ -70,30 +70,62 @@ pub fn resolve_version(constraint: &str, versions_sorted_newest_first: &[ModVers
     Some(versions_sorted_newest_first[0].version.clone())
 }
 
+/// Resolve `dependencies` transitively. Returns the flattened, deduplicated
+/// list ordered deepest-first so callers can install in iteration order. A dep
+/// already in `skip` (e.g. the root mod the user clicked Install on) is not
+/// emitted but its sub-tree is still walked. First resolution of a mod_id
+/// wins on cycles or diamond dependencies.
 pub fn resolve_dependencies(
     dependencies: &[ModDependency],
 ) -> AppResult<Vec<ResolvedDependency>> {
-    let mut resolved = Vec::new();
+    resolve_dependencies_excluding(dependencies, &HashSet::new())
+}
+
+pub fn resolve_dependencies_excluding(
+    dependencies: &[ModDependency],
+    skip: &HashSet<String>,
+) -> AppResult<Vec<ResolvedDependency>> {
+    let mut out = Vec::new();
+    let mut visited: HashSet<String> = skip.clone();
     for dep in dependencies {
-        let Ok(mod_item) = api::fetch_mod(&dep.mod_id) else {
-            continue;
-        };
-        let Ok(mut versions) = api::fetch_mod_versions(&dep.mod_id) else {
-            continue;
-        };
-        versions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        let Some(version) = resolve_version(&dep.version_constraint, &versions) else {
-            continue;
-        };
-        resolved.push(ResolvedDependency {
-            mod_id: dep.mod_id.clone(),
-            mod_name: mod_item.name,
-            resolved_version: version,
-            dependency_type: dep.dependency_type.clone(),
-            version_constraint: dep.version_constraint.clone(),
-        });
+        walk_dep(dep, &mut visited, &mut out);
     }
-    Ok(resolved)
+    Ok(out)
+}
+
+fn walk_dep(
+    dep: &ModDependency,
+    visited: &mut HashSet<String>,
+    out: &mut Vec<ResolvedDependency>,
+) {
+    if !visited.insert(dep.mod_id.clone()) {
+        return;
+    }
+    let Ok(mod_item) = api::fetch_mod(&dep.mod_id) else {
+        return;
+    };
+    let Ok(mut versions) = api::fetch_mod_versions(&dep.mod_id) else {
+        return;
+    };
+    versions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let Some(version) = resolve_version(&dep.version_constraint, &versions) else {
+        return;
+    };
+
+    // Recurse into this dep's own dependencies first so they install before it.
+    if let Ok(info) = api::fetch_mod_version_info(&dep.mod_id, &version) {
+        for sub in &info.dependencies {
+            walk_dep(sub, visited, out);
+        }
+    }
+
+    out.push(ResolvedDependency {
+        mod_id: dep.mod_id.clone(),
+        mod_name: mod_item.name,
+        resolved_version: version,
+        dependency_type: dep.dependency_type.clone(),
+        version_constraint: dep.version_constraint.clone(),
+    });
 }
 
 fn absolute_url(path_or_url: &str) -> String {
@@ -117,27 +149,38 @@ fn pick_platform_target(
         GamePlatform::Epic => &["x64", "x86"],
         _ => &["x86"],
     };
-    for arch in arch_fallbacks {
-        let Some(entry) = platforms
+    let preferred = arch_fallbacks.iter().find_map(|arch| {
+        platforms
             .iter()
             .find(|e| e.platform == "windows" && e.architecture == *arch)
-        else {
-            continue;
-        };
-        let url = entry.download_url.clone().unwrap_or_else(|| {
-            format!("/api/v3/mods/{mod_id}/versions/{version}/file?platform=windows&arch={arch}")
-        });
-        let file_name = entry
-            .file_name
+            .map(|e| (e, *arch))
+    });
+    // Fall back to whatever the API offers if nothing matched our preferred arches.
+    let (entry, arch): (&PlatformDownload, &str) = match preferred {
+        Some(p) => p,
+        None => {
+            let first = platforms.first()?;
+            (first, first.architecture.as_str())
+        }
+    };
+    let url = entry.download_url.clone().unwrap_or_else(|| {
+        format!(
+            "/api/v3/mods/{mod_id}/versions/{version}/file?platform={}&arch={arch}",
+            entry.platform
+        )
+    });
+    let file_name = entry
+        .file_name
+        .clone()
+        .or_else(|| fallback_file_name.map(str::to_string))?;
+    Some(DownloadTarget {
+        url: absolute_url(&url),
+        file_name,
+        checksum: entry
+            .checksum
             .clone()
-            .or_else(|| fallback_file_name.map(str::to_string))?;
-        return Some(DownloadTarget {
-            url: absolute_url(&url),
-            file_name,
-            checksum: entry.checksum.clone().or_else(|| fallback_checksum.map(str::to_string)),
-        });
-    }
-    None
+            .or_else(|| fallback_checksum.map(str::to_string)),
+    })
 }
 
 fn resolve_download_target(

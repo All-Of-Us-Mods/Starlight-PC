@@ -133,7 +133,14 @@ impl ModDetailView {
                 .await
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
-                let profile = default_profile
+                // Resolution may have raced the user picking a different profile;
+                // use whatever's currently selected on the panel, not the snapshot
+                // we captured when the panel opened.
+                let selected = this
+                    .install
+                    .as_ref()
+                    .and_then(|p| p.selected_profile_id.clone());
+                let profile = selected
                     .as_ref()
                     .and_then(|id| this.profiles.iter().find(|p| &p.id == id));
                 let rows = resolved
@@ -144,7 +151,7 @@ impl ModDetailView {
                     panel.deps = rows;
                     panel.status = InstallStatus::Ready;
                 }
-                let _ = (mod_id, latest_version);
+                let _ = (mod_id, latest_version, default_profile);
                 cx.notify();
             });
         })
@@ -208,14 +215,18 @@ impl ModDetailView {
             return;
         };
 
-        let mut items: Vec<InstallModInput> = vec![InstallModInput {
-            mod_id,
-            version,
-        }];
-        items.extend(panel.deps.iter().filter(|d| d.checked).map(|d| InstallModInput {
-            mod_id: d.mod_id.clone(),
-            version: d.resolved_version.clone(),
-        }));
+        // Install transitive deps first (already ordered deepest-first by the
+        // resolver), then the root mod the user picked.
+        let mut items: Vec<InstallModInput> = panel
+            .deps
+            .iter()
+            .filter(|d| d.checked)
+            .map(|d| InstallModInput {
+                mod_id: d.mod_id.clone(),
+                version: d.resolved_version.clone(),
+            })
+            .collect();
+        items.push(InstallModInput { mod_id, version });
 
         if let Some(panel) = self.install.as_mut() {
             panel.status = InstallStatus::Installing("Installing BepInEx + mods…".into());
