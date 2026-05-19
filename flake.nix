@@ -28,10 +28,31 @@
           "clippy"
           "rust-src"
         ];
+
+        linuxLibs = with pkgs; [
+          bzip2
+          fontconfig
+          freetype
+          vulkan-loader
+          wayland
+          libxkbcommon
+          libGL
+          xorg.libX11
+          xorg.libXcursor
+          xorg.libXi
+          xorg.libxcb
+        ];
       in
       {
         devShells.default = pkgs.mkShell {
-          nativeBuildInputs = [ toolchain ];
+          nativeBuildInputs =
+            [ toolchain ]
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
+
+          buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxLibs;
+
+          LD_LIBRARY_PATH =
+            pkgs.lib.optionalString pkgs.stdenv.isLinux (pkgs.lib.makeLibraryPath linuxLibs);
         };
       }
     );
