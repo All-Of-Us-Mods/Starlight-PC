@@ -28,6 +28,25 @@ pub struct GameStatePayload {
     pub stoppable_profile_instance_counts: HashMap<String, usize>,
 }
 
+// Proton/Steam reparent the actual game outside our process tree, so we can't
+// rely on PID/pgid. Every relevant process (wrapper, proton, wine, the game)
+// carries the profile id in its cmdline (via the doorstop args we pass), so
+// match on that.
+#[cfg(target_os = "linux")]
+fn kill_for_profile(profile_id: &str) {
+    let Ok(entries) = std::fs::read_dir("/proc") else { return };
+    for entry in entries.flatten() {
+        let Some(pid) = entry.file_name().to_str().and_then(|s| s.parse::<i32>().ok())
+        else { continue };
+        let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) else { continue };
+        if String::from_utf8_lossy(&cmdline).contains(profile_id) {
+            let _ = std::process::Command::new("kill")
+                .args(["-KILL", &pid.to_string()])
+                .status();
+        }
+    }
+}
+
 fn reap_process(mut child: Child) {
     if let Err(e) = child.wait() {
         warn!("Failed to reap game process: {}", e);
@@ -154,7 +173,7 @@ where
     F: Fn(&TrackedGameProcess) -> bool,
 {
     let mut stopped_count = 0;
-    let mut errors = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
     let mut i = 0;
 
     while i < state.processes.len() {
@@ -178,12 +197,14 @@ where
             }
         }
 
+        let pid = state.processes[i].child.id();
+        // On Linux, kill_for_profile (called before this loop) already SIGKILLed
+        // every matching cmdline; just reap. Other platforms kill the tracked
+        // child directly.
+        #[cfg(not(target_os = "linux"))]
         if let Err(e) = state.processes[i].child.kill() {
             warn!("Failed to kill game process: {}", e);
-            errors.push(format!(
-                "Failed to stop game process {}: {e}",
-                state.processes[i].child.id()
-            ));
+            errors.push(format!("Failed to stop game process {pid}: {e}"));
             i += 1;
             continue;
         }
@@ -201,6 +222,9 @@ where
 }
 
 pub fn stop_profile_instances(profile_id: &str) -> AppResult<usize> {
+    #[cfg(target_os = "linux")]
+    kill_for_profile(profile_id);
+
     let mut state = TRACKED_STATE
         .lock()
         .map_err(|_| AppError::state("Failed to acquire game process lock"))?;

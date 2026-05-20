@@ -181,6 +181,11 @@ fn attach_epic_launch_token(cmd: &mut Command, platform: &str) -> AppResult<()> 
 }
 
 fn launch_process(mut cmd: Command, profile_id: Option<String>) -> AppResult<()> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     let child = cmd
         .spawn()
         .map_err(|e| AppError::process(format!("Failed to launch game: {e}")))?;
