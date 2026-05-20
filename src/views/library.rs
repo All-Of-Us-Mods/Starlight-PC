@@ -2,6 +2,7 @@ use gpui::*;
 use log::warn;
 
 use crate::backend::services::profile_service::{self, ProfileEntry};
+use crate::ui::profile_icon::profile_icon;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
 use gpui_component::button::{Button, ButtonVariants};
@@ -212,8 +213,7 @@ impl LibraryView {
         div()
             .id(SharedString::from(id))
             .flex()
-            .flex_col()
-            .gap_2()
+            .gap_3()
             .p_4()
             .rounded_lg()
             .bg(theme.sidebar_background)
@@ -224,32 +224,41 @@ impl LibraryView {
             .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 cx.emit(LibraryEvent::Open(emit_id.clone()));
             }))
+            .child(profile_icon(profile, 48.0, theme))
             .child(
                 div()
-                    .text_base()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(profile.name.clone()),
-            )
-            .children((profile.bepinex_installed != Some(true)).then(|| {
-                div()
-                    .text_xs()
-                    .text_color(rgb(0xf59e0b))
-                    .child("BepInEx not installed")
-            }))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.text_muted)
-                    .child(format!("Path: {}", profile.path)),
-            )
-            .child(div().text_xs().text_color(theme.text_muted).child(format!(
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .text_base()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(profile.name.clone()),
+                    )
+                    .children((profile.bepinex_installed != Some(true)).then(|| {
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0xf59e0b))
+                            .child("BepInEx not installed")
+                    }))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.text_muted)
+                            .child(format!("Path: {}", profile.path)),
+                    )
+                    .child(div().text_xs().text_color(theme.text_muted).child(format!(
                         "{} mods · {}",
                         profile.mods.len(),
                         profile
                             .last_launched_at
                             .map(|_| "played before")
                             .unwrap_or("never launched")
-                    )))
+                    ))),
+            )
     }
 }
 
