@@ -23,6 +23,7 @@ jobs:
             libfontconfig1-dev \
             libfreetype-dev \
             libxkbcommon-dev \
+            libxkbcommon-x11-dev \
             libwayland-dev \
             libx11-dev \
             libxcursor-dev \
