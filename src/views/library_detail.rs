@@ -8,12 +8,13 @@ use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_service::{BepInExProgress, BepInExTargetType};
 use crate::backend::services::core_service;
 use crate::backend::services::launch_service::{self, LaunchModdedArgs};
-use crate::backend::services::profile_service::{
-    self, ProfileEntry, ProfileIconSelection,
-};
+use crate::backend::services::profile_service::{self, ProfileEntry, ProfileIconSelection};
+use crate::backend::state::game_runtime;
+use crate::settings as app_settings;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
 use crate::ui::profile_icon::profile_icon;
+use gpui_component::Disableable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::progress::Progress;
@@ -36,6 +37,8 @@ pub struct LibraryDetailView {
     rename_dialog: Option<Entity<InputState>>,
     export_dialog: Option<Entity<InputState>>,
     icon_dialog: Option<IconDialogState>,
+    running_count: usize,
+    stoppable_count: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -70,27 +73,49 @@ impl LibraryDetailView {
             rename_dialog: None,
             export_dialog: None,
             icon_dialog: None,
+            running_count: 0,
+            stoppable_count: 0,
         };
 
         view.spawn_load(cx);
 
-        // Subscribe to BepInEx progress for *this* profile.
+        // Subscribe to backend events for *this* profile.
         let id_for_events = profile_id.clone();
         let mut rx = events::subscribe();
         cx.spawn(async move |this, cx| {
             while let Ok(event) = rx.recv().await {
-                if let BackendEvent::BepInExProgress(p) = event
-                    && matches!(p.target_type, BepInExTargetType::Profile)
-                    && p.target_id == id_for_events
-                {
-                    let done = p.stage == "complete";
-                    let _ = this.update(cx, |this, cx| {
-                        this.bep_progress = if done { None } else { Some(p) };
-                        cx.notify();
-                    });
-                    if done {
-                        let _ = this.update(cx, |this, cx| this.spawn_load(cx));
+                match event {
+                    BackendEvent::BepInExProgress(p)
+                        if matches!(p.target_type, BepInExTargetType::Profile)
+                            && p.target_id == id_for_events =>
+                    {
+                        let done = p.stage == "complete";
+                        let _ = this.update(cx, |this, cx| {
+                            this.bep_progress = if done { None } else { Some(p) };
+                            cx.notify();
+                        });
+                        if done {
+                            let _ = this.update(cx, |this, cx| this.spawn_load(cx));
+                        }
                     }
+                    BackendEvent::GameStateChanged(payload) => {
+                        let running = payload
+                            .profile_instance_counts
+                            .get(&id_for_events)
+                            .copied()
+                            .unwrap_or(0);
+                        let stoppable = payload
+                            .stoppable_profile_instance_counts
+                            .get(&id_for_events)
+                            .copied()
+                            .unwrap_or(0);
+                        let _ = this.update(cx, |this, cx| {
+                            this.running_count = running;
+                            this.stoppable_count = stoppable;
+                            cx.notify();
+                        });
+                    }
+                    _ => {}
                 }
             }
         })
@@ -144,6 +169,25 @@ impl LibraryDetailView {
                 if let Err(e) = result {
                     warn!("launch failed: {e}");
                     this.launch_error = Some(e);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn stop(&mut self, cx: &mut Context<Self>) {
+        let id = self.profile_id.clone();
+        self.launch_error = None;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { game_runtime::stop_profile_instances(&id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    warn!("stop failed: {e}");
+                    this.launch_error = Some(e.to_string());
                     cx.notify();
                 }
             });
@@ -220,8 +264,7 @@ impl LibraryDetailView {
     }
 
     fn open_export_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let state =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Destination .zip path"));
+        let state = cx.new(|cx| InputState::new(window, cx).placeholder("Destination .zip path"));
         state.read(cx).focus_handle(cx).focus(window, cx);
         cx.subscribe_in(
             &state,
@@ -358,18 +401,16 @@ impl LibraryDetailView {
                 .background_executor()
                 .spawn(async move { profile_service::update_profile_icon(&id, selection) })
                 .await;
-            let _ = this.update(cx, |this, cx| {
-                match result {
-                    Ok(()) => {
-                        this.icon_dialog = None;
-                        this.spawn_load(cx);
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(()) => {
+                    this.icon_dialog = None;
+                    this.spawn_load(cx);
+                }
+                Err(e) => {
+                    if let Some(s) = this.icon_dialog.as_mut() {
+                        s.error = Some(format!("Failed to update icon: {e}"));
                     }
-                    Err(e) => {
-                        if let Some(s) = this.icon_dialog.as_mut() {
-                            s.error = Some(format!("Failed to update icon: {e}"));
-                        }
-                        cx.notify();
-                    }
+                    cx.notify();
                 }
             });
         })
@@ -400,7 +441,6 @@ impl LibraryDetailView {
         })
         .detach();
     }
-
 }
 
 fn run_launch(profile: ProfileEntry) -> Result<(), String> {
@@ -537,12 +577,55 @@ impl Render for LibraryDetailView {
                         .on_click(cx.listener(|this, _, _window, cx| this.install_bepinex(cx)))
                 });
 
-                let launch_btn = bep_installed.then(|| {
-                    Button::new("launch")
-                        .success()
-                        .icon(Icon::new(IconName::Play))
-                        .label("Launch")
-                        .on_click(cx.listener(|this, _, _window, cx| this.launch(cx)))
+                let running = self.running_count;
+                let stoppable = self.stoppable_count;
+                let allow_multi = app_settings::get(cx).allow_multi_instance_launch;
+
+                let launch_row = bep_installed.then(|| {
+                    let mut row = div().flex().gap_2().items_center();
+                    if running == 0 {
+                        row = row.child(
+                            Button::new("launch")
+                                .success()
+                                .icon(Icon::new(IconName::Play))
+                                .label("Launch")
+                                .on_click(cx.listener(|this, _, _window, cx| this.launch(cx))),
+                        );
+                    } else {
+                        let stop_label = if stoppable > 1 {
+                            format!("Stop ({stoppable})")
+                        } else {
+                            "Stop".to_string()
+                        };
+                        let mut stop_btn = Button::new("stop")
+                            .danger()
+                            .icon(Icon::new(IconName::Close))
+                            .label(stop_label);
+                        if stoppable == 0 {
+                            // Only UWP instances — can't stop those.
+                            stop_btn = stop_btn.disabled(true);
+                        } else {
+                            stop_btn = stop_btn
+                                .on_click(cx.listener(|this, _, _window, cx| this.stop(cx)));
+                        }
+                        row = row.child(stop_btn);
+                        if allow_multi {
+                            row = row.child(
+                                Button::new("launch-another")
+                                    .success()
+                                    .icon(Icon::new(IconName::Play))
+                                    .label("Launch another")
+                                    .on_click(cx.listener(|this, _, _window, cx| this.launch(cx))),
+                            );
+                            row = row.child(div().text_sm().text_color(theme.text_muted).child(
+                                format!(
+                                    "{running} instance{} running",
+                                    if running == 1 { "" } else { "s" }
+                                ),
+                            ));
+                        }
+                    }
+                    row
                 });
 
                 let launch_err = self
@@ -609,45 +692,46 @@ impl Render for LibraryDetailView {
                         )
                 });
 
-                let delete_row = if self.confirming_delete {
-                    div()
-                        .flex()
-                        .gap_2()
-                        .items_center()
-                        .child(
-                            div()
-                                .px_2()
-                                .py_1()
-                                .text_color(theme.text_muted)
-                                .child("Delete this profile?"),
-                        )
-                        .child(
-                            Button::new("confirm-delete")
+                let delete_row =
+                    if self.confirming_delete {
+                        div()
+                            .flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .px_2()
+                                    .py_1()
+                                    .text_color(theme.text_muted)
+                                    .child("Delete this profile?"),
+                            )
+                            .child(
+                                Button::new("confirm-delete")
+                                    .danger()
+                                    .icon(Icon::new(IconName::Delete))
+                                    .label("Delete")
+                                    .on_click(
+                                        cx.listener(|this, _, _window, cx| this.delete_profile(cx)),
+                                    ),
+                            )
+                            .child(Button::new("cancel-delete").label("Cancel").on_click(
+                                cx.listener(|this, _, _window, cx| {
+                                    this.confirming_delete = false;
+                                    cx.notify();
+                                }),
+                            ))
+                    } else {
+                        div().child(
+                            Button::new("delete-profile")
                                 .danger()
                                 .icon(Icon::new(IconName::Delete))
-                                .label("Delete")
+                                .label("Delete Profile")
                                 .on_click(cx.listener(|this, _, _window, cx| {
-                                    this.delete_profile(cx)
+                                    this.confirming_delete = true;
+                                    cx.notify();
                                 })),
                         )
-                        .child(Button::new("cancel-delete").label("Cancel").on_click(
-                            cx.listener(|this, _, _window, cx| {
-                                this.confirming_delete = false;
-                                cx.notify();
-                            }),
-                        ))
-                } else {
-                    div().child(
-                        Button::new("delete-profile")
-                            .danger()
-                            .icon(Icon::new(IconName::Delete))
-                            .label("Delete Profile")
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.confirming_delete = true;
-                                cx.notify();
-                            })),
-                    )
-                };
+                    };
 
                 div()
                     .flex()
@@ -670,18 +754,18 @@ impl Render for LibraryDetailView {
                         div()
                             .flex()
                             .gap_2()
-                            .child(Button::new("rename-profile-action").label("Rename").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.open_rename_dialog(window, cx);
+                            .child(
+                                Button::new("rename-profile-action")
+                                    .label("Rename")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_rename_dialog(window, cx);
+                                    })),
+                            )
+                            .child(Button::new("edit-icon-action").label("Edit Icon").on_click(
+                                cx.listener(|this, _, _window, cx| {
+                                    this.open_icon_dialog(cx);
                                 }),
                             ))
-                            .child(
-                                Button::new("edit-icon-action").label("Edit Icon").on_click(
-                                    cx.listener(|this, _, _window, cx| {
-                                        this.open_icon_dialog(cx);
-                                    }),
-                                ),
-                            )
                             .child(
                                 Button::new("export-profile-action")
                                     .label("Export ZIP")
@@ -704,7 +788,7 @@ impl Render for LibraryDetailView {
                     }))
                     .children(progress_row)
                     .children(install_btn)
-                    .children(launch_btn)
+                    .children(launch_row)
                     .children(launch_err)
                     .child(
                         div()
@@ -843,9 +927,7 @@ impl Render for LibraryDetailView {
                         LoadState::Loaded(profile) => Some((s, profile.clone())),
                         _ => None,
                     })
-                    .map(|(state, profile)| {
-                        render_icon_dialog(state, &profile, theme.clone(), cx)
-                    }),
+                    .map(|(state, profile)| render_icon_dialog(state, &profile, theme.clone(), cx)),
             )
     }
 }
@@ -858,9 +940,9 @@ fn render_icon_dialog(
 ) -> AnyElement {
     let mode = state.mode;
     let mode_button = |id: &'static str, label: &'static str, target: IconDialogMode| {
-        let mut btn = Button::new(id).label(label).on_click(cx.listener(
-            move |this, _: &ClickEvent, _, cx| this.set_icon_mode(target, cx),
-        ));
+        let mut btn = Button::new(id).label(label).on_click(
+            cx.listener(move |this, _: &ClickEvent, _, cx| this.set_icon_mode(target, cx)),
+        );
         if mode == target {
             btn = btn.primary();
         }
@@ -870,9 +952,21 @@ fn render_icon_dialog(
     let mode_row = div()
         .flex()
         .gap_2()
-        .child(mode_button("icon-mode-default", "Default", IconDialogMode::Default))
-        .child(mode_button("icon-mode-custom", "Custom Image", IconDialogMode::Custom))
-        .child(mode_button("icon-mode-mod", "Installed Mod", IconDialogMode::Mod));
+        .child(mode_button(
+            "icon-mode-default",
+            "Default",
+            IconDialogMode::Default,
+        ))
+        .child(mode_button(
+            "icon-mode-custom",
+            "Custom Image",
+            IconDialogMode::Custom,
+        ))
+        .child(mode_button(
+            "icon-mode-mod",
+            "Installed Mod",
+            IconDialogMode::Mod,
+        ));
 
     let body: AnyElement = match mode {
         IconDialogMode::Default => div()
@@ -989,12 +1083,10 @@ fn render_icon_dialog(
         }
     };
 
-    let error_row = state.error.clone().map(|msg| {
-        div()
-            .text_sm()
-            .text_color(rgb(0xef4444))
-            .child(msg)
-    });
+    let error_row = state
+        .error
+        .clone()
+        .map(|msg| div().text_sm().text_color(rgb(0xef4444)).child(msg));
 
     div()
         .absolute()
