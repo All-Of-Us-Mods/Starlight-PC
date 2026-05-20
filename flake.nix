@@ -30,7 +30,6 @@
         ];
 
         linuxLibs = with pkgs; [
-          bzip2
           fontconfig
           freetype
           vulkan-loader
@@ -66,12 +65,11 @@
             };
           };
 
-          nativeBuildInputs = with pkgs; [
-            pkg-config
-            makeWrapper
-          ];
+          nativeBuildInputs =
+            [ pkgs.makeWrapper ]
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
 
-          buildInputs = linuxLibs;
+          buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxLibs;
 
           preBuild = ''
             ln -sfn gpui-component-assets-0.5.1 "$NIX_BUILD_TOP/cargo-vendor-dir/assets"
@@ -79,7 +77,7 @@
 
           doCheck = false;
 
-          postFixup = ''
+          postFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
             wrapProgram $out/bin/Starlight \
               --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath linuxLibs}
           '';
@@ -87,7 +85,7 @@
           meta = with pkgs.lib; {
             description = "Among Us mod manager";
             license = licenses.gpl3Only;
-            platforms = platforms.linux;
+            platforms = platforms.unix;
             mainProgram = "Starlight";
           };
         };
