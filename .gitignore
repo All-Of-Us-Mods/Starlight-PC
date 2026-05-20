@@ -1,33 +1,13 @@
-node_modules
-package-lock.json
-
-# Output
-.output
-.vercel
-.netlify
-.wrangler
-/.svelte-kit
-/build
-
 # OS
 .DS_Store
 Thumbs.db
 
 # Env
 .env
-.env.*
-!.env.example
-!.env.test
-
-# Vite
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*
-
-# Tauri
-src-tauri/target
-src-tauri/gen
 
 # Rust
 /target
 
+# other
+.direnv
 .claude

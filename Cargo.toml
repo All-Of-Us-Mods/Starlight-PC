@@ -1,6 +1,6 @@
 [package]
 name = "Starlight"
-version = "1.1.1"
+version = "2.0.0"
 description = "Among Us mod manager"
 authors = ["yanpla"]
 license = "GPL-3.0-only"
@@ -10,15 +10,10 @@ rust-version = "1.92.0"
 
 [dependencies]
 gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
-  "font-kit",
-  "runtime_shaders",
-  "x11",
-  "wayland",
-] }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
 reqwest_client = { git = "https://github.com/zed-industries/zed" }
-gpui-component = { git = "https://github.com/longbridge/gpui-component.git", rev = "ccc1e76" }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component.git", rev = "ccc1e76" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 log = "0.4"
 env_logger = "0.11"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -49,4 +44,3 @@ winreg = "0.52"
 windows = { version = "0.58", features = ["Win32_System_LibraryLoader"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 keyring = { version = "3.6.3", features = ["windows-native"] }
-
