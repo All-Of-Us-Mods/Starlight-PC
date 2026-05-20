@@ -62,6 +62,7 @@
               "zed-font-kit-0.14.1-zed" = "sha256-KXygi0olNQi5yM8eaJVykNDtbPMDjT+cWPBF8UrtXR4=";
               "zed-reqwest-0.12.15-zed" = "sha256-p4SiUrOrbTlk/3bBrzN/mq/t+1Gzy2ot4nso6w6S+F8=";
               "zed-scap-0.0.8-zed" = "sha256-BihiQHlal/eRsktyf0GI3aSWsUCW7WcICMsC2Xvb7kw=";
+              "zed-xim-0.4.0-zed" = "sha256-pRT4Sz1JU9ros47/7pmIW9kosWOGMOItcnNd+VrvnpE=";
             };
           };
 
@@ -69,6 +70,19 @@
             pkg-config
             makeWrapper
           ];
+
+          buildInputs = linuxLibs;
+
+          preBuild = ''
+            ln -sfn gpui-component-assets-0.5.1 "$NIX_BUILD_TOP/cargo-vendor-dir/assets"
+          '';
+
+          doCheck = false;
+
+          postFixup = ''
+            wrapProgram $out/bin/Starlight \
+              --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath linuxLibs}
+          '';
 
           meta = with pkgs.lib; {
             description = "Among Us mod manager";
