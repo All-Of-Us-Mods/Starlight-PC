@@ -163,9 +163,7 @@ impl Render for HomeView {
                 .flex()
                 .gap_3()
                 .pb_2()
-                .children(
-                    (0..4).map(|_| news_card_skeleton(&theme).into_any_element()),
-                )
+                .children((0..4).map(|_| news_card_skeleton(&theme).into_any_element()))
                 .into_any_element(),
             Loading::Failed(e) => div()
                 .text_color(rgb(0xef4444))

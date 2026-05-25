@@ -70,8 +70,7 @@ enum LoadState {
 
 impl ExploreView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search mods..."));
+        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search mods..."));
         cx.subscribe_in(
             &search_input,
             window,
@@ -272,13 +271,8 @@ impl Render for ExploreView {
                 ((total as usize).div_ceil(page_size)).max(1)
             }
             None => {
-                let full =
-                    matches!(&self.state, LoadState::Loaded(v) if (v.len() as u32) == self.page_size);
-                if full {
-                    current + 1
-                } else {
-                    current
-                }
+                let full = matches!(&self.state, LoadState::Loaded(v) if (v.len() as u32) == self.page_size);
+                if full { current + 1 } else { current }
             }
         };
 

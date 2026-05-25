@@ -254,13 +254,15 @@ fn path_field(
         .into();
         let setter: Rc<dyn Fn(SharedString, &mut App)> = Rc::new(move |v, cx| set(v, cx));
 
-        let input_el = Input::new(&input_entity).with_size(options.size).map(|this| {
-            if options.layout.is_horizontal() {
-                this.w_64()
-            } else {
-                this.w_full()
-            }
-        });
+        let input_el = Input::new(&input_entity)
+            .with_size(options.size)
+            .map(|this| {
+                if options.layout.is_horizontal() {
+                    this.w_64()
+                } else {
+                    this.w_full()
+                }
+            });
 
         div().flex().gap_2().child(input_el).child(
             Button::new(button_id)
@@ -319,17 +321,11 @@ fn detect_linux_runtime(window: &mut Window, cx: &mut App) {
                     ..Default::default()
                 },
             );
-            window.push_notification(
-                Notification::success("Linux runtime detected"),
-                cx,
-            );
+            window.push_notification(Notification::success("Linux runtime detected"), cx);
         }
         Err(e) => {
             warn!("detect_linux_runner failed: {e}");
-            window.push_notification(
-                Notification::error(format!("Detection failed: {e}")),
-                cx,
-            );
+            window.push_notification(Notification::error(format!("Detection failed: {e}")), cx);
         }
     }
 }
@@ -365,10 +361,7 @@ fn detect_among_us(window: &mut Window, cx: &mut App) {
         }
         Err(e) => {
             warn!("detect_among_us failed: {e}");
-            window.push_notification(
-                Notification::error(format!("Detection failed: {e}")),
-                cx,
-            );
+            window.push_notification(Notification::error(format!("Detection failed: {e}")), cx);
         }
     }
 }
@@ -485,8 +478,8 @@ impl Render for SettingsView {
             ]),
         ]);
 
-        let launch_page = SettingPage::new("Launch").group(
-            SettingGroup::new().title("Behavior").items(vec![
+        let launch_page =
+            SettingPage::new("Launch").group(SettingGroup::new().title("Behavior").items(vec![
                 SettingItem::new(
                     "Close Starlight when launching",
                     SettingField::switch(
@@ -503,8 +496,7 @@ impl Render for SettingsView {
                     ),
                 )
                 .description("Permit launching more than one game window at a time."),
-            ]),
-        );
+            ]));
 
         let bepinex_page = SettingPage::new("BepInEx").groups(vec![
             SettingGroup::new().title("Cache").items(vec![
@@ -676,9 +668,11 @@ impl Render for SettingsView {
                     .font_weight(FontWeight::BOLD)
                     .child("Settings"),
             )
-            .child(
-                Settings::new("starlight-settings")
-                    .pages(vec![game_page, launch_page, bepinex_page, linux_page]),
-            )
+            .child(Settings::new("starlight-settings").pages(vec![
+                game_page,
+                launch_page,
+                bepinex_page,
+                linux_page,
+            ]))
     }
 }

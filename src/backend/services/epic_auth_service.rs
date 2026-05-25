@@ -58,9 +58,8 @@ impl EpicAuthService {
             )));
         }
 
-        let token: GameTokenResponse = response
-            .json()
-            .map_err(|e| AppError::Http(e.to_string()))?;
+        let token: GameTokenResponse =
+            response.json().map_err(|e| AppError::Http(e.to_string()))?;
         Ok(token.code)
     }
 }

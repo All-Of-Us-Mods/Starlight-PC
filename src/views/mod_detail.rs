@@ -77,10 +77,7 @@ struct DepRow {
 enum InstallStatus {
     Resolving,
     Ready,
-    Installing {
-        message: String,
-        progress: f32,
-    },
+    Installing { message: String, progress: f32 },
     Done,
     Failed(String),
 }
@@ -259,9 +256,8 @@ impl ModDetailView {
         if panel.new_profile.is_some() {
             panel.new_profile = None;
         } else {
-            let name_input = cx.new(|cx| {
-                InputState::new(window, cx).placeholder("New profile name")
-            });
+            let name_input =
+                cx.new(|cx| InputState::new(window, cx).placeholder("New profile name"));
             panel.new_profile = Some(NewProfileInput {
                 name_input,
                 busy: false,
@@ -283,10 +279,7 @@ impl ModDetailView {
         let name = new_profile.name_input.read(cx).value().to_string();
         let trimmed = name.trim().to_string();
         if trimmed.is_empty() {
-            window.push_notification(
-                Notification::warning("Profile name cannot be empty"),
-                cx,
-            );
+            window.push_notification(Notification::warning("Profile name cannot be empty"), cx);
             return;
         }
         new_profile.busy = true;
@@ -494,9 +487,10 @@ impl Render for ModDetailView {
                 .flex_col()
                 .gap_6()
                 .child(
-                    div().flex().justify_center().child(
-                        Skeleton::new().w(px(176.0)).h(px(176.0)).rounded_lg(),
-                    ),
+                    div()
+                        .flex()
+                        .justify_center()
+                        .child(Skeleton::new().w(px(176.0)).h(px(176.0)).rounded_lg()),
                 )
                 .child(
                     div()
@@ -746,8 +740,16 @@ fn render_install_panel(
             .py_2()
             .rounded_md()
             .border_1()
-            .border_color(if selected { theme.primary } else { theme.border })
-            .bg(if selected { theme.hover } else { theme.background })
+            .border_color(if selected {
+                theme.primary
+            } else {
+                theme.border
+            })
+            .bg(if selected {
+                theme.hover
+            } else {
+                theme.background
+            })
             .cursor_pointer()
             .child(p.name.clone())
             .on_mouse_down(
@@ -775,7 +777,9 @@ fn render_install_panel(
             }),
         )
         .into_any_element();
-    let profile_chips: Vec<AnyElement> = profile_rows.chain(std::iter::once(new_profile_chip)).collect();
+    let profile_chips: Vec<AnyElement> = profile_rows
+        .chain(std::iter::once(new_profile_chip))
+        .collect();
 
     let version_rows = versions.iter().enumerate().map(|(ix, v)| {
         let selected = panel.selected_version == v.version;
@@ -786,8 +790,16 @@ fn render_install_panel(
             .py_1()
             .rounded_md()
             .border_1()
-            .border_color(if selected { theme.primary } else { theme.border })
-            .bg(if selected { theme.hover } else { theme.background })
+            .border_color(if selected {
+                theme.primary
+            } else {
+                theme.border
+            })
+            .bg(if selected {
+                theme.hover
+            } else {
+                theme.background
+            })
             .cursor_pointer()
             .text_xs()
             .child(format!("v{}", v.version))
@@ -898,22 +910,10 @@ fn render_install_panel(
         .border_color(theme.border)
         .bg(theme.hover)
         .child(section_label("Install into profile", theme))
-        .child(
-            div()
-                .flex()
-                .flex_wrap()
-                .gap_2()
-                .children(profile_chips),
-        )
+        .child(div().flex().flex_wrap().gap_2().children(profile_chips))
         .children(new_profile_row)
         .child(section_label("Version", theme))
-        .child(
-            div()
-                .flex()
-                .flex_wrap()
-                .gap_2()
-                .children(version_rows),
-        )
+        .child(div().flex().flex_wrap().gap_2().children(version_rows))
         .children(if panel.deps.is_empty() {
             None
         } else {

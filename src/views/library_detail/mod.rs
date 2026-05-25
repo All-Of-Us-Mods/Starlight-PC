@@ -538,45 +538,46 @@ impl Render for LibraryDetailView {
                         )
                 });
 
-                let delete_row = if self.confirming_delete {
-                    div()
-                        .flex()
-                        .gap_2()
-                        .items_center()
-                        .child(
-                            div()
-                                .px_2()
-                                .py_1()
-                                .text_color(theme.text_muted)
-                                .child("Delete this profile?"),
-                        )
-                        .child(
-                            Button::new("confirm-delete")
+                let delete_row =
+                    if self.confirming_delete {
+                        div()
+                            .flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .px_2()
+                                    .py_1()
+                                    .text_color(theme.text_muted)
+                                    .child("Delete this profile?"),
+                            )
+                            .child(
+                                Button::new("confirm-delete")
+                                    .danger()
+                                    .icon(Icon::new(IconName::Delete))
+                                    .label("Delete")
+                                    .on_click(
+                                        cx.listener(|this, _, _window, cx| this.delete_profile(cx)),
+                                    ),
+                            )
+                            .child(Button::new("cancel-delete").label("Cancel").on_click(
+                                cx.listener(|this, _, _window, cx| {
+                                    this.confirming_delete = false;
+                                    cx.notify();
+                                }),
+                            ))
+                    } else {
+                        div().child(
+                            Button::new("delete-profile")
                                 .danger()
                                 .icon(Icon::new(IconName::Delete))
-                                .label("Delete")
+                                .label("Delete Profile")
                                 .on_click(cx.listener(|this, _, _window, cx| {
-                                    this.delete_profile(cx)
+                                    this.confirming_delete = true;
+                                    cx.notify();
                                 })),
                         )
-                        .child(Button::new("cancel-delete").label("Cancel").on_click(
-                            cx.listener(|this, _, _window, cx| {
-                                this.confirming_delete = false;
-                                cx.notify();
-                            }),
-                        ))
-                } else {
-                    div().child(
-                        Button::new("delete-profile")
-                            .danger()
-                            .icon(Icon::new(IconName::Delete))
-                            .label("Delete Profile")
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.confirming_delete = true;
-                                cx.notify();
-                            })),
-                    )
-                };
+                    };
 
                 let manage_buttons = div()
                     .flex()

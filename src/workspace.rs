@@ -2,8 +2,6 @@ use gpui::*;
 
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
-use gpui_component::sidebar::{Sidebar, SidebarHeader, SidebarMenu, SidebarMenuItem};
-use gpui_component::{Icon, IconName};
 use crate::views::explore::ExploreView;
 use crate::views::home::HomeView;
 use crate::views::library::{LibraryEvent, LibraryView};
@@ -11,6 +9,8 @@ use crate::views::library_detail::{LibraryDetailEvent, LibraryDetailView};
 use crate::views::mod_detail::{ModDetailEvent, ModDetailView};
 use crate::views::news_detail::{NewsDetailEvent, NewsDetailView};
 use crate::views::settings::SettingsView;
+use gpui_component::sidebar::{Sidebar, SidebarHeader, SidebarMenu, SidebarMenuItem};
+use gpui_component::{Icon, IconName};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -82,22 +82,26 @@ impl Workspace {
         )
         .detach();
 
-        cx.subscribe_in(&library, window, |this, _, event: &LibraryEvent, window, cx| match event {
-            LibraryEvent::Open(profile_id) => {
-                let id = profile_id.clone();
-                let detail = cx.new(|cx| LibraryDetailView::new(id, window, cx));
-                cx.subscribe(&detail, |this, _, ev: &LibraryDetailEvent, cx| match ev {
-                    LibraryDetailEvent::Close => {
-                        this.library.update(cx, |lib, cx| lib.refresh(cx));
-                        this.view = ActiveView::Library;
-                        cx.notify();
-                    }
-                })
-                .detach();
-                this.view = ActiveView::LibraryDetail(detail);
-                cx.notify();
-            }
-        })
+        cx.subscribe_in(
+            &library,
+            window,
+            |this, _, event: &LibraryEvent, window, cx| match event {
+                LibraryEvent::Open(profile_id) => {
+                    let id = profile_id.clone();
+                    let detail = cx.new(|cx| LibraryDetailView::new(id, window, cx));
+                    cx.subscribe(&detail, |this, _, ev: &LibraryDetailEvent, cx| match ev {
+                        LibraryDetailEvent::Close => {
+                            this.library.update(cx, |lib, cx| lib.refresh(cx));
+                            this.view = ActiveView::Library;
+                            cx.notify();
+                        }
+                    })
+                    .detach();
+                    this.view = ActiveView::LibraryDetail(detail);
+                    cx.notify();
+                }
+            },
+        )
         .detach();
 
         Self {

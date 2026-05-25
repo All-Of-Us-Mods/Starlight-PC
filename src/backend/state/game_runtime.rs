@@ -37,11 +37,20 @@ pub struct GameStatePayload {
 // the game-exe argument for any launch) — so match on that.
 #[cfg(target_os = "linux")]
 fn kill_by_cmdline_substring(substring: &str) {
-    let Ok(entries) = std::fs::read_dir("/proc") else { return };
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return;
+    };
     for entry in entries.flatten() {
-        let Some(pid) = entry.file_name().to_str().and_then(|s| s.parse::<i32>().ok())
-        else { continue };
-        let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) else { continue };
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
+            continue;
+        };
         if String::from_utf8_lossy(&cmdline).contains(substring) {
             let _ = std::process::Command::new("kill")
                 .args(["-KILL", &pid.to_string()])
@@ -75,9 +84,9 @@ fn reap_and_record(tracked: TrackedGameProcess) {
         if let Err(e) = profile_service::add_play_time(&id, duration_ms) {
             warn!("add_play_time failed for profile {id}: {e}");
         }
-        crate::backend::events::publish(
-            crate::backend::events::BackendEvent::ProfileStatsUpdated(id),
-        );
+        crate::backend::events::publish(crate::backend::events::BackendEvent::ProfileStatsUpdated(
+            id,
+        ));
     });
 }
 

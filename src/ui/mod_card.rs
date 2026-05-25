@@ -123,7 +123,11 @@ pub fn mod_card_skeleton(width: Option<Pixels>, theme: &Theme) -> Div {
                 .child(Skeleton::new().w_1_2().h_3().rounded_md())
                 .child(Skeleton::new().w_full().h_3().rounded_md())
                 .child(Skeleton::new().w_5_6().h_3().rounded_md())
-                .child(div().mt_auto().child(Skeleton::new().w(px(80.0)).h_4().rounded_md())),
+                .child(
+                    div()
+                        .mt_auto()
+                        .child(Skeleton::new().w(px(80.0)).h_4().rounded_md()),
+                ),
         );
 
     if let Some(width) = width {

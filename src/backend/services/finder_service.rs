@@ -163,9 +163,7 @@ fn linux_compatibility_tool_roots() -> Vec<PathBuf> {
     if let Some(home) = home::home_dir() {
         roots.push(home.join(".steam/root/compatibilitytools.d"));
         roots.push(home.join(".local/share/Steam/compatibilitytools.d"));
-        roots.push(
-            home.join(".var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d"),
-        );
+        roots.push(home.join(".var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d"));
     }
     roots
 }

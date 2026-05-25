@@ -133,8 +133,7 @@ pub struct LogPanel {
 
 impl LogPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let filter_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Filter log…"));
+        let filter_input = cx.new(|cx| InputState::new(window, cx).placeholder("Filter log…"));
         cx.subscribe(&filter_input, |this, state, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
                 this.query = state.read(cx).value().to_string();

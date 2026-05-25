@@ -50,7 +50,10 @@ struct DownloadTarget {
 
 /// Pick the newest published version whose semver satisfies `constraint`.
 /// Falls back to the newest version if the constraint can't be parsed.
-pub fn resolve_version(constraint: &str, versions_sorted_newest_first: &[ModVersion]) -> Option<String> {
+pub fn resolve_version(
+    constraint: &str,
+    versions_sorted_newest_first: &[ModVersion],
+) -> Option<String> {
     if versions_sorted_newest_first.is_empty() {
         return None;
     }
@@ -74,9 +77,7 @@ pub fn resolve_version(constraint: &str, versions_sorted_newest_first: &[ModVers
 /// already in `skip` (e.g. the root mod the user clicked Install on) is not
 /// emitted but its sub-tree is still walked. First resolution of a mod_id
 /// wins on cycles or diamond dependencies.
-pub fn resolve_dependencies(
-    dependencies: &[ModDependency],
-) -> AppResult<Vec<ResolvedDependency>> {
+pub fn resolve_dependencies(dependencies: &[ModDependency]) -> AppResult<Vec<ResolvedDependency>> {
     resolve_dependencies_excluding(dependencies, &HashSet::new())
 }
 
@@ -92,11 +93,7 @@ pub fn resolve_dependencies_excluding(
     Ok(out)
 }
 
-fn walk_dep(
-    dep: &ModDependency,
-    visited: &mut HashSet<String>,
-    out: &mut Vec<ResolvedDependency>,
-) {
+fn walk_dep(dep: &ModDependency, visited: &mut HashSet<String>, out: &mut Vec<ResolvedDependency>) {
     if !visited.insert(dep.mod_id.clone()) {
         return;
     }
@@ -255,13 +252,20 @@ pub fn install_mods_for_profile(
     for item in mods {
         let info = api::fetch_mod_version_info(&item.mod_id, &item.version)?;
         let _meta = fetch_mod_meta(&item.mod_id)?;
-        let target = match resolve_download_target(&item.mod_id, &item.version, &info, &game_platform) {
-            Ok(t) => t,
-            Err(e) => {
-                rollback(&profile_path, profile_id, &downloaded, &persisted, &previous);
-                return Err(e);
-            }
-        };
+        let target =
+            match resolve_download_target(&item.mod_id, &item.version, &info, &game_platform) {
+                Ok(t) => t,
+                Err(e) => {
+                    rollback(
+                        &profile_path,
+                        profile_id,
+                        &downloaded,
+                        &persisted,
+                        &previous,
+                    );
+                    return Err(e);
+                }
+            };
 
         let destination = plugins_dir.join(&target.file_name);
         if let Err(e) = mod_download_service::download_mod(
@@ -270,7 +274,13 @@ pub fn install_mods_for_profile(
             destination.to_string_lossy().into_owned(),
             target.checksum.clone(),
         ) {
-            rollback(&profile_path, profile_id, &downloaded, &persisted, &previous);
+            rollback(
+                &profile_path,
+                profile_id,
+                &downloaded,
+                &persisted,
+                &previous,
+            );
             return Err(e);
         }
 
@@ -285,7 +295,13 @@ pub fn install_mods_for_profile(
             &item.version,
             &target.file_name,
         ) {
-            rollback(&profile_path, profile_id, &downloaded, &persisted, &previous);
+            rollback(
+                &profile_path,
+                profile_id,
+                &downloaded,
+                &persisted,
+                &previous,
+            );
             return Err(e);
         }
         persisted.push(InstalledModResult {
@@ -315,8 +331,12 @@ fn rollback(
         if let Some(prior) = previous.get(&item.mod_id) {
             match prior {
                 Some((version, Some(file))) => {
-                    let _ =
-                        profile_service::add_mod_to_profile(profile_id, &item.mod_id, version, file);
+                    let _ = profile_service::add_mod_to_profile(
+                        profile_id,
+                        &item.mod_id,
+                        version,
+                        file,
+                    );
                 }
                 _ => {
                     let _ = profile_service::remove_mod_from_profile(profile_id, &item.mod_id);

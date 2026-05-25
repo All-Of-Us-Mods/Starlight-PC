@@ -26,12 +26,7 @@ pub fn profile_icon(profile: &ProfileEntry, size: f32, theme: &Theme) -> AnyElem
             {
                 let path = PathBuf::from(&profile.path).join(format!("icon{ext}"));
                 return common(div())
-                    .child(
-                        img(path)
-                            .w(size_px)
-                            .h(size_px)
-                            .object_fit(ObjectFit::Cover),
-                    )
+                    .child(img(path).w(size_px).h(size_px).object_fit(ObjectFit::Cover))
                     .into_any_element();
             }
         }
