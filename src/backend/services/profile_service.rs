@@ -485,7 +485,6 @@ pub fn update_profile_icon(profile_id: &str, selection: ProfileIconSelection) ->
     }
 }
 
-#[allow(dead_code)] // planned: wired into launch flow once telemetry UI lands
 pub fn update_last_launched(profile_id: &str) -> AppResult<()> {
     let Some(mut profile) = get_profile_by_id(profile_id)? else {
         return Ok(());
@@ -529,7 +528,6 @@ pub fn add_mod_to_profile(
     write_profile(&profile)
 }
 
-#[allow(dead_code)] // planned: wired into launch flow once telemetry UI lands
 pub fn add_play_time(profile_id: &str, duration_ms: i64) -> AppResult<()> {
     let Some(mut profile) = get_profile_by_id(profile_id)? else {
         return Err(AppError::validation(format!(
@@ -588,35 +586,6 @@ pub fn import_mod_to_profile(profile_id: &str, source_path: &str) -> AppResult<S
 
     fs::copy(&source, &destination)?;
     Ok(source_name.to_string())
-}
-
-pub fn get_mod_files(profile_path: &str) -> Vec<String> {
-    let plugins_dir = PathBuf::from(profile_path).join("BepInEx").join("plugins");
-    let Ok(entries) = fs::read_dir(plugins_dir) else {
-        return vec![];
-    };
-
-    entries
-        .filter_map(|entry| match entry {
-            Ok(entry) => Some(entry),
-            Err(error) => {
-                log::warn!("Failed to read plugins directory entry: {error}");
-                None
-            }
-        })
-        .filter_map(|entry| {
-            let file_type = entry.file_type().ok()?;
-            if file_type.is_dir() {
-                return None;
-            }
-            let file_name = entry.file_name();
-            let file_name = file_name.to_string_lossy().to_string();
-            file_name
-                .to_ascii_lowercase()
-                .ends_with(".dll")
-                .then_some(file_name)
-        })
-        .collect()
 }
 
 pub fn delete_mod_file(profile_path: &str, file_name: &str) -> AppResult<()> {

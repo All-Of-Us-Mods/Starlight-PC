@@ -1,13 +1,15 @@
 use crate::backend::error::{AppError, AppResult};
+use crate::backend::services::profile_service;
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::process::Child;
 use std::sync::{LazyLock, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 struct TrackedGameProcess {
     child: Child,
     profile_id: Option<String>,
+    launched_at: Instant,
 }
 
 #[derive(Default)]
@@ -54,6 +56,31 @@ fn reap_process(mut child: Child) {
     }
 }
 
+/// Reap a tracked process and record its session against the owning profile.
+/// Play-time persistence is offloaded to a detached thread so callers don't
+/// block (and don't hold the tracked-state lock) during disk I/O.
+fn reap_and_record(tracked: TrackedGameProcess) {
+    let TrackedGameProcess {
+        child,
+        profile_id,
+        launched_at,
+    } = tracked;
+    reap_process(child);
+    let Some(id) = profile_id else { return };
+    let duration_ms = launched_at.elapsed().as_millis().min(i64::MAX as u128) as i64;
+    if duration_ms <= 0 {
+        return;
+    }
+    std::thread::spawn(move || {
+        if let Err(e) = profile_service::add_play_time(&id, duration_ms) {
+            warn!("add_play_time failed for profile {id}: {e}");
+        }
+        crate::backend::events::publish(
+            crate::backend::events::BackendEvent::ProfileStatsUpdated(id),
+        );
+    });
+}
+
 fn build_state_payload(state: &TrackedState) -> GameStatePayload {
     let mut profile_instance_counts = HashMap::new();
     let mut stoppable_profile_instance_counts = HashMap::new();
@@ -96,13 +123,13 @@ fn prune_finished_processes(state: &mut TrackedState) {
         match state.processes[i].child.try_wait() {
             Ok(Some(_)) => {
                 let tracked = state.processes.swap_remove(i);
-                reap_process(tracked.child);
+                reap_and_record(tracked);
             }
             Ok(None) => i += 1,
             Err(e) => {
                 warn!("Failed to check tracked process state: {}", e);
                 let tracked = state.processes.swap_remove(i);
-                reap_process(tracked.child);
+                reap_and_record(tracked);
             }
         }
     }
@@ -132,16 +159,18 @@ fn monitor_game_process(process_id: u32) {
                 Ok(Some(status)) => {
                     info!("Game process exited with status: {:?}", status);
                     let tracked = state.processes.swap_remove(index);
-                    reap_process(tracked.child);
                     emit_state_snapshot(&state);
+                    drop(state);
+                    reap_and_record(tracked);
                     break;
                 }
                 Ok(None) => {}
                 Err(e) => {
                     warn!("Failed to check game process state: {}", e);
                     let tracked = state.processes.swap_remove(index);
-                    reap_process(tracked.child);
                     emit_state_snapshot(&state);
+                    drop(state);
+                    reap_and_record(tracked);
                     break;
                 }
             }
@@ -150,6 +179,16 @@ fn monitor_game_process(process_id: u32) {
 }
 
 pub fn register_launched_process(child: Child, profile_id: Option<String>) -> AppResult<()> {
+    if let Some(id) = profile_id.as_deref() {
+        if let Err(e) = profile_service::update_last_launched(id) {
+            warn!("update_last_launched failed for profile {id}: {e}");
+        } else {
+            crate::backend::events::publish(
+                crate::backend::events::BackendEvent::ProfileStatsUpdated(id.to_string()),
+            );
+        }
+    }
+
     let process_id: u32;
     {
         let mut state = TRACKED_STATE
@@ -159,9 +198,11 @@ pub fn register_launched_process(child: Child, profile_id: Option<String>) -> Ap
         prune_finished_processes(&mut state);
 
         process_id = child.id();
-        state
-            .processes
-            .push(TrackedGameProcess { child, profile_id });
+        state.processes.push(TrackedGameProcess {
+            child,
+            profile_id,
+            launched_at: Instant::now(),
+        });
         emit_state_snapshot(&state);
     }
 
@@ -187,14 +228,14 @@ where
         match state.processes[i].child.try_wait() {
             Ok(Some(_)) => {
                 let tracked = state.processes.swap_remove(i);
-                reap_process(tracked.child);
+                reap_and_record(tracked);
                 continue;
             }
             Ok(None) => {}
             Err(e) => {
                 warn!("Failed to check tracked process state before stop: {}", e);
                 let tracked = state.processes.swap_remove(i);
-                reap_process(tracked.child);
+                reap_and_record(tracked);
                 continue;
             }
         }
@@ -214,7 +255,7 @@ where
         }
 
         let tracked = state.processes.swap_remove(i);
-        reap_process(tracked.child);
+        reap_and_record(tracked);
         stopped_count += 1;
     }
 

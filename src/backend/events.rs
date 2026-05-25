@@ -16,6 +16,9 @@ pub enum BackendEvent {
     BepInExProgress(BepInExProgress),
     ModDownloadProgress(ModDownloadProgress),
     GameStateChanged(GameStatePayload),
+    /// A profile's persisted stats (last_launched / total_play_time) just
+    /// changed. Views can use this to reload the profile entry.
+    ProfileStatsUpdated(String),
 }
 
 const CHANNEL_CAPACITY: usize = 256;

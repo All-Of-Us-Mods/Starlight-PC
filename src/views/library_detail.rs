@@ -1,6 +1,8 @@
+use chrono::{DateTime, Local};
 use gpui::*;
 use log::warn;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::backend::api;
@@ -8,7 +10,9 @@ use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_service::{BepInExProgress, BepInExTargetType};
 use crate::backend::services::core_service;
 use crate::backend::services::launch_service::{self, LaunchModdedArgs};
-use crate::backend::services::profile_service::{self, ProfileEntry, ProfileIconSelection};
+use crate::backend::services::profile_service::{
+    self, ProfileEntry, ProfileIconSelection, ProfileModEntry,
+};
 use crate::backend::state::game_runtime;
 use crate::settings as app_settings;
 use crate::theme::{self, ThemeExt};
@@ -44,10 +48,11 @@ pub struct LibraryDetailView {
     log_view_cache: String,
     log_query: String,
     log_filters: LogFilters,
-    /// Disk-cached log content + mod-files listing. Refreshed by
-    /// [`refresh_disk_state`], NOT in the render loop.
+    /// Disk-cached log content. Refreshed by [`refresh_disk_state`], NOT in
+    /// the render loop.
     log_content: String,
-    mod_files: Vec<String>,
+    /// API-resolved display names per mod_id, populated lazily after load.
+    mod_names: HashMap<String, String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -218,7 +223,7 @@ impl LibraryDetailView {
             log_query: String::new(),
             log_filters: LogFilters::default(),
             log_content: String::new(),
-            mod_files: Vec::new(),
+            mod_names: HashMap::new(),
         };
 
         view.spawn_load(cx);
@@ -261,6 +266,9 @@ impl LibraryDetailView {
                             this.refresh_disk_state(cx);
                         });
                     }
+                    BackendEvent::ProfileStatsUpdated(id) if id == id_for_events => {
+                        let _ = this.update(cx, |this, cx| this.spawn_load(cx));
+                    }
                     _ => {}
                 }
             }
@@ -285,32 +293,61 @@ impl LibraryDetailView {
                 };
                 cx.notify();
                 this.refresh_disk_state(cx);
+                this.fetch_missing_mod_names(cx);
             });
         })
         .detach();
     }
 
-    /// Reload the on-disk artifacts shown on this page (log file + mods
-    /// listing). Cheap to call repeatedly — runs on the background executor
-    /// and notifies once both reads finish, so we never touch the disk inside
-    /// `render()`.
+    /// Resolve API display names for any mods we haven't seen yet. Runs each
+    /// fetch on the background executor and patches the view's cache as they
+    /// come in. Missing names just leave the file-name fallback in place.
+    fn fetch_missing_mod_names(&self, cx: &mut Context<Self>) {
+        let LoadState::Loaded(profile) = &self.state else {
+            return;
+        };
+        let pending: Vec<String> = profile
+            .mods
+            .iter()
+            .map(|m| m.mod_id.clone())
+            .filter(|id| !self.mod_names.contains_key(id))
+            .collect();
+        if pending.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            for mod_id in pending {
+                let id_for_fetch = mod_id.clone();
+                let resolved = cx
+                    .background_executor()
+                    .spawn(async move { api::fetch_mod(&id_for_fetch).ok().map(|m| m.name) })
+                    .await;
+                if let Some(name) = resolved {
+                    let _ = this.update(cx, |this, cx| {
+                        this.mod_names.insert(mod_id, name);
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Reload the on-disk log shown on this page. Cheap to call repeatedly —
+    /// runs on the background executor and notifies once the read finishes,
+    /// so we never touch the disk inside `render()`.
     fn refresh_disk_state(&self, cx: &mut Context<Self>) {
         let LoadState::Loaded(profile) = &self.state else {
             return;
         };
         let path = profile.path.clone();
         cx.spawn(async move |this, cx| {
-            let (log, mods) = cx
+            let log = cx
                 .background_executor()
-                .spawn(async move {
-                    let log = profile_service::get_profile_log(&path, "LogOutput.log");
-                    let mods = profile_service::get_mod_files(&path);
-                    (log, mods)
-                })
+                .spawn(async move { profile_service::get_profile_log(&path, "LogOutput.log") })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.log_content = log;
-                this.mod_files = mods;
                 cx.notify();
             });
         })
@@ -388,7 +425,7 @@ impl LibraryDetailView {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Latest log"))
+                    .child(section_heading("Latest log", theme))
                     .child(div().text_xs().text_color(theme.text_muted).child(format!(
                         "{kept_count} / {total_count} line{}",
                         if total_count == 1 { "" } else { "s" }
@@ -819,13 +856,15 @@ impl Render for LibraryDetailView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let back = Button::new("back")
-            .ghost()
-            .icon(Icon::new(IconName::ArrowLeft))
-            .label("Back")
-            .on_click(cx.listener(|_, _, _window, cx| {
-                cx.emit(LibraryDetailEvent::Close);
-            }));
+        let back = div().flex().child(
+            Button::new("back")
+                .ghost()
+                .icon(Icon::new(IconName::ArrowLeft))
+                .label("Back")
+                .on_click(cx.listener(|_, _, _window, cx| {
+                    cx.emit(LibraryDetailEvent::Close);
+                })),
+        );
 
         let body: AnyElement = match &self.state {
             LoadState::Loading => div()
@@ -862,7 +901,7 @@ impl Render for LibraryDetailView {
                 let allow_multi = app_settings::get(cx).allow_multi_instance_launch;
 
                 let launch_row = bep_installed.then(|| {
-                    let mut row = div().flex().gap_2().items_center();
+                    let mut row = div().flex().gap_2().items_center().flex_wrap();
                     if running == 0 {
                         row = row.child(
                             Button::new("launch")
@@ -927,41 +966,54 @@ impl Render for LibraryDetailView {
                         .child(Progress::new("bep-progress").value(p.progress as f32))
                 });
                 let has_log = !self.log_content.is_empty();
-                let mod_files = self.mod_files.clone();
 
+                let mod_names = self.mod_names.clone();
                 let mods_section = (!profile.mods.is_empty()).then(|| {
                     let entries: Vec<AnyElement> = profile
                         .mods
                         .iter()
-                        .map(|m| {
-                            div()
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .px_3()
-                                .py_2()
-                                .border_b_1()
-                                .border_color(theme.border)
-                                .child(div().child(m.mod_id.clone()))
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(theme.text_muted)
-                                        .child(m.version.clone()),
-                                )
-                                .into_any_element()
+                        .enumerate()
+                        .map(|(ix, m)| {
+                            let display = mod_display_name(m, &mod_names);
+                            let is_last = ix + 1 == profile.mods.len();
+                            let mut row = div().flex().items_center().gap_3().px_3().py_2();
+                            if !is_last {
+                                row = row.border_b_1().border_color(theme.border);
+                            }
+                            row.child(
+                                img(api::mod_thumbnail_url(&m.mod_id))
+                                    .w(px(32.0))
+                                    .h(px(32.0))
+                                    .flex_none()
+                                    .rounded_md()
+                                    .object_fit(ObjectFit::Cover)
+                                    .bg(theme.hover),
+                            )
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .flex_1()
+                                    .truncate()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(display),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.text_muted)
+                                    .child(m.version.clone()),
+                            )
+                            .into_any_element()
                         })
                         .collect();
                     div()
                         .flex()
                         .flex_col()
-                        .pt_4()
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .pb_2()
-                                .child(format!("Mods ({})", profile.mods.len())),
-                        )
+                        .gap_2()
+                        .child(section_heading(
+                            &format!("Mods · {}", profile.mods.len()),
+                            &theme,
+                        ))
                         .child(
                             div()
                                 .rounded_lg()
@@ -1013,114 +1065,117 @@ impl Render for LibraryDetailView {
                         )
                     };
 
+                let manage_buttons = div()
+                    .flex()
+                    .gap_2()
+                    .flex_wrap()
+                    .child(
+                        Button::new("rename-profile-action")
+                            .label("Rename")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_rename_dialog(window, cx);
+                            })),
+                    )
+                    .child(Button::new("edit-icon-action").label("Edit Icon").on_click(
+                        cx.listener(|this, _, _window, cx| {
+                            this.open_icon_dialog(cx);
+                        }),
+                    ))
+                    .child(
+                        Button::new("export-profile-action")
+                            .label("Export ZIP")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_export_dialog(window, cx);
+                            })),
+                    );
+
+                let hero = div()
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .p_5()
+                    .rounded_lg()
+                    .bg(theme.sidebar_background)
+                    .border_1()
+                    .border_color(theme.border)
+                    .child(
+                        div()
+                            .flex()
+                            .items_start()
+                            .gap_4()
+                            .child(profile_icon(profile, 80.0, &theme))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .text_2xl()
+                                            .font_weight(FontWeight::BOLD)
+                                            .truncate()
+                                            .child(profile.name.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("profile-path")
+                                            .text_xs()
+                                            .text_color(theme.text_muted)
+                                            .truncate()
+                                            .child(profile.path.clone()),
+                                    )
+                                    .children((!bep_installed).then(|| {
+                                        div()
+                                            .mt_1()
+                                            .text_xs()
+                                            .text_color(rgb(0xf59e0b))
+                                            .child("⚠ BepInEx not installed")
+                                    })),
+                            )
+                            .child(manage_buttons),
+                    )
+                    .children(progress_row)
+                    .children(install_btn)
+                    .children(launch_row)
+                    .children(launch_err);
+
+                let stats = div()
+                    .grid()
+                    .grid_cols(3)
+                    .gap_3()
+                    .child(stat_card(
+                        "Created",
+                        format_created_at(profile.created_at),
+                        &theme,
+                    ))
+                    .child(stat_card(
+                        "Last launched",
+                        format_last_launched(profile.last_launched_at),
+                        &theme,
+                    ))
+                    .child(stat_card(
+                        "Play time",
+                        format_play_time(profile.total_play_time),
+                        &theme,
+                    ));
+
+                let danger_zone = div()
+                    .pt_2()
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .child(delete_row);
+
                 div()
                     .flex()
                     .flex_col()
                     .gap_4()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_3()
-                            .child(profile_icon(profile, 64.0, &theme))
-                            .child(
-                                div()
-                                    .text_2xl()
-                                    .font_weight(FontWeight::BOLD)
-                                    .child(profile.name.clone()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                Button::new("rename-profile-action")
-                                    .label("Rename")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_rename_dialog(window, cx);
-                                    })),
-                            )
-                            .child(Button::new("edit-icon-action").label("Edit Icon").on_click(
-                                cx.listener(|this, _, _window, cx| {
-                                    this.open_icon_dialog(cx);
-                                }),
-                            ))
-                            .child(
-                                Button::new("export-profile-action")
-                                    .label("Export ZIP")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_export_dialog(window, cx);
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.text_muted)
-                            .child(profile.path.clone()),
-                    )
-                    .children((!bep_installed).then(|| {
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0xf59e0b))
-                            .child("BepInEx not installed")
-                    }))
-                    .children(progress_row)
-                    .children(install_btn)
-                    .children(launch_row)
-                    .children(launch_err)
-                    .child(
-                        div()
-                            .grid()
-                            .grid_cols(3)
-                            .gap_3()
-                            .child(stat_card("Created", profile.created_at.to_string(), &theme))
-                            .child(stat_card(
-                                "Last launched",
-                                profile
-                                    .last_launched_at
-                                    .map(|v| v.to_string())
-                                    .unwrap_or_else(|| "Never".to_string()),
-                                &theme,
-                            ))
-                            .child(stat_card(
-                                "Play time",
-                                format!("{} min", profile.total_play_time.unwrap_or(0) / 60_000),
-                                &theme,
-                            )),
-                    )
+                    .child(hero)
+                    .child(stats)
                     .children(mods_section)
-                    .children((!mod_files.is_empty()).then(|| {
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Plugin files"),
-                            )
-                            .child(
-                                div()
-                                    .rounded_lg()
-                                    .bg(theme.sidebar_background)
-                                    .border_1()
-                                    .border_color(theme.border)
-                                    .children(mod_files.into_iter().map(|file| {
-                                        div()
-                                            .px_3()
-                                            .py_2()
-                                            .border_b_1()
-                                            .border_color(theme.border)
-                                            .child(file)
-                                    })),
-                            )
-                    }))
-                    .children(
-                        has_log.then(|| self.render_log_panel(&theme, window, cx)),
-                    )
-                    .child(delete_row)
+                    .children(has_log.then(|| self.render_log_panel(&theme, window, cx)))
+                    .child(danger_zone)
                     .into_any_element()
             }
         };
@@ -1398,6 +1453,13 @@ fn render_icon_dialog(
         .into_any_element()
 }
 
+fn section_heading(text: &str, _theme: &crate::theme::Theme) -> impl IntoElement {
+    div()
+        .text_sm()
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(text.to_string())
+}
+
 fn stat_card(label: &'static str, value: String, theme: &crate::theme::Theme) -> impl IntoElement {
     div()
         .rounded_lg()
@@ -1407,6 +1469,55 @@ fn stat_card(label: &'static str, value: String, theme: &crate::theme::Theme) ->
         .p_3()
         .child(div().text_xs().text_color(theme.text_muted).child(label))
         .child(div().font_weight(FontWeight::SEMIBOLD).child(value))
+}
+
+fn format_created_at(timestamp_ms: i64) -> String {
+    DateTime::from_timestamp_millis(timestamp_ms)
+        .map(|dt| dt.with_timezone(&Local).format("%b %-d, %Y").to_string())
+        .unwrap_or_else(|| "Unknown".to_string())
+}
+
+fn format_last_launched(timestamp_ms: Option<i64>) -> String {
+    match timestamp_ms {
+        None => "Never".to_string(),
+        Some(ts) => DateTime::from_timestamp_millis(ts)
+            .map(|dt| {
+                dt.with_timezone(&Local)
+                    .format("%b %-d, %Y · %H:%M")
+                    .to_string()
+            })
+            .unwrap_or_else(|| "Unknown".to_string()),
+    }
+}
+
+fn format_play_time(ms: Option<i64>) -> String {
+    let total_ms = ms.unwrap_or(0).max(0);
+    if total_ms == 0 {
+        return "Never played".to_string();
+    }
+    let total_minutes = total_ms / 60_000;
+    let hours = total_minutes / 60;
+    let minutes = total_minutes % 60;
+    if hours > 0 {
+        format!("{hours}h {minutes}m")
+    } else if minutes > 0 {
+        format!("{minutes} min")
+    } else {
+        "< 1 min".to_string()
+    }
+}
+
+/// The label to show for a mod row. Falls back to the on-disk filename when
+/// the API name hasn't been resolved (or doesn't exist), and finally to the
+/// raw BepInEx GUID if we don't even have a filename.
+fn mod_display_name(m: &ProfileModEntry, names: &HashMap<String, String>) -> String {
+    if let Some(name) = names.get(&m.mod_id) {
+        return name.clone();
+    }
+    if let Some(file) = m.file.as_deref().filter(|s| !s.is_empty()) {
+        return file.to_string();
+    }
+    m.mod_id.clone()
 }
 
 fn dialog_overlay(
