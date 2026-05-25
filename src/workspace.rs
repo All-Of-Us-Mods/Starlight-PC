@@ -138,7 +138,11 @@ impl Workspace {
             .collapsible(false)
             .header(
                 SidebarHeader::new()
-                    .child(img("icons/starlight.svg").w(px(28.0)).h(px(28.0)))
+                    .child(
+                        Icon::new(AppIcon::Starlight)
+                            .size(px(28.0))
+                            .text_color(rgb(0xffc107)),
+                    )
                     .child(
                         div()
                             .text_xl()

@@ -1,7 +1,6 @@
 use gpui::*;
 
 mod app;
-mod assets;
 mod backend;
 mod settings;
 mod theme;
@@ -20,7 +19,7 @@ fn main() {
     );
 
     gpui_platform::application()
-        .with_assets(assets::EmbeddedAssets)
+        .with_assets(ui::icon::EmbeddedAssets)
         .with_http_client(http)
         .run(|cx: &mut App| {
             gpui_component::init(cx);
