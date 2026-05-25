@@ -1,3 +1,4 @@
 pub mod icon;
+pub mod log_language;
 pub mod mod_card;
 pub mod profile_icon;

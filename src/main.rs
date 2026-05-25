@@ -24,6 +24,7 @@ fn main() {
         .run(|cx: &mut App| {
             gpui_component::init(cx);
             gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
+            ui::log_language::register();
             theme::init(cx);
             settings::init(cx);
             backend::init(cx);

@@ -14,11 +14,11 @@ use crate::settings as app_settings;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
 use crate::ui::profile_icon::profile_icon;
-use gpui_component::Disableable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::progress::Progress;
 use gpui_component::skeleton::Skeleton;
+use gpui_component::{Disableable, Sizable as _};
 use gpui_component::{Icon, IconName};
 
 #[derive(Clone, Debug)]
@@ -39,6 +39,123 @@ pub struct LibraryDetailView {
     icon_dialog: Option<IconDialogState>,
     running_count: usize,
     stoppable_count: usize,
+    log_filter_input: Entity<InputState>,
+    log_view_input: Entity<InputState>,
+    log_view_cache: String,
+    log_query: String,
+    log_filters: LogFilters,
+    /// Disk-cached log content + mod-files listing. Refreshed by
+    /// [`refresh_disk_state`], NOT in the render loop.
+    log_content: String,
+    mod_files: Vec<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum LogLevel {
+    Error,
+    Warning,
+    Info,
+    Message,
+    Debug,
+    Other,
+}
+
+impl LogLevel {
+    fn detect(line: &str) -> Self {
+        // BepInEx log format: `[<Level>  : <Source>] message`.
+        let s = line.trim_start();
+        if s.starts_with("[Error") {
+            Self::Error
+        } else if s.starts_with("[Warning") {
+            Self::Warning
+        } else if s.starts_with("[Info") {
+            Self::Info
+        } else if s.starts_with("[Message") {
+            Self::Message
+        } else if s.starts_with("[Debug") {
+            Self::Debug
+        } else {
+            Self::Other
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Error => "Error",
+            Self::Warning => "Warning",
+            Self::Info => "Info",
+            Self::Message => "Message",
+            Self::Debug => "Debug",
+            Self::Other => "Other",
+        }
+    }
+
+    fn chip_id(self) -> &'static str {
+        match self {
+            Self::Error => "log-level-Error",
+            Self::Warning => "log-level-Warning",
+            Self::Info => "log-level-Info",
+            Self::Message => "log-level-Message",
+            Self::Debug => "log-level-Debug",
+            Self::Other => "log-level-Other",
+        }
+    }
+}
+
+const LOG_LEVELS: [LogLevel; 6] = [
+    LogLevel::Error,
+    LogLevel::Warning,
+    LogLevel::Message,
+    LogLevel::Info,
+    LogLevel::Debug,
+    LogLevel::Other,
+];
+
+struct LogFilters {
+    error: bool,
+    warning: bool,
+    info: bool,
+    message: bool,
+    debug: bool,
+    other: bool,
+}
+
+impl Default for LogFilters {
+    fn default() -> Self {
+        Self {
+            error: true,
+            warning: true,
+            info: true,
+            message: true,
+            debug: true,
+            other: true,
+        }
+    }
+}
+
+impl LogFilters {
+    fn is_enabled(&self, level: LogLevel) -> bool {
+        match level {
+            LogLevel::Error => self.error,
+            LogLevel::Warning => self.warning,
+            LogLevel::Info => self.info,
+            LogLevel::Message => self.message,
+            LogLevel::Debug => self.debug,
+            LogLevel::Other => self.other,
+        }
+    }
+
+    fn toggle(&mut self, level: LogLevel) {
+        let slot = match level {
+            LogLevel::Error => &mut self.error,
+            LogLevel::Warning => &mut self.warning,
+            LogLevel::Info => &mut self.info,
+            LogLevel::Message => &mut self.message,
+            LogLevel::Debug => &mut self.debug,
+            LogLevel::Other => &mut self.other,
+        };
+        *slot = !*slot;
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -63,7 +180,27 @@ enum LoadState {
 }
 
 impl LibraryDetailView {
-    pub fn new(profile_id: String, _window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(profile_id: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let log_filter_input = cx.new(|cx| InputState::new(window, cx).placeholder("Filter log…"));
+        cx.subscribe(&log_filter_input, |this, state, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.log_query = state.read(cx).value().to_string();
+                cx.notify();
+            }
+        })
+        .detach();
+
+        // Custom `"log"` language is registered at app startup
+        // (see `ui::log_language::register`). Highlights the `[Level: …]`
+        // prefix per log level.
+        let log_view_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .code_editor("log")
+                .multi_line(true)
+                .line_number(false)
+                .folding(false)
+        });
+
         let view = Self {
             profile_id: profile_id.clone(),
             state: LoadState::Loading,
@@ -75,6 +212,13 @@ impl LibraryDetailView {
             icon_dialog: None,
             running_count: 0,
             stoppable_count: 0,
+            log_filter_input,
+            log_view_input,
+            log_view_cache: String::new(),
+            log_query: String::new(),
+            log_filters: LogFilters::default(),
+            log_content: String::new(),
+            mod_files: Vec::new(),
         };
 
         view.spawn_load(cx);
@@ -113,6 +257,8 @@ impl LibraryDetailView {
                             this.running_count = running;
                             this.stoppable_count = stoppable;
                             cx.notify();
+                            // Game state change ≈ new log content / mod changes.
+                            this.refresh_disk_state(cx);
                         });
                     }
                     _ => {}
@@ -138,9 +284,143 @@ impl LibraryDetailView {
                     Err(e) => LoadState::Failed(e.to_string()),
                 };
                 cx.notify();
+                this.refresh_disk_state(cx);
             });
         })
         .detach();
+    }
+
+    /// Reload the on-disk artifacts shown on this page (log file + mods
+    /// listing). Cheap to call repeatedly — runs on the background executor
+    /// and notifies once both reads finish, so we never touch the disk inside
+    /// `render()`.
+    fn refresh_disk_state(&self, cx: &mut Context<Self>) {
+        let LoadState::Loaded(profile) = &self.state else {
+            return;
+        };
+        let path = profile.path.clone();
+        cx.spawn(async move |this, cx| {
+            let (log, mods) = cx
+                .background_executor()
+                .spawn(async move {
+                    let log = profile_service::get_profile_log(&path, "LogOutput.log");
+                    let mods = profile_service::get_mod_files(&path);
+                    (log, mods)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.log_content = log;
+                this.mod_files = mods;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn toggle_log_level(&mut self, level: LogLevel, cx: &mut Context<Self>) {
+        self.log_filters.toggle(level);
+        cx.notify();
+    }
+
+    fn render_log_panel(
+        &mut self,
+        theme: &crate::theme::Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        // Cap retained lines so the filter pass stays cheap on huge logs.
+        const MAX_LINES: usize = 2000;
+
+        let query = self.log_query.trim().to_lowercase();
+        let total_count = self.log_content.lines().count();
+        let skip = total_count.saturating_sub(MAX_LINES);
+
+        // Filter once, borrowing the log content; no per-line String alloc.
+        let kept: Vec<&str> = self
+            .log_content
+            .lines()
+            .skip(skip)
+            .filter(|line| {
+                let level = LogLevel::detect(line);
+                self.log_filters.is_enabled(level)
+                    && (query.is_empty() || line.to_lowercase().contains(&query))
+            })
+            .collect();
+        let kept_count = kept.len();
+        let joined = kept.join("\n");
+
+        // Only push text into the Input when the content actually changes —
+        // otherwise we'd clobber the user's selection every render.
+        if joined != self.log_view_cache {
+            let new_text = joined.clone();
+            self.log_view_input.update(cx, |state, cx| {
+                state.set_value(new_text, window, cx);
+            });
+            self.log_view_cache = joined;
+        }
+
+        let filter_chips: Vec<AnyElement> = LOG_LEVELS
+            .iter()
+            .copied()
+            .map(|level| {
+                let active = self.log_filters.is_enabled(level);
+                let mut btn = Button::new(level.chip_id()).xsmall().label(level.label());
+                if active {
+                    btn = btn.primary();
+                } else {
+                    btn = btn.ghost();
+                }
+                btn.on_click(cx.listener(move |this, _, _window, cx| {
+                    this.toggle_log_level(level, cx);
+                }))
+                .into_any_element()
+            })
+            .collect();
+
+        let lines_for_copy = self.log_view_cache.clone();
+
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Latest log"))
+                    .child(div().text_xs().text_color(theme.text_muted).child(format!(
+                        "{kept_count} / {total_count} line{}",
+                        if total_count == 1 { "" } else { "s" }
+                    ))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .items_center()
+                    .child(div().w(px(220.0)).child(Input::new(&self.log_filter_input)))
+                    .children(filter_chips)
+                    .child(
+                        Button::new("copy-log")
+                            .xsmall()
+                            .ghost()
+                            .label("Copy")
+                            .on_click(move |_, _window, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(
+                                    lines_for_copy.clone(),
+                                ));
+                            }),
+                    ),
+            )
+            .child(
+                div().h(px(320.0)).child(
+                    Input::new(&self.log_view_input)
+                        .font_family("ui-monospace, monospace")
+                        .size_full(),
+                ),
+            )
     }
 
     fn install_bepinex(&mut self, cx: &mut Context<Self>) {
@@ -536,7 +816,7 @@ fn build_linux_runner(
 }
 
 impl Render for LibraryDetailView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
         let back = Button::new("back")
@@ -646,8 +926,8 @@ impl Render for LibraryDetailView {
                         )
                         .child(Progress::new("bep-progress").value(p.progress as f32))
                 });
-                let profile_log = profile_service::get_profile_log(&profile.path, "LogOutput.log");
-                let mod_files = profile_service::get_mod_files(&profile.path);
+                let has_log = !self.log_content.is_empty();
+                let mod_files = self.mod_files.clone();
 
                 let mods_section = (!profile.mods.is_empty()).then(|| {
                     let entries: Vec<AnyElement> = profile
@@ -837,34 +1117,9 @@ impl Render for LibraryDetailView {
                                     })),
                             )
                     }))
-                    .children((!profile_log.is_empty()).then(|| {
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child("Latest log"))
-                            .child(
-                                div()
-                                    .max_h(px(220.0))
-                                    .overflow_hidden()
-                                    .rounded_lg()
-                                    .bg(theme.sidebar_background)
-                                    .border_1()
-                                    .border_color(theme.border)
-                                    .p_3()
-                                    .text_xs()
-                                    .child(
-                                        profile_log
-                                            .chars()
-                                            .rev()
-                                            .take(4000)
-                                            .collect::<String>()
-                                            .chars()
-                                            .rev()
-                                            .collect::<String>(),
-                                    ),
-                            )
-                    }))
+                    .children(
+                        has_log.then(|| self.render_log_panel(&theme, window, cx)),
+                    )
                     .child(delete_row)
                     .into_any_element()
             }
