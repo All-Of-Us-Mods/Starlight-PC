@@ -276,10 +276,10 @@ fn build_linux_detection(
     // detected root is that library folder, but the Proton install lives in
     // the main Steam client at `~/.local/share/Steam`. Search both.
     let mut picks = Vec::new();
-    if let Some(root) = steam_root.as_ref() {
-        if let Some(binary) = pick_proton_binary(root) {
-            picks.push(binary);
-        }
+    if let Some(root) = steam_root.as_ref()
+        && let Some(binary) = pick_proton_binary(root)
+    {
+        picks.push(binary);
     }
     for client_root in linux_steam_roots() {
         if !client_root.exists() {

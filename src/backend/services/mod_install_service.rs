@@ -62,10 +62,10 @@ pub fn resolve_version(
     }
     if let Ok(req) = VersionReq::parse(constraint) {
         for item in versions_sorted_newest_first {
-            if let Ok(version) = Version::parse(&item.version) {
-                if req.matches(&version) {
-                    return Some(item.version.clone());
-                }
+            if let Ok(version) = Version::parse(&item.version)
+                && req.matches(&version)
+            {
+                return Some(item.version.clone());
             }
         }
     }
@@ -103,7 +103,7 @@ fn walk_dep(dep: &ModDependency, visited: &mut HashSet<String>, out: &mut Vec<Re
     let Ok(mut versions) = api::fetch_mod_versions(&dep.mod_id) else {
         return;
     };
-    versions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    versions.sort_by_key(|version| std::cmp::Reverse(version.created_at));
     let Some(version) = resolve_version(&dep.version_constraint, &versions) else {
         return;
     };
@@ -185,17 +185,17 @@ fn resolve_download_target(
     version_info: &ModVersionInfo,
     game_platform: &GamePlatform,
 ) -> AppResult<DownloadTarget> {
-    if let Some(platforms) = version_info.platforms.as_ref().filter(|p| !p.is_empty()) {
-        if let Some(target) = pick_platform_target(
+    if let Some(platforms) = version_info.platforms.as_ref().filter(|p| !p.is_empty())
+        && let Some(target) = pick_platform_target(
             platforms,
             version_info.file_name.as_deref(),
             version_info.checksum.as_deref(),
             game_platform,
             mod_id,
             version,
-        ) {
-            return Ok(target);
-        }
+        )
+    {
+        return Ok(target);
     }
 
     let file_name = version_info.file_name.clone().ok_or_else(|| {
@@ -226,7 +226,7 @@ pub fn install_mods_for_profile(
     mods: &[InstallModInput],
 ) -> AppResult<Vec<InstalledModResult>> {
     let settings = core_service::get_settings()?;
-    let game_platform = settings.game_platform.clone();
+    let game_platform = settings.game_platform;
 
     let profile = profile_service::get_profile_by_id(profile_id)?
         .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))?;
@@ -310,10 +310,10 @@ pub fn install_mods_for_profile(
         });
 
         // If the file name changed (e.g. upgrading versions), remove the old file.
-        if let Some(Some((_v, Some(old_file)))) = previous.get(&item.mod_id) {
-            if old_file != &target.file_name {
-                let _ = profile_service::delete_mod_file(&profile_path, old_file);
-            }
+        if let Some(Some((_v, Some(old_file)))) = previous.get(&item.mod_id)
+            && old_file != &target.file_name
+        {
+            let _ = profile_service::delete_mod_file(&profile_path, old_file);
         }
     }
 

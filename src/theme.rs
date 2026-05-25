@@ -37,7 +37,7 @@ impl<'a, V> ThemeExt for Context<'a, V> {
     }
 }
 
-impl<'a> ThemeExt for App {
+impl ThemeExt for App {
     fn theme(&self) -> &Theme {
         self.global::<Theme>()
     }

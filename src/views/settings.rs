@@ -20,6 +20,8 @@ use crate::settings as app_settings;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
 
+type PathSetter = Rc<dyn Fn(SharedString, &mut App)>;
+
 pub struct SettingsView;
 
 impl SettingsView {
@@ -252,7 +254,7 @@ fn path_field(
             key, options.page_ix, options.group_ix, options.item_ix
         )
         .into();
-        let setter: Rc<dyn Fn(SharedString, &mut App)> = Rc::new(move |v, cx| set(v, cx));
+        let setter: PathSetter = Rc::new(set);
 
         let input_el = Input::new(&input_entity)
             .with_size(options.size)
@@ -298,7 +300,7 @@ fn path_field(
 
 fn detect_linux_runtime(window: &mut Window, cx: &mut App) {
     let among_us_path = app_settings::get(cx).among_us_path.clone();
-    let path_arg = (!among_us_path.trim().is_empty()).then(|| among_us_path);
+    let path_arg = (!among_us_path.trim().is_empty()).then_some(among_us_path);
     match finder_service::detect_linux_runner(path_arg) {
         Ok(detection) => {
             let kind = match detection.runner_kind.as_str() {

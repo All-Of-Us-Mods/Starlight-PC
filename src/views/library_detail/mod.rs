@@ -5,7 +5,6 @@
 
 mod icon_dialog;
 
-use chrono::{DateTime, Local};
 use gpui::*;
 use log::warn;
 
@@ -19,6 +18,7 @@ use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEn
 use crate::backend::state::game_runtime;
 use crate::settings as app_settings;
 use crate::theme::{self, ThemeExt};
+use crate::ui::format;
 use crate::ui::icon::AppIcon;
 use crate::ui::log_panel::LogPanel;
 use crate::ui::profile_icon::profile_icon;
@@ -200,7 +200,7 @@ impl LibraryDetailView {
                 .background_executor()
                 .spawn(async move { profile_service::get_profile_log(&path, "LogOutput.log") })
                 .await;
-            let _ = log_panel.update(cx, |panel, cx| {
+            log_panel.update(cx, |panel, cx| {
                 panel.set_content(log, cx);
             });
         })
@@ -659,21 +659,13 @@ impl Render for LibraryDetailView {
                     .grid()
                     .grid_cols(3)
                     .gap_3()
-                    .child(stat_card(
-                        "Created",
-                        format_created_at(profile.created_at),
-                        &theme,
-                    ))
+                    .child(stat_card("Created", format::date_ms(profile.created_at), &theme))
                     .child(stat_card(
                         "Last launched",
-                        format_last_launched(profile.last_launched_at),
+                        format::last_launched(profile.last_launched_at),
                         &theme,
                     ))
-                    .child(stat_card(
-                        "Play time",
-                        format_play_time(profile.total_play_time),
-                        &theme,
-                    ));
+                    .child(stat_card("Play time", format::play_time(profile.total_play_time), &theme));
 
                 let danger_zone = div()
                     .pt_2()
@@ -776,41 +768,6 @@ fn stat_card(label: &'static str, value: String, theme: &crate::theme::Theme) ->
         .child(div().font_weight(FontWeight::SEMIBOLD).child(value))
 }
 
-fn format_created_at(timestamp_ms: i64) -> String {
-    DateTime::from_timestamp_millis(timestamp_ms)
-        .map(|dt| dt.with_timezone(&Local).format("%b %-d, %Y").to_string())
-        .unwrap_or_else(|| "Unknown".to_string())
-}
-
-fn format_last_launched(timestamp_ms: Option<i64>) -> String {
-    match timestamp_ms {
-        None => "Never".to_string(),
-        Some(ts) => DateTime::from_timestamp_millis(ts)
-            .map(|dt| {
-                dt.with_timezone(&Local)
-                    .format("%b %-d, %Y · %H:%M")
-                    .to_string()
-            })
-            .unwrap_or_else(|| "Unknown".to_string()),
-    }
-}
-
-fn format_play_time(ms: Option<i64>) -> String {
-    let total_ms = ms.unwrap_or(0).max(0);
-    if total_ms == 0 {
-        return "Never played".to_string();
-    }
-    let total_minutes = total_ms / 60_000;
-    let hours = total_minutes / 60;
-    let minutes = total_minutes % 60;
-    if hours > 0 {
-        format!("{hours}h {minutes}m")
-    } else if minutes > 0 {
-        format!("{minutes} min")
-    } else {
-        "< 1 min".to_string()
-    }
-}
 
 /// The label to show for a mod row. Falls back to the on-disk filename when
 /// the API name hasn't been resolved (or doesn't exist), and finally to the

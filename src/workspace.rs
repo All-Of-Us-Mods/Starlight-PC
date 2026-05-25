@@ -62,9 +62,9 @@ pub struct Workspace {
 impl Workspace {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let library = cx.new(|cx| LibraryView::new(window, cx));
-        let home = cx.new(|cx| HomeView::new(cx));
+        let home = cx.new(HomeView::new);
         let explore = cx.new(|cx| ExploreView::new(window, cx));
-        let settings = cx.new(|cx| SettingsView::new(cx));
+        let settings = cx.new(SettingsView::new);
 
         cx.subscribe(
             &home,

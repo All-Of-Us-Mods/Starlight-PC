@@ -39,7 +39,7 @@ pub struct ModDetailView {
 
 enum LoadState {
     Loading,
-    Loaded(ModDetailData),
+    Loaded(Box<ModDetailData>),
     Failed(String),
 }
 
@@ -113,7 +113,7 @@ impl ModDetailView {
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok((data, profiles)) => {
-                        this.state = LoadState::Loaded(data);
+                        this.state = LoadState::Loaded(Box::new(data));
                         this.profiles = profiles;
                     }
                     Err(e) => this.state = LoadState::Failed(e.to_string()),
@@ -303,10 +303,10 @@ impl ModDetailView {
                     }
                     Err(e) => {
                         warn!("create_profile failed: {e}");
-                        if let Some(panel) = this.install.as_mut() {
-                            if let Some(np) = panel.new_profile.as_mut() {
-                                np.busy = false;
-                            }
+                        if let Some(panel) = this.install.as_mut()
+                            && let Some(np) = panel.new_profile.as_mut()
+                        {
+                            np.busy = false;
                         }
                         cx.notify();
                     }
@@ -317,10 +317,10 @@ impl ModDetailView {
     }
 
     fn toggle_dep(&mut self, ix: usize, checked: bool, cx: &mut Context<Self>) {
-        if let Some(panel) = self.install.as_mut() {
-            if let Some(row) = panel.deps.get_mut(ix) {
-                row.checked = checked;
-            }
+        if let Some(panel) = self.install.as_mut()
+            && let Some(row) = panel.deps.get_mut(ix)
+        {
+            row.checked = checked;
         }
         cx.notify();
     }

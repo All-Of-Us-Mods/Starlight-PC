@@ -51,10 +51,11 @@ impl LibraryDetailView {
         if let Some(state) = self.icon_dialog.as_mut() {
             state.mode = mode;
             state.error = None;
-            if mode == IconDialogMode::Mod && state.selected_mod_id.is_none() {
-                if let LoadState::Loaded(profile) = &self.state {
-                    state.selected_mod_id = profile.mods.first().map(|m| m.mod_id.clone());
-                }
+            if mode == IconDialogMode::Mod
+                && state.selected_mod_id.is_none()
+                && let LoadState::Loaded(profile) = &self.state
+            {
+                state.selected_mod_id = profile.mods.first().map(|m| m.mod_id.clone());
             }
             cx.notify();
         }
