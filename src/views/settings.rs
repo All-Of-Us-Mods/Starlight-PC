@@ -10,8 +10,9 @@ use gpui_component::{
 };
 use log::warn;
 
+use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::{
-    bepinex_service,
+    bepinex_service::{self, BepInExTargetType},
     core_service::{self, AppSettingsPatch, GamePlatform, LinuxRunnerKind},
     finder_service,
 };
@@ -25,7 +26,54 @@ impl SettingsView {
     pub fn new(cx: &mut Context<Self>) -> Self {
         cx.observe_global::<app_settings::SettingsGlobal>(|_, cx| cx.notify())
             .detach();
+
+        // Refresh on cache state changes (download / clear).
+        let mut rx = events::subscribe();
+        cx.spawn(async move |this, cx| {
+            while let Ok(event) = rx.recv().await {
+                if let BackendEvent::BepInExProgress(p) = event
+                    && matches!(p.target_type, BepInExTargetType::Cache)
+                {
+                    let _ = this.update(cx, |_, cx| cx.notify());
+                }
+            }
+        })
+        .detach();
+
         Self
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    let b = bytes as f64;
+    if b >= GIB {
+        format!("{:.2} GiB", b / GIB)
+    } else if b >= MIB {
+        format!("{:.1} MiB", b / MIB)
+    } else if b >= KIB {
+        format!("{:.1} KiB", b / KIB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+fn cache_present(arch: &str) -> bool {
+    core_service::get_bepinex_cache_path(arch)
+        .ok()
+        .and_then(|p| bepinex_service::cache_size(&p))
+        .is_some()
+}
+
+fn cache_status_label(arch: &str) -> SharedString {
+    match core_service::get_bepinex_cache_path(arch) {
+        Ok(path) => match bepinex_service::cache_size(&path) {
+            Some(size) => format!("Cached · {}", format_bytes(size)).into(),
+            None => "Not cached".into(),
+        },
+        Err(_) => "Cache path unavailable".into(),
     }
 }
 
@@ -335,24 +383,35 @@ fn download_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App)
         settings.bepinex_url_x86
     };
     let arch_owned = arch.to_string();
-    cx.background_executor()
-        .spawn(async move {
-            if let Err(e) =
-                bepinex_service::download_bepinex_to_cache(url, cache_path, arch_owned.clone())
-            {
+    let window_handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        let arch_for_task = arch_owned.clone();
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                bepinex_service::download_bepinex_to_cache(url, cache_path, arch_for_task)
+            })
+            .await;
+        let _ = window_handle.update(cx, |_, window, cx| match result {
+            Ok(()) => window.push_notification(
+                Notification::success(format!("Downloaded BepInEx {arch_owned}")),
+                cx,
+            ),
+            Err(e) => {
                 warn!("BepInEx cache download ({arch_owned}) failed: {e}");
+                window.push_notification(
+                    Notification::error(format!("BepInEx {arch_owned} download failed: {e}")),
+                    cx,
+                );
             }
-        })
-        .detach();
-    window.push_notification(
-        Notification::info(format!("Downloading BepInEx {arch}…")),
-        cx,
-    );
+        });
+    })
+    .detach();
 }
 
 fn clear_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App) {
     match core_service::get_bepinex_cache_path(arch) {
-        Ok(path) => match bepinex_service::clear_cache(path) {
+        Ok(path) => match bepinex_service::clear_cache(path, arch.to_string()) {
             Ok(()) => window.push_notification(
                 Notification::success(format!("Cleared BepInEx {arch} cache")),
                 cx,
@@ -463,17 +522,20 @@ impl Render for SettingsView {
                                         download_bepinex_cache("x64", window, cx)
                                     }),
                             )
-                            .child(
-                                Button::new("clear-x64")
-                                    .danger()
-                                    .icon(Icon::new(IconName::Delete))
-                                    .label("Clear")
-                                    .on_click(|_, window, cx| {
-                                        clear_bepinex_cache("x64", window, cx)
-                                    }),
-                            )
+                            .when(cache_present("x64"), |row| {
+                                row.child(
+                                    Button::new("clear-x64")
+                                        .danger()
+                                        .icon(Icon::new(IconName::Delete))
+                                        .label("Clear")
+                                        .on_click(|_, window, cx| {
+                                            clear_bepinex_cache("x64", window, cx)
+                                        }),
+                                )
+                            })
                     }),
-                ),
+                )
+                .description(cache_status_label("x64")),
                 SettingItem::new(
                     "x86 cache",
                     SettingField::render(|_, _, _| {
@@ -488,17 +550,20 @@ impl Render for SettingsView {
                                         download_bepinex_cache("x86", window, cx)
                                     }),
                             )
-                            .child(
-                                Button::new("clear-x86")
-                                    .danger()
-                                    .icon(Icon::new(IconName::Delete))
-                                    .label("Clear")
-                                    .on_click(|_, window, cx| {
-                                        clear_bepinex_cache("x86", window, cx)
-                                    }),
-                            )
+                            .when(cache_present("x86"), |row| {
+                                row.child(
+                                    Button::new("clear-x86")
+                                        .danger()
+                                        .icon(Icon::new(IconName::Delete))
+                                        .label("Clear")
+                                        .on_click(|_, window, cx| {
+                                            clear_bepinex_cache("x86", window, cx)
+                                        }),
+                                )
+                            })
                     }),
-                ),
+                )
+                .description(cache_status_label("x86")),
             ]),
             SettingGroup::new()
                 .title("Download URLs")

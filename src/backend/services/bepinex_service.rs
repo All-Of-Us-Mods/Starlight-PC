@@ -152,14 +152,25 @@ pub fn download_bepinex_to_cache(
     Ok(())
 }
 
-pub fn clear_cache(cache_path: String) -> AppResult<()> {
+pub fn clear_cache(cache_path: String, architecture: String) -> AppResult<()> {
     let cache_file = Path::new(&cache_path);
     if cache_file.exists() {
         fs::remove_file(cache_file)?;
     }
+    emit(
+        "cleared",
+        0.0,
+        "Cache cleared",
+        BepInExTargetType::Cache,
+        &architecture,
+    );
     Ok(())
 }
 
 pub fn cache_exists(cache_path: String) -> bool {
     Path::new(&cache_path).exists()
+}
+
+pub fn cache_size(cache_path: &str) -> Option<u64> {
+    fs::metadata(cache_path).ok().map(|m| m.len())
 }
