@@ -1,3 +1,4 @@
+pub mod format;
 pub mod icon;
 pub mod log_language;
 pub mod log_panel;

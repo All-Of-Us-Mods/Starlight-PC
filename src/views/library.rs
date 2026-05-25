@@ -6,6 +6,7 @@ use crate::backend::services::launch_service;
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::backend::state::game_runtime;
 use crate::theme::{self, ThemeExt};
+use crate::ui::format;
 use crate::ui::icon::AppIcon;
 use crate::ui::profile_icon::profile_icon;
 use gpui_component::button::{Button, ButtonVariants};
@@ -344,10 +345,7 @@ impl LibraryView {
                     .child(div().text_xs().text_color(theme.text_muted).child(format!(
                         "{} mods · {}",
                         profile.mods.len(),
-                        profile
-                            .last_launched_at
-                            .map(|_| "played before")
-                            .unwrap_or("never launched")
+                        format::last_launched(profile.last_launched_at)
                     ))),
             )
     }
