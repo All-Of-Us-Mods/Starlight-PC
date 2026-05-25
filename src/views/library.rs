@@ -5,9 +5,9 @@ use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::launch_service;
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::backend::state::game_runtime;
-use crate::ui::profile_icon::profile_icon;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
+use crate::ui::profile_icon::profile_icon;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::skeleton::Skeleton;
@@ -315,7 +315,7 @@ impl LibraryView {
             .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 cx.emit(LibraryEvent::Open(emit_id.clone()));
             }))
-            .child(profile_icon(profile, 48.0, theme))
+            .child(profile_icon(profile, 96.0, theme))
             .child(
                 div()
                     .flex()
