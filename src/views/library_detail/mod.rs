@@ -9,6 +9,8 @@ use gpui::*;
 use log::warn;
 
 use std::collections::HashMap;
+use std::path::Path;
+use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 
 use crate::backend::api;
@@ -232,6 +234,15 @@ impl LibraryDetailView {
             .detach();
     }
 
+    fn open_profile_folder(&self) {
+        let LoadState::Loaded(profile) = &self.state else {
+            return;
+        };
+        if let Err(e) = open_folder(Path::new(&profile.path)) {
+            warn!("open profile folder failed: {e}");
+        }
+    }
+
     fn launch(&mut self, cx: &mut Context<Self>) {
         let LoadState::Loaded(profile) = &self.state else {
             return;
@@ -395,6 +406,22 @@ fn cache_mod_name(mod_id: String, name: String) {
     if let Ok(mut cache) = MOD_NAME_CACHE.lock() {
         cache.insert(mod_id, name);
     }
+}
+
+fn open_folder(path: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer").arg(path).spawn()?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open").arg(path).spawn()?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("xdg-open").arg(path).spawn()?;
+    }
+    Ok(())
 }
 
 impl Render for LibraryDetailView {
@@ -623,6 +650,14 @@ impl Render for LibraryDetailView {
                         }),
                     ))
                     .child(
+                        Button::new("open-profile-folder-action")
+                            .icon(Icon::new(IconName::FolderOpen))
+                            .label("Open Folder")
+                            .on_click(cx.listener(|this, _, _window, _cx| {
+                                this.open_profile_folder();
+                            })),
+                    )
+                    .child(
                         Button::new("export-profile-action")
                             .label("Export ZIP")
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -658,14 +693,6 @@ impl Render for LibraryDetailView {
                                             .font_weight(FontWeight::BOLD)
                                             .truncate()
                                             .child(profile.name.clone()),
-                                    )
-                                    .child(
-                                        div()
-                                            .id("profile-path")
-                                            .text_xs()
-                                            .text_color(theme.text_muted)
-                                            .truncate()
-                                            .child(profile.path.clone()),
                                     )
                                     .children((!bep_installed).then(|| {
                                         div()
