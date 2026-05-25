@@ -9,6 +9,7 @@ use gpui::*;
 use log::warn;
 
 use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
 use crate::backend::api;
 use crate::backend::events::{self, BackendEvent};
@@ -29,6 +30,9 @@ use gpui_component::skeleton::Skeleton;
 use gpui_component::{Disableable, Icon, IconName};
 
 use icon_dialog::{IconDialogState, render_icon_dialog};
+
+static MOD_NAME_CACHE: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone, Debug)]
 pub enum LibraryDetailEvent {
@@ -76,7 +80,7 @@ impl LibraryDetailView {
             running_count: 0,
             stoppable_count: 0,
             log_panel,
-            mod_names: HashMap::new(),
+            mod_names: cached_mod_names(),
         };
 
         view.spawn_load(cx);
@@ -152,19 +156,28 @@ impl LibraryDetailView {
         .detach();
     }
 
-    /// Resolve API display names for any mods we haven't seen yet. Runs each
-    /// fetch on the background executor and patches the view's cache as they
-    /// come in. Missing names just leave the file-name fallback in place.
+    /// Resolve API display names for any mods we haven't seen yet. Successful
+    /// lookups are shared across detail-page instances for the app session.
     fn fetch_missing_mod_names(&self, cx: &mut Context<Self>) {
         let LoadState::Loaded(profile) = &self.state else {
             return;
         };
+        let cached = cached_mod_names();
         let pending: Vec<String> = profile
             .mods
             .iter()
             .map(|m| m.mod_id.clone())
-            .filter(|id| !self.mod_names.contains_key(id))
+            .filter(|id| !cached.contains_key(id) && !self.mod_names.contains_key(id))
             .collect();
+        if !cached.is_empty() {
+            cx.spawn(async move |this, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.mod_names.extend(cached);
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
         if pending.is_empty() {
             return;
         }
@@ -177,6 +190,7 @@ impl LibraryDetailView {
                     .await;
                 if let Some(name) = resolved {
                     let _ = this.update(cx, |this, cx| {
+                        cache_mod_name(mod_id.clone(), name.clone());
                         this.mod_names.insert(mod_id, name);
                         cx.notify();
                     });
@@ -367,6 +381,19 @@ impl LibraryDetailView {
             });
         })
         .detach();
+    }
+}
+
+fn cached_mod_names() -> HashMap<String, String> {
+    MOD_NAME_CACHE
+        .lock()
+        .map(|cache| cache.clone())
+        .unwrap_or_default()
+}
+
+fn cache_mod_name(mod_id: String, name: String) {
+    if let Ok(mut cache) = MOD_NAME_CACHE.lock() {
+        cache.insert(mod_id, name);
     }
 }
 
@@ -659,13 +686,21 @@ impl Render for LibraryDetailView {
                     .grid()
                     .grid_cols(3)
                     .gap_3()
-                    .child(stat_card("Created", format::date_ms(profile.created_at), &theme))
+                    .child(stat_card(
+                        "Created",
+                        format::date_ms(profile.created_at),
+                        &theme,
+                    ))
                     .child(stat_card(
                         "Last launched",
                         format::last_launched(profile.last_launched_at),
                         &theme,
                     ))
-                    .child(stat_card("Play time", format::play_time(profile.total_play_time), &theme));
+                    .child(stat_card(
+                        "Play time",
+                        format::play_time(profile.total_play_time),
+                        &theme,
+                    ));
 
                 let danger_zone = div()
                     .pt_2()
@@ -767,7 +802,6 @@ fn stat_card(label: &'static str, value: String, theme: &crate::theme::Theme) ->
         .child(div().text_xs().text_color(theme.text_muted).child(label))
         .child(div().font_weight(FontWeight::SEMIBOLD).child(value))
 }
-
 
 /// The label to show for a mod row. Falls back to the on-disk filename when
 /// the API name hasn't been resolved (or doesn't exist), and finally to the
