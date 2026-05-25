@@ -337,8 +337,12 @@ impl LibraryView {
                             .child("BepInEx not installed")
                     }))
                     .child(div().text_xs().text_color(theme.text_muted).child(format!(
-                        "{} mods · {}",
+                        "{} mods · {} played",
                         profile.mods.len(),
+                        format::play_time(profile.total_play_time),
+                    )))
+                    .child(div().text_xs().text_color(theme.text_muted).child(format!(
+                        "Last launched {}",
                         format::last_launched(profile.last_launched_at)
                     ))),
             )

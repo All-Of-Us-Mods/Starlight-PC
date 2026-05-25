@@ -694,6 +694,14 @@ impl Render for LibraryDetailView {
                                             .truncate()
                                             .child(profile.name.clone()),
                                     )
+                                    .child(
+                                        div().text_sm().text_color(theme.text_muted).child(format!(
+                                            "{} mods · {} played · Last launched {}",
+                                            profile.mods.len(),
+                                            format::play_time(profile.total_play_time),
+                                            format::last_launched(profile.last_launched_at),
+                                        )),
+                                    )
                                     .children((!bep_installed).then(|| {
                                         div()
                                             .mt_1()
