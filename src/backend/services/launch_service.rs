@@ -1,4 +1,5 @@
 use crate::backend::error::{AppError, AppResult};
+use crate::backend::services::profile_service::ProfileEntry;
 use crate::backend::state::game_runtime;
 use log::{debug, info};
 use serde::Deserialize;
@@ -329,3 +330,73 @@ fn build_linux_runner_from_settings(
 }
 
 const GAME_EXE_NAME: &str = "Among Us.exe";
+
+#[cfg(any(windows, target_os = "linux"))]
+const CORECLR_FILE: &str = "coreclr.dll";
+#[cfg(target_os = "macos")]
+const CORECLR_FILE: &str = "libcoreclr.dylib";
+
+/// Self-contained modded launch for the given profile. Reads app settings,
+/// validates the game executable, BepInEx DLL, and dotnet runtime, then
+/// dispatches [`launch_modded`].
+pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
+    use crate::backend::services::core_service;
+
+    let settings = core_service::get_settings()?;
+    let game_path = settings.among_us_path.trim();
+    if game_path.is_empty() {
+        return Err(AppError::validation(
+            "Among Us path is not set. Configure it in Settings.",
+        ));
+    }
+
+    let game_exe = PathBuf::from(game_path).join(GAME_EXE_NAME);
+    if !game_exe.exists() {
+        return Err(AppError::validation(format!(
+            "{GAME_EXE_NAME} not found at {}",
+            game_exe.display()
+        )));
+    }
+
+    let profile_path = PathBuf::from(&profile.path);
+    let bepinex_dll = profile_path
+        .join("BepInEx")
+        .join("core")
+        .join("BepInEx.Unity.IL2CPP.dll");
+    if !bepinex_dll.exists() {
+        return Err(AppError::validation(
+            "BepInEx DLL not found. Install BepInEx for this profile first.",
+        ));
+    }
+    let dotnet_dir = profile_path.join("dotnet");
+    let coreclr_path = dotnet_dir.join(CORECLR_FILE);
+    if !coreclr_path.exists() {
+        return Err(AppError::validation(format!(
+            "dotnet runtime not found at {}",
+            coreclr_path.display()
+        )));
+    }
+
+    let platform = match settings.game_platform {
+        core_service::GamePlatform::Steam => "steam",
+        core_service::GamePlatform::Epic => "epic",
+        core_service::GamePlatform::Xbox => "xbox",
+    }
+    .to_string();
+
+    #[cfg(target_os = "linux")]
+    let runner = build_linux_runner_from_settings(&settings)?;
+
+    launch_modded(LaunchModdedArgs {
+        game_exe: game_exe.to_string_lossy().to_string(),
+        profile_id: profile.id.clone(),
+        #[cfg(any(windows, target_os = "linux"))]
+        profile_path: profile.path.clone(),
+        bepinex_dll: bepinex_dll.to_string_lossy().to_string(),
+        dotnet_dir: dotnet_dir.to_string_lossy().to_string(),
+        coreclr_path: coreclr_path.to_string_lossy().to_string(),
+        platform,
+        #[cfg(target_os = "linux")]
+        runner,
+    })
+}
