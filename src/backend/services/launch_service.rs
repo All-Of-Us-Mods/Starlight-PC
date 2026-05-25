@@ -39,7 +39,6 @@ pub struct LaunchModdedArgs {
     pub runner: LinuxRunner,
 }
 
-#[allow(dead_code)] // planned: vanilla (no-BepInEx) launch path
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchVanillaArgs {
@@ -145,7 +144,6 @@ fn prepare_linux_winhttp_proxy(game_dir: &Path, profile_path: &str) -> AppResult
 }
 
 #[cfg(target_os = "linux")]
-#[allow(dead_code)] // planned: used by launch_vanilla
 fn cleanup_linux_doorstop_files(game_dir: &Path) -> AppResult<()> {
     let dll_path = game_dir.join("winhttp.dll");
     let ini_path = game_dir.join("doorstop_config.ini");
@@ -237,16 +235,19 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     launch_process(cmd, Some(args.profile_id))
 }
 
-#[allow(dead_code)] // planned: vanilla (no-BepInEx) launch path
 pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
+    info!("game_launch_vanilla: game_exe={}", args.game_exe);
+
+    let game_dir = PathBuf::from(&args.game_exe)
+        .parent()
+        .ok_or_else(|| AppError::validation("Invalid game path"))?
+        .to_path_buf();
+
+    // Strip any modded-launch leftovers from the game directory so the
+    // doorstop loader can't accidentally inject a previous profile's
+    // BepInEx into a vanilla session.
     #[cfg(target_os = "linux")]
-    {
-        let game_dir = PathBuf::from(&args.game_exe)
-            .parent()
-            .ok_or_else(|| AppError::validation("Invalid game path"))?
-            .to_path_buf();
-        cleanup_linux_doorstop_files(&game_dir)?;
-    }
+    cleanup_linux_doorstop_files(&game_dir)?;
 
     let mut cmd = build_game_command(
         &args.game_exe,
@@ -254,6 +255,77 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
         &args.runner,
     )?;
 
+    cmd.current_dir(&game_dir)
+        .args(["--doorstop-enabled", "false"]);
+
     attach_epic_launch_token(&mut cmd, &args.platform)?;
     launch_process(cmd, None)
 }
+
+/// Self-contained vanilla launch: reads app settings, resolves the game
+/// path and platform, builds the Linux runner if needed, and dispatches
+/// [`launch_vanilla`]. Vanilla launches are profile-less by design.
+pub fn launch_vanilla_from_settings() -> AppResult<()> {
+    use crate::backend::services::core_service;
+
+    let settings = core_service::get_settings()?;
+    let game_path = settings.among_us_path.trim();
+    if game_path.is_empty() {
+        return Err(AppError::validation(
+            "Among Us path is not set. Configure it in Settings.",
+        ));
+    }
+
+    let game_exe = PathBuf::from(game_path).join(GAME_EXE_NAME);
+    if !game_exe.exists() {
+        return Err(AppError::validation(format!(
+            "{GAME_EXE_NAME} not found at {}",
+            game_exe.display()
+        )));
+    }
+
+    let platform = match settings.game_platform {
+        core_service::GamePlatform::Steam => "steam",
+        core_service::GamePlatform::Epic => "epic",
+        core_service::GamePlatform::Xbox => "xbox",
+    }
+    .to_string();
+
+    #[cfg(target_os = "linux")]
+    let runner = build_linux_runner_from_settings(&settings)?;
+
+    launch_vanilla(LaunchVanillaArgs {
+        game_exe: game_exe.to_string_lossy().to_string(),
+        platform,
+        #[cfg(target_os = "linux")]
+        runner,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn build_linux_runner_from_settings(
+    settings: &crate::backend::services::core_service::AppSettings,
+) -> AppResult<LinuxRunner> {
+    use crate::backend::services::core_service::LinuxRunnerKind;
+
+    let binary = settings.linux_runner_binary.trim();
+    if binary.is_empty() {
+        return Err(AppError::validation(
+            "Linux runner binary is required in Settings.",
+        ));
+    }
+    Ok(match settings.linux_runner_kind {
+        LinuxRunnerKind::Wine => LinuxRunner::Wine {
+            binary: binary.to_string(),
+            prefix: settings.linux_wine_prefix.clone(),
+        },
+        LinuxRunnerKind::Proton => LinuxRunner::Proton {
+            binary: binary.to_string(),
+            compat_data_path: settings.linux_proton_compat_data_path.clone(),
+            steam_client_path: settings.linux_proton_steam_client_path.clone(),
+            use_steam_run: settings.linux_proton_use_steam_run,
+        },
+    })
+}
+
+const GAME_EXE_NAME: &str = "Among Us.exe";

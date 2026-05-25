@@ -30,16 +30,17 @@ pub struct GameStatePayload {
 
 // Proton/Steam reparent the actual game outside our process tree, so we can't
 // rely on PID/pgid. Every relevant process (wrapper, proton, wine, the game)
-// carries the profile id in its cmdline (via the doorstop args we pass), so
-// match on that.
+// carries an identifying substring in its cmdline — the profile id (via the
+// doorstop args we pass for modded launches) or `Among Us.exe` (passed as
+// the game-exe argument for any launch) — so match on that.
 #[cfg(target_os = "linux")]
-fn kill_for_profile(profile_id: &str) {
+fn kill_by_cmdline_substring(substring: &str) {
     let Ok(entries) = std::fs::read_dir("/proc") else { return };
     for entry in entries.flatten() {
         let Some(pid) = entry.file_name().to_str().and_then(|s| s.parse::<i32>().ok())
         else { continue };
         let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) else { continue };
-        if String::from_utf8_lossy(&cmdline).contains(profile_id) {
+        if String::from_utf8_lossy(&cmdline).contains(substring) {
             let _ = std::process::Command::new("kill")
                 .args(["-KILL", &pid.to_string()])
                 .status();
@@ -198,7 +199,7 @@ where
             }
         }
 
-        // On Linux, kill_for_profile (called before this loop) already SIGKILLed
+        // On Linux, kill_by_cmdline_substring (called before this loop) already SIGKILLed
         // every matching cmdline; just reap. Other platforms kill the tracked
         // child directly.
         #[cfg(not(target_os = "linux"))]
@@ -226,7 +227,7 @@ where
 
 pub fn stop_profile_instances(profile_id: &str) -> AppResult<usize> {
     #[cfg(target_os = "linux")]
-    kill_for_profile(profile_id);
+    kill_by_cmdline_substring(profile_id);
 
     let mut state = TRACKED_STATE
         .lock()
@@ -240,8 +241,18 @@ pub fn stop_profile_instances(profile_id: &str) -> AppResult<usize> {
     stop_result
 }
 
-#[allow(dead_code)] // planned: "stop all running profiles" affordance
+pub fn current_state() -> GameStatePayload {
+    let state = TRACKED_STATE.lock().unwrap_or_else(|e| e.into_inner());
+    build_state_payload(&state)
+}
+
 pub fn stop_all_tracked_instances() -> AppResult<usize> {
+    // SIGKILL anything that smells like Among Us first — same trick as the
+    // per-profile stop, just with a broader marker so vanilla launches (no
+    // profile id in their cmdline) get caught too.
+    #[cfg(target_os = "linux")]
+    kill_by_cmdline_substring("Among Us.exe");
+
     let mut state = TRACKED_STATE
         .lock()
         .map_err(|_| AppError::state("Failed to acquire game process lock"))?;

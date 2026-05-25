@@ -1,14 +1,17 @@
 use gpui::*;
 use log::warn;
 
+use crate::backend::events::{self, BackendEvent};
+use crate::backend::services::launch_service;
 use crate::backend::services::profile_service::{self, ProfileEntry};
+use crate::backend::state::game_runtime;
 use crate::ui::profile_icon::profile_icon;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::skeleton::Skeleton;
-use gpui_component::{Icon, IconName};
+use gpui_component::{Disableable, Icon, IconName};
 
 #[derive(Clone, Debug)]
 pub enum LibraryEvent {
@@ -22,6 +25,8 @@ pub struct LibraryView {
     create_dialog: Option<Entity<InputState>>,
     import_dialog: Option<Entity<InputState>>,
     error: Option<String>,
+    running_count: usize,
+    stoppable_count: usize,
 }
 
 enum LoadState {
@@ -32,11 +37,14 @@ enum LoadState {
 
 impl LibraryView {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let initial = game_runtime::current_state();
         let view = Self {
             state: LoadState::Loading,
             create_dialog: None,
             import_dialog: None,
             error: None,
+            running_count: initial.running_count,
+            stoppable_count: initial.stoppable_running_count,
         };
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -59,6 +67,21 @@ impl LibraryView {
             });
         })
         .detach();
+
+        let mut rx = events::subscribe();
+        cx.spawn(async move |this, cx| {
+            while let Ok(event) = rx.recv().await {
+                if let BackendEvent::GameStateChanged(payload) = event {
+                    let _ = this.update(cx, |this, cx| {
+                        this.running_count = payload.running_count;
+                        this.stoppable_count = payload.stoppable_running_count;
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+
         view
     }
 
@@ -142,6 +165,42 @@ impl LibraryView {
         .detach();
     }
 
+    fn launch_vanilla(&mut self, cx: &mut Context<Self>) {
+        self.error = None;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async { launch_service::launch_vanilla_from_settings() })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    warn!("vanilla launch failed: {e}");
+                    this.error = Some(format!("Vanilla launch failed: {e}"));
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn stop_all(&mut self, cx: &mut Context<Self>) {
+        self.error = None;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async { game_runtime::stop_all_tracked_instances() })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    warn!("stop all failed: {e}");
+                    this.error = Some(format!("Stop failed: {e}"));
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
     fn submit_import(&mut self, path: String, cx: &mut Context<Self>) {
         let trimmed = path.trim().to_string();
         if trimmed.is_empty() {
@@ -167,6 +226,37 @@ impl LibraryView {
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let running = self.running_count;
+        let stoppable = self.stoppable_count;
+
+        let launch_or_stop = if running == 0 {
+            Button::new("launch-vanilla")
+                .icon(Icon::new(IconName::Play))
+                .label("Launch Vanilla")
+                .on_click(cx.listener(|this, _, _window, cx| {
+                    this.launch_vanilla(cx);
+                }))
+        } else {
+            let label = if running > 1 {
+                format!("Stop all ({running})")
+            } else {
+                "Stop".to_string()
+            };
+            let mut btn = Button::new("stop-all")
+                .danger()
+                .icon(Icon::new(IconName::Close))
+                .label(label);
+            if stoppable == 0 {
+                // Only UWP instances tracked — can't stop those from here.
+                btn = btn.disabled(true);
+            } else {
+                btn = btn.on_click(cx.listener(|this, _, _window, cx| {
+                    this.stop_all(cx);
+                }));
+            }
+            btn
+        };
+
         div()
             .flex()
             .items_center()
@@ -182,6 +272,7 @@ impl LibraryView {
                 div()
                     .flex()
                     .gap_2()
+                    .child(launch_or_stop)
                     .child(
                         Button::new("import-profile")
                             .icon(Icon::new(AppIcon::Download))
