@@ -167,10 +167,6 @@ pub fn clear_cache(cache_path: String, architecture: String) -> AppResult<()> {
     Ok(())
 }
 
-pub fn cache_exists(cache_path: String) -> bool {
-    Path::new(&cache_path).exists()
-}
-
 pub fn cache_size(cache_path: &str) -> Option<u64> {
     fs::metadata(cache_path).ok().map(|m| m.len())
 }

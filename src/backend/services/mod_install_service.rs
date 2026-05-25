@@ -39,7 +39,6 @@ pub struct InstallModInput {
 #[derive(Debug, Clone)]
 pub struct InstalledModResult {
     pub mod_id: String,
-    pub version: String,
     pub file_name: String,
 }
 
@@ -277,7 +276,6 @@ pub fn install_mods_for_profile(
 
         downloaded.push(InstalledModResult {
             mod_id: item.mod_id.clone(),
-            version: item.version.clone(),
             file_name: target.file_name.clone(),
         });
 
@@ -292,7 +290,6 @@ pub fn install_mods_for_profile(
         }
         persisted.push(InstalledModResult {
             mod_id: item.mod_id.clone(),
-            version: item.version.clone(),
             file_name: target.file_name.clone(),
         });
 

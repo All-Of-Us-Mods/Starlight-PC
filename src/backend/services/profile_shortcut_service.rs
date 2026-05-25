@@ -85,6 +85,7 @@ fn resolve_icon_path(profile_id: &str, icon_bytes: Option<&[u8]>) -> AppResult<P
     }
 }
 
+#[allow(dead_code)] // planned: "create desktop shortcut" profile affordance
 pub fn create_desktop_shortcut(profile_id: &str, icon_bytes: Option<&[u8]>) -> AppResult<String> {
     #[cfg(not(windows))]
     {

@@ -276,7 +276,3 @@ pub fn update_settings(patch: AppSettingsPatch) -> AppResult<AppSettings> {
 pub fn get_bepinex_cache_path(architecture: &str) -> AppResult<String> {
     bepinex_cache_path(architecture)
 }
-
-pub fn get_app_data_dir() -> AppResult<String> {
-    Ok(directories::app_data_dir()?.to_string_lossy().to_string())
-}

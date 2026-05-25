@@ -7,7 +7,6 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use crate::backend::directories;
-use crate::backend::services::core_service::{AppSettings, get_settings};
 
 const PROFILE_METADATA_FILE: &str = "metadata.json";
 const CUSTOM_ICON_BASE_NAME: &str = "icon";
@@ -486,6 +485,7 @@ pub fn update_profile_icon(profile_id: &str, selection: ProfileIconSelection) ->
     }
 }
 
+#[allow(dead_code)] // planned: wired into launch flow once telemetry UI lands
 pub fn update_last_launched(profile_id: &str) -> AppResult<()> {
     let Some(mut profile) = get_profile_by_id(profile_id)? else {
         return Ok(());
@@ -529,6 +529,7 @@ pub fn add_mod_to_profile(
     write_profile(&profile)
 }
 
+#[allow(dead_code)] // planned: wired into launch flow once telemetry UI lands
 pub fn add_play_time(profile_id: &str, duration_ms: i64) -> AppResult<()> {
     let Some(mut profile) = get_profile_by_id(profile_id)? else {
         return Err(AppError::validation(format!(
@@ -550,6 +551,7 @@ pub fn remove_mod_from_profile(profile_id: &str, mod_id: &str) -> AppResult<()> 
     write_profile(&profile)
 }
 
+#[allow(dead_code)] // planned: "install mod from local .dll" UI affordance
 pub fn import_mod_to_profile(profile_id: &str, source_path: &str) -> AppResult<String> {
     let source = PathBuf::from(source_path);
     if !source.exists() {
@@ -649,19 +651,6 @@ pub fn get_profile_log(profile_path: &str, file_name: &str) -> String {
 
     let log_path = PathBuf::from(profile_path).join("BepInEx").join(base_name);
     fs::read_to_string(log_path).unwrap_or_default()
-}
-
-pub fn read_binary_file(path: &str) -> AppResult<Vec<u8>> {
-    let allowed_root = PathBuf::from(get_profiles_dir()?).canonicalize()?;
-    let canonical = PathBuf::from(path)
-        .canonicalize()
-        .map_err(|_| AppError::validation("Path does not exist"))?;
-    if !canonical.starts_with(&allowed_root) {
-        return Err(AppError::validation(
-            "Path is outside the allowed directory",
-        ));
-    }
-    Ok(fs::read(canonical)?)
 }
 
 fn derive_name_from_zip_path(zip_path: &str) -> String {

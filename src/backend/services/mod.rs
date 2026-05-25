@@ -1,7 +1,6 @@
 pub mod bepinex_service;
 pub mod core_service;
 pub mod epic_auth_service;
-pub mod epic_webview_login;
 pub mod finder_service;
 pub mod http_download;
 pub mod launch_service;
@@ -10,5 +9,4 @@ pub mod mod_install_service;
 pub mod profile_service;
 pub mod profile_shortcut_service;
 pub mod profile_zip_service;
-pub mod storage_service;
 pub mod xbox_service;

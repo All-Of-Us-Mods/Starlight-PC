@@ -337,17 +337,25 @@ fn detect_linux_runtime(window: &mut Window, cx: &mut App) {
 fn detect_among_us(window: &mut Window, cx: &mut App) {
     match finder_service::detect_among_us_installation() {
         Ok(Some(path)) => {
+            let detected_platform = finder_service::detect_game_store(&path).ok();
+            let platform_enum = detected_platform.as_deref().map(|p| match p {
+                "epic" => GamePlatform::Epic,
+                "xbox" => GamePlatform::Xbox,
+                _ => GamePlatform::Steam,
+            });
             app_settings::update(
                 cx,
                 AppSettingsPatch {
                     among_us_path: Some(path.clone()),
+                    game_platform: platform_enum,
                     ..Default::default()
                 },
             );
-            window.push_notification(
-                Notification::success(format!("Among Us detected at {path}")),
-                cx,
-            );
+            let msg = match detected_platform.as_deref() {
+                Some(p) => format!("Among Us ({p}) detected at {path}"),
+                None => format!("Among Us detected at {path}"),
+            };
+            window.push_notification(Notification::success(msg), cx);
         }
         Ok(None) => {
             window.push_notification(

@@ -1,7 +1,6 @@
 use crate::backend::error::{AppError, AppResult};
-use crate::backend::services::epic_auth_service::{EpicAuthService, load_session};
 use crate::backend::state::game_runtime;
-use log::{debug, info, warn};
+use log::{debug, info};
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -40,6 +39,7 @@ pub struct LaunchModdedArgs {
     pub runner: LinuxRunner,
 }
 
+#[allow(dead_code)] // planned: vanilla (no-BepInEx) launch path
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchVanillaArgs {
@@ -145,6 +145,7 @@ fn prepare_linux_winhttp_proxy(game_dir: &Path, profile_path: &str) -> AppResult
 }
 
 #[cfg(target_os = "linux")]
+#[allow(dead_code)] // planned: used by launch_vanilla
 fn cleanup_linux_doorstop_files(game_dir: &Path) -> AppResult<()> {
     let dll_path = game_dir.join("winhttp.dll");
     let ini_path = game_dir.join("doorstop_config.ini");
@@ -158,25 +159,13 @@ fn cleanup_linux_doorstop_files(game_dir: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn attach_epic_launch_token(cmd: &mut Command, platform: &str) -> AppResult<()> {
-    if platform != "epic" {
-        return Ok(());
+fn attach_epic_launch_token(_cmd: &mut Command, platform: &str) -> AppResult<()> {
+    // TODO: Re-implement Epic launch token attachment once the new
+    // (link + paste-code) auth flow lands and we can persist EpicSessions
+    // again. For now, Epic launches happen without `-AUTH_PASSWORD`.
+    if platform == "epic" {
+        debug!("Epic launch: skipping AUTH_PASSWORD (auth flow not yet implemented)");
     }
-
-    let Some(session) = load_session() else {
-        return Ok(());
-    };
-
-    info!("Epic session found, requesting game token");
-    let api = EpicAuthService::new()?;
-    match api.get_game_token(&session) {
-        Ok(launch_token) => {
-            debug!("Epic game token obtained successfully");
-            cmd.arg(format!("-AUTH_PASSWORD={}", launch_token));
-        }
-        Err(e) => warn!("Failed to get Epic game token: {}", e),
-    }
-
     Ok(())
 }
 
@@ -248,6 +237,7 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     launch_process(cmd, Some(args.profile_id))
 }
 
+#[allow(dead_code)] // planned: vanilla (no-BepInEx) launch path
 pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
     #[cfg(target_os = "linux")]
     {

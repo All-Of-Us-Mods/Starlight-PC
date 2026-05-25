@@ -1,3 +1,8 @@
+// Planned: Xbox / UWP launch path. Wired into the launch flow when the
+// `xbox` GamePlatform value is selected, but currently no caller dispatches
+// to it — kept here so the implementation isn't lost to history.
+#![allow(dead_code)]
+
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::state::game_runtime;
 use log::{debug, info};

@@ -173,6 +173,7 @@ where
     F: Fn(&TrackedGameProcess) -> bool,
 {
     let mut stopped_count = 0;
+    #[cfg_attr(target_os = "linux", allow(unused_mut))]
     let mut errors: Vec<String> = Vec::new();
     let mut i = 0;
 
@@ -197,16 +198,18 @@ where
             }
         }
 
-        let pid = state.processes[i].child.id();
         // On Linux, kill_for_profile (called before this loop) already SIGKILLed
         // every matching cmdline; just reap. Other platforms kill the tracked
         // child directly.
         #[cfg(not(target_os = "linux"))]
-        if let Err(e) = state.processes[i].child.kill() {
-            warn!("Failed to kill game process: {}", e);
-            errors.push(format!("Failed to stop game process {pid}: {e}"));
-            i += 1;
-            continue;
+        {
+            let pid = state.processes[i].child.id();
+            if let Err(e) = state.processes[i].child.kill() {
+                warn!("Failed to kill game process: {}", e);
+                errors.push(format!("Failed to stop game process {pid}: {e}"));
+                i += 1;
+                continue;
+            }
         }
 
         let tracked = state.processes.swap_remove(i);
@@ -237,6 +240,7 @@ pub fn stop_profile_instances(profile_id: &str) -> AppResult<usize> {
     stop_result
 }
 
+#[allow(dead_code)] // planned: "stop all running profiles" affordance
 pub fn stop_all_tracked_instances() -> AppResult<usize> {
     let mut state = TRACKED_STATE
         .lock()
@@ -248,6 +252,7 @@ pub fn stop_all_tracked_instances() -> AppResult<usize> {
     stop_result
 }
 
+#[allow(dead_code)] // planned: used by xbox_service when Xbox launch lands
 pub fn register_uwp_instance(profile_id: Option<String>) -> AppResult<()> {
     let mut state = TRACKED_STATE
         .lock()

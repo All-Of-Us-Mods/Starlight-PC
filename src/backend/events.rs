@@ -16,8 +16,6 @@ pub enum BackendEvent {
     BepInExProgress(BepInExProgress),
     ModDownloadProgress(ModDownloadProgress),
     GameStateChanged(GameStatePayload),
-    EpicLoginSuccess,
-    EpicLoginError(String),
 }
 
 const CHANNEL_CAPACITY: usize = 256;
