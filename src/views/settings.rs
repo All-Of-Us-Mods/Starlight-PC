@@ -13,9 +13,11 @@ use log::warn;
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
-    core_service::{self, AppSettingsPatch, GamePlatform, LinuxRunnerKind},
+    core_service::{self, AppSettingsPatch, GamePlatform},
     finder_service,
 };
+#[cfg(unix)]
+use crate::backend::services::core_service::LinuxRunnerKind;
 use crate::settings as app_settings;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
@@ -156,6 +158,7 @@ fn patch_bepinex_url_x86(value: SharedString, cx: &mut App) {
     );
 }
 
+#[cfg(unix)]
 fn patch_linux_runner_kind(value: SharedString, cx: &mut App) {
     let kind = match value.as_ref() {
         "wine" => LinuxRunnerKind::Wine,
@@ -170,6 +173,7 @@ fn patch_linux_runner_kind(value: SharedString, cx: &mut App) {
     );
 }
 
+#[cfg(unix)]
 fn patch_linux_runner_binary(value: SharedString, cx: &mut App) {
     app_settings::update(
         cx,
@@ -180,6 +184,7 @@ fn patch_linux_runner_binary(value: SharedString, cx: &mut App) {
     );
 }
 
+#[cfg(unix)]
 fn patch_linux_wine_prefix(value: SharedString, cx: &mut App) {
     app_settings::update(
         cx,
@@ -190,6 +195,7 @@ fn patch_linux_wine_prefix(value: SharedString, cx: &mut App) {
     );
 }
 
+#[cfg(unix)]
 fn patch_linux_proton_compat_data_path(value: SharedString, cx: &mut App) {
     app_settings::update(
         cx,
@@ -298,6 +304,7 @@ fn path_field(
 
 // ---------- action handlers (Detect / Cache / Clear) ----------
 
+#[cfg(unix)]
 fn detect_linux_runtime(window: &mut Window, cx: &mut App) {
     let among_us_path = app_settings::get(cx).among_us_path.clone();
     let path_arg = (!among_us_path.trim().is_empty()).then_some(among_us_path);
@@ -588,6 +595,7 @@ impl Render for SettingsView {
                 ]),
         ]);
 
+        #[cfg(unix)]
         let linux_page = SettingPage::new("Linux runtime").group(
             SettingGroup::new()
                 .title("Wine / Proton")
@@ -670,11 +678,12 @@ impl Render for SettingsView {
                     .font_weight(FontWeight::BOLD)
                     .child("Settings"),
             )
-            .child(Settings::new("starlight-settings").pages(vec![
-                game_page,
-                launch_page,
-                bepinex_page,
-                linux_page,
-            ]))
+            .child(Settings::new("starlight-settings").pages({
+                #[cfg_attr(not(unix), allow(unused_mut))]
+                let mut pages = vec![game_page, launch_page, bepinex_page];
+                #[cfg(unix)]
+                pages.push(linux_page);
+                pages
+            }))
     }
 }

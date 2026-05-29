@@ -7,7 +7,17 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: Starlight-linux-x86_64
+            path: target/release/Starlight
+          - os: windows-latest
+            artifact: Starlight-windows-x86_64
+            path: target/release/Starlight.exe
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -16,6 +26,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install system libraries
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -37,6 +48,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Starlight-linux-x86_64
-          path: target/release/Starlight
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
           if-no-files-found: error
