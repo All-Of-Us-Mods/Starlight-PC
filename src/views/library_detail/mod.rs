@@ -54,6 +54,11 @@ pub struct LibraryDetailView {
     pub(super) icon_dialog: Option<IconDialogState>,
     running_count: usize,
     stoppable_count: usize,
+    /// Launches the user has requested but that haven't shown up in a backend
+    /// GameStateChanged yet (launches are serialized + settle-delayed, so a
+    /// queued one can take several seconds to spawn). Added on top of the
+    /// backend count so the UI reflects the click immediately.
+    pending_launches: usize,
     log_panel: Entity<LogPanel>,
     /// API-resolved display names per mod_id, populated lazily after load.
     mod_names: HashMap<String, String>,
@@ -81,6 +86,7 @@ impl LibraryDetailView {
             icon_dialog: None,
             running_count: 0,
             stoppable_count: 0,
+            pending_launches: 0,
             log_panel,
             mod_names: cached_mod_names(),
         };
@@ -118,6 +124,12 @@ impl LibraryDetailView {
                             .copied()
                             .unwrap_or(0);
                         let _ = this.update(cx, |this, cx| {
+                            // A real instance appearing settles one pending launch.
+                            if running > this.running_count {
+                                this.pending_launches = this
+                                    .pending_launches
+                                    .saturating_sub(running - this.running_count);
+                            }
                             this.running_count = running;
                             this.stoppable_count = stoppable;
                             cx.notify();
@@ -249,6 +261,8 @@ impl LibraryDetailView {
         };
         let profile = profile.clone();
         self.launch_error = None;
+        self.pending_launches += 1;
+        cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -257,6 +271,8 @@ impl LibraryDetailView {
             let _ = this.update(cx, |this, cx| {
                 if let Err(e) = result {
                     warn!("launch failed: {e}");
+                    // No instance will appear for this one — undo the optimistic bump.
+                    this.pending_launches = this.pending_launches.saturating_sub(1);
                     this.launch_error = Some(e.to_string());
                     cx.notify();
                 }
@@ -268,10 +284,17 @@ impl LibraryDetailView {
     fn stop(&mut self, cx: &mut Context<Self>) {
         let id = self.profile_id.clone();
         self.launch_error = None;
+        // Drop any launches still queued behind the settle delay, both in the
+        // UI and in the backend so they abort instead of spawning.
+        self.pending_launches = 0;
+        cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { game_runtime::stop_profile_instances(&id) })
+                .spawn(async move {
+                    launch_service::cancel_pending_launches(&id);
+                    game_runtime::stop_profile_instances(&id)
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if let Err(e) = result {
@@ -468,8 +491,10 @@ impl Render for LibraryDetailView {
                         .on_click(cx.listener(|this, _, _window, cx| this.install_bepinex(cx)))
                 });
 
-                let running = self.running_count;
-                let stoppable = self.stoppable_count;
+                let running = self.running_count + self.pending_launches;
+                // Pending launches can be cancelled by Stop, so count them as
+                // stoppable too.
+                let stoppable = self.stoppable_count + self.pending_launches;
                 let allow_multi = app_settings::get(cx).allow_multi_instance_launch;
 
                 let launch_row = bep_installed.then(|| {

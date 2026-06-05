@@ -7,6 +7,47 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Serializes modded launches. Held across prep + spawn and then for
+/// [`LAUNCH_SETTLE`] afterwards, so a second launch fired in quick succession
+/// queues behind the first instead of racing it. Among Us + BepInEx (IL2CPP)
+/// write shared state in the profile dir (cache/interop) during startup, so a
+/// second instance that starts mid-warm-up dies. Waiting until the first is up
+/// — the manual "launch, wait for the console, launch again" workaround — is
+/// what this automates.
+static LAUNCH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// How long to hold the launch lock after spawning so the first instance can
+/// finish warming the shared BepInEx cache/interop before the next one starts.
+/// Tuned to roughly when the BepInEx console appears on a warm cache.
+const LAUNCH_SETTLE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Per-profile cancellation counter. A queued launch records the value when it
+/// starts waiting on [`LAUNCH_LOCK`]; if [`cancel_pending_launches`] has bumped
+/// it by the time the lock is acquired, the launch aborts instead of spawning.
+/// Lets the Stop button cancel launches still sitting in the settle queue.
+static CANCEL_GENERATIONS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, u64>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+fn cancel_generation(profile_id: &str) -> u64 {
+    CANCEL_GENERATIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(profile_id)
+        .copied()
+        .unwrap_or(0)
+}
+
+/// Cancel any launches for `profile_id` still queued behind the launch lock.
+/// They abort (without spawning) when they reach the front of the queue.
+pub fn cancel_pending_launches(profile_id: &str) {
+    *CANCEL_GENERATIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(profile_id.to_string())
+        .or_insert(0) += 1;
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum LinuxRunner {
@@ -188,6 +229,17 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
         .ok_or_else(|| AppError::validation("Invalid game path"))?
         .to_path_buf();
 
+    // Hold the launch lock from prep through spawn + settle (see LAUNCH_LOCK).
+    let cancel_gen = cancel_generation(&args.profile_id);
+    let _launch_guard = LAUNCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if cancel_generation(&args.profile_id) != cancel_gen {
+        info!(
+            "launch cancelled while queued: profile={}",
+            args.profile_id
+        );
+        return Ok(());
+    }
+
     #[cfg(windows)]
     set_dll_directory(&args.profile_path)?;
 
@@ -233,7 +285,15 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     }
 
     attach_epic_launch_token(&mut cmd, &args.platform)?;
-    launch_process(cmd, Some(args.profile_id))
+    let result = launch_process(cmd, Some(args.profile_id));
+
+    // Keep the lock for the settle window after a successful spawn so the next
+    // queued launch waits for this instance to warm up the shared state.
+    if result.is_ok() {
+        std::thread::sleep(LAUNCH_SETTLE);
+    }
+
+    result
 }
 
 pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
