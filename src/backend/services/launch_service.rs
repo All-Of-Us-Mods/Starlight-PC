@@ -7,19 +7,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Serializes modded launches. Held across prep + spawn and then for
-/// [`LAUNCH_SETTLE`] afterwards, so a second launch fired in quick succession
-/// queues behind the first instead of racing it. Among Us + BepInEx (IL2CPP)
+/// Serializes modded launches. Held across prep + spawn and then for the
+/// per-launch settle delay afterwards, so a second launch fired in quick
+/// succession queues behind the first instead of racing it. Among Us + BepInEx (IL2CPP)
 /// write shared state in the profile dir (cache/interop) during startup, so a
 /// second instance that starts mid-warm-up dies. Waiting until the first is up
 /// — the manual "launch, wait for the console, launch again" workaround — is
 /// what this automates.
 static LAUNCH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// How long to hold the launch lock after spawning so the first instance can
-/// finish warming the shared BepInEx cache/interop before the next one starts.
-/// Tuned to roughly when the BepInEx console appears on a warm cache.
-const LAUNCH_SETTLE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Per-profile cancellation counter. A queued launch records the value when it
 /// starts waiting on [`LAUNCH_LOCK`]; if [`cancel_pending_launches`] has bumped
@@ -77,6 +72,9 @@ pub struct LaunchModdedArgs {
     pub dotnet_dir: String,
     pub coreclr_path: String,
     pub platform: String,
+    /// Seconds to hold the launch lock after spawning so a queued next launch
+    /// waits for this instance to warm up. 0 disables the wait.
+    pub settle_delay_secs: u64,
     #[cfg(target_os = "linux")]
     pub runner: LinuxRunner,
 }
@@ -289,8 +287,8 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
 
     // Keep the lock for the settle window after a successful spawn so the next
     // queued launch waits for this instance to warm up the shared state.
-    if result.is_ok() {
-        std::thread::sleep(LAUNCH_SETTLE);
+    if result.is_ok() && args.settle_delay_secs > 0 {
+        std::thread::sleep(std::time::Duration::from_secs(args.settle_delay_secs));
     }
 
     result
@@ -447,6 +445,14 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
     #[cfg(target_os = "linux")]
     let runner = build_linux_runner_from_settings(&settings)?;
 
+    // Only wait between launches when multiple instances are allowed — that's
+    // the only time a second launch can be queued behind this one.
+    let settle_delay_secs = if settings.allow_multi_instance_launch {
+        settings.multi_instance_launch_delay_secs
+    } else {
+        0
+    };
+
     launch_modded(LaunchModdedArgs {
         game_exe: game_exe.to_string_lossy().to_string(),
         profile_id: profile.id.clone(),
@@ -456,6 +462,7 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
         dotnet_dir: dotnet_dir.to_string_lossy().to_string(),
         coreclr_path: coreclr_path.to_string_lossy().to_string(),
         platform,
+        settle_delay_secs,
         #[cfg(target_os = "linux")]
         runner,
     })

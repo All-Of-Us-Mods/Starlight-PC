@@ -8,6 +8,14 @@ const DEFAULT_BEPINEX_URL_X86: &str = "https://builds.bepinex.dev/projects/bepin
 const DEFAULT_BEPINEX_URL_X64: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.752%2Bdd0655f.zip";
 const SETTINGS_FILE_NAME: &str = "settings.json";
 
+/// Default seconds to wait between queued multi-instance launches so the first
+/// instance can warm the shared BepInEx cache/interop before the next starts.
+pub const DEFAULT_MULTI_INSTANCE_LAUNCH_DELAY_SECS: u64 = 10;
+
+fn default_multi_instance_launch_delay_secs() -> u64 {
+    DEFAULT_MULTI_INSTANCE_LAUNCH_DELAY_SECS
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GamePlatform {
@@ -31,6 +39,8 @@ pub struct AppSettings {
     pub among_us_path: String,
     pub close_on_launch: bool,
     pub allow_multi_instance_launch: bool,
+    #[serde(default = "default_multi_instance_launch_delay_secs")]
+    pub multi_instance_launch_delay_secs: u64,
     pub game_platform: GamePlatform,
     pub cache_bepinex: bool,
     pub xbox_app_id: Option<String>,
@@ -56,6 +66,7 @@ impl Default for AppSettings {
             among_us_path: String::new(),
             close_on_launch: false,
             allow_multi_instance_launch: false,
+            multi_instance_launch_delay_secs: DEFAULT_MULTI_INSTANCE_LAUNCH_DELAY_SECS,
             game_platform: GamePlatform::Steam,
             cache_bepinex: false,
             xbox_app_id: None,
@@ -76,6 +87,7 @@ pub struct AppSettingsPatch {
     pub among_us_path: Option<String>,
     pub close_on_launch: Option<bool>,
     pub allow_multi_instance_launch: Option<bool>,
+    pub multi_instance_launch_delay_secs: Option<u64>,
     pub game_platform: Option<GamePlatform>,
     pub cache_bepinex: Option<bool>,
     pub xbox_app_id: Option<Option<String>>,
@@ -238,6 +250,9 @@ pub fn update_settings(patch: AppSettingsPatch) -> AppResult<AppSettings> {
     }
     if let Some(value) = patch.allow_multi_instance_launch {
         settings.allow_multi_instance_launch = value;
+    }
+    if let Some(value) = patch.multi_instance_launch_delay_secs {
+        settings.multi_instance_launch_delay_secs = value;
     }
     if let Some(value) = patch.game_platform {
         settings.game_platform = value;
