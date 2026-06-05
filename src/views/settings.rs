@@ -218,6 +218,16 @@ fn patch_linux_proton_compat_data_path(value: SharedString, cx: &mut App) {
     );
 }
 
+fn patch_linux_proton_use_steam_run(value: bool, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            linux_proton_use_steam_run: Some(value),
+            ..Default::default()
+        },
+    );
+}
+
 // ---------- path input field (Input + Browse button, two-way bound) ----------
 
 struct PathFieldState {
@@ -689,6 +699,17 @@ impl Render for SettingsView {
                             },
                             patch_linux_proton_compat_data_path,
                         ),
+                    ),
+                    SettingItem::new(
+                        "Wrap Proton in steam-run",
+                        SettingField::switch(
+                            |cx| app_settings::get(cx).linux_proton_use_steam_run,
+                            patch_linux_proton_use_steam_run,
+                        ),
+                    )
+                    .description(
+                        "Launch Proton via steam-run (NixOS/non-FHS systems). \
+                         Disable to run the Proton binary directly.",
                     ),
                 ]),
         );
