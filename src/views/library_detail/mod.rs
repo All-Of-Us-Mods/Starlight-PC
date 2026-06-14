@@ -424,10 +424,7 @@ impl LibraryDetailView {
 
 /// Starting directory for the export save dialog (user home, else cwd).
 fn default_export_dir() -> std::path::PathBuf {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
+    std::env::home_dir().unwrap_or_else(|| ".".into())
 }
 
 fn cached_mod_names() -> HashMap<String, String> {

@@ -49,7 +49,7 @@ pub fn export_profile_zip(
 
     let mut progress = ExportProgress {
         written: 0,
-        total: count_export_files(profile_dir, &ctx).max(1),
+        total: count_export_files(profile_dir).max(1),
         emit: &mut on_progress,
     };
 
@@ -234,34 +234,24 @@ impl ExportProgress<'_> {
     }
 }
 
-/// Count the files `add_directory_to_zip` would write, applying the same skip
-/// rules, so progress has a denominator.
-fn count_export_files(current_dir: &Path, ctx: &ZipExportContext<'_>) -> usize {
+/// Rough file count for the progress denominator. Over-counts skipped files,
+/// so `tick()` may land under 100% — the forced `on_progress(100.0)` at
+/// `finish()` covers the gap. Keeps the skip logic in one place.
+fn count_export_files(current_dir: &Path) -> usize {
     let Ok(entries) = fs::read_dir(current_dir) else {
         return 0;
     };
-    let mut count = 0;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path == ctx.destination_path {
-            continue;
-        }
-        let Ok(relative) = path.strip_prefix(ctx.root_dir) else {
-            continue;
-        };
-        if should_skip_export_file(relative, ctx.managed_files) {
-            continue;
-        }
-        if to_zip_path(relative).map(|p| p.is_empty()).unwrap_or(true) {
-            continue;
-        }
-        if path.is_dir() {
-            count += count_export_files(&path, ctx);
-        } else {
-            count += 1;
-        }
-    }
-    count
+    entries
+        .flatten()
+        .map(|entry| {
+            let path = entry.path();
+            if path.is_dir() {
+                count_export_files(&path)
+            } else {
+                1
+            }
+        })
+        .sum()
 }
 
 fn add_directory_to_zip(
