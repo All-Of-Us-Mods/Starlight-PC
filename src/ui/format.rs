@@ -33,7 +33,7 @@ pub fn last_launched(timestamp_ms: Option<i64>) -> String {
 pub fn play_time(ms: Option<i64>) -> String {
     let total_ms = ms.unwrap_or(0).max(0);
     if total_ms == 0 {
-        return "Never played".to_string();
+        return "Never".to_string();
     }
     let total_minutes = total_ms / 60_000;
     let hours = total_minutes / 60;
