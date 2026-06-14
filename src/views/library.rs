@@ -24,7 +24,6 @@ impl EventEmitter<LibraryEvent> for LibraryView {}
 pub struct LibraryView {
     state: LoadState,
     create_dialog: Option<Entity<InputState>>,
-    import_dialog: Option<Entity<InputState>>,
     error: Option<String>,
     running_count: usize,
     stoppable_count: usize,
@@ -42,7 +41,6 @@ impl LibraryView {
         let view = Self {
             state: LoadState::Loading,
             create_dialog: None,
-            import_dialog: None,
             error: None,
             running_count: initial.running_count,
             stoppable_count: initial.stoppable_running_count,
@@ -126,22 +124,36 @@ impl LibraryView {
         cx.notify();
     }
 
-    fn open_import_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let state = cx.new(|cx| InputState::new(window, cx).placeholder("Path to profile .zip"));
-        state.read(cx).focus_handle(cx).focus(window, cx);
-        cx.subscribe_in(
-            &state,
-            window,
-            |this, state, event: &InputEvent, _window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
-                    this.submit_import(state.read(cx).value().to_string(), cx);
-                }
-            },
-        )
-        .detach();
-        self.import_dialog = Some(state);
+    /// Open the native file picker and import the chosen profile .zip.
+    fn import_profile(&mut self, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Import".into()),
+        });
         self.error = None;
         cx.notify();
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            let path = path.to_string_lossy().into_owned();
+            let result = cx
+                .background_executor()
+                .spawn(async move { profile_service::import_profile_zip(&path) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.error = Some(format!("Import failed: {e}"));
+                }
+                this.refresh(cx);
+            });
+        })
+        .detach();
     }
 
     fn submit_create(&mut self, name: String, cx: &mut Context<Self>) {
@@ -202,30 +214,6 @@ impl LibraryView {
         .detach();
     }
 
-    fn submit_import(&mut self, path: String, cx: &mut Context<Self>) {
-        let trimmed = path.trim().to_string();
-        if trimmed.is_empty() {
-            return;
-        }
-        self.import_dialog = None;
-        self.error = None;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { profile_service::import_profile_zip(&trimmed) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Err(e) = result {
-                    this.error = Some(format!("Import failed: {e}"));
-                    cx.notify();
-                }
-                this.refresh(cx);
-            });
-        })
-        .detach();
-    }
-
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let running = self.running_count;
         let stoppable = self.stoppable_count;
@@ -278,8 +266,8 @@ impl LibraryView {
                         Button::new("import-profile")
                             .icon(Icon::new(AppIcon::Download))
                             .label("Import Profile")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_import_dialog(window, cx);
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.import_profile(cx);
                             })),
                     )
                     .child(
@@ -438,43 +426,6 @@ impl Render for LibraryView {
                     ],
                 )
             });
-        let import_dialog =
-            self.import_dialog.clone().map(|input| {
-                crate::views::modal_overlay(
-                    &theme,
-                    px(420.0),
-                    [
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Import Profile ZIP")
-                            .into_any_element(),
-                        Input::new(&input).into_any_element(),
-                        div()
-                            .flex()
-                            .gap_2()
-                            .justify_end()
-                            .child(Button::new("cancel-import").label("Cancel").on_click(
-                                cx.listener(|this, _, _window, cx| {
-                                    this.import_dialog = None;
-                                    cx.notify();
-                                }),
-                            ))
-                            .child(
-                                Button::new("confirm-import")
-                                    .primary()
-                                    .label("Import")
-                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                        if let Some(input) = this.import_dialog.clone() {
-                                            let path = input.read(cx).value().to_string();
-                                            this.submit_import(path, cx);
-                                        }
-                                    })),
-                            )
-                            .into_any_element(),
-                    ],
-                )
-            });
-
         div()
             .id("library-page")
             .relative()
@@ -499,6 +450,5 @@ impl Render for LibraryView {
             }))
             .child(body)
             .children(create_dialog)
-            .children(import_dialog)
     }
 }

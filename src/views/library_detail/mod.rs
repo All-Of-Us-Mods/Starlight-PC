@@ -50,7 +50,6 @@ pub struct LibraryDetailView {
     confirming_delete: bool,
     launch_error: Option<String>,
     rename_dialog: Option<Entity<InputState>>,
-    export_dialog: Option<Entity<InputState>>,
     pub(super) icon_dialog: Option<IconDialogState>,
     running_count: usize,
     stoppable_count: usize,
@@ -82,7 +81,6 @@ impl LibraryDetailView {
             confirming_delete: false,
             launch_error: None,
             rename_dialog: None,
-            export_dialog: None,
             icon_dialog: None,
             running_count: 0,
             stoppable_count: 0,
@@ -375,47 +373,42 @@ impl LibraryDetailView {
         .detach();
     }
 
-    fn open_export_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let state = cx.new(|cx| InputState::new(window, cx).placeholder("Destination .zip path"));
-        state.read(cx).focus_handle(cx).focus(window, cx);
-        cx.subscribe_in(
-            &state,
-            window,
-            |this, state, event: &InputEvent, _window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
-                    this.submit_export(state.read(cx).value().to_string(), cx);
-                }
-            },
-        )
-        .detach();
-        self.export_dialog = Some(state);
-        cx.notify();
-    }
-
-    fn submit_export(&mut self, path: String, cx: &mut Context<Self>) {
-        let id = self.profile_id.clone();
-        let path = path.trim().to_string();
-        if path.is_empty() {
+    /// Open the native save dialog and export this profile to the chosen .zip.
+    fn export_profile(&mut self, cx: &mut Context<Self>) {
+        let LoadState::Loaded(profile) = &self.state else {
             return;
-        }
-        self.export_dialog = None;
-        let success_path = path.clone();
+        };
+        let id = self.profile_id.clone();
+        let suggested = format!("{}.zip", profile.name);
+        let receiver = cx.prompt_for_new_path(&default_export_dir(), Some(&suggested));
         cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(path))) = receiver.await else {
+                return;
+            };
+            let dest = path.to_string_lossy().into_owned();
+            let dest_for_task = dest.clone();
             let result = cx
                 .background_executor()
-                .spawn(async move { profile_service::export_profile_zip(&id, &path) })
+                .spawn(async move { profile_service::export_profile_zip(&id, &dest_for_task) })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                if let Err(e) = result {
-                    this.launch_error = Some(format!("Export failed: {e}"));
-                } else {
-                    this.launch_error = Some(format!("Exported profile to {success_path}"));
-                }
+                this.launch_error = Some(match result {
+                    Ok(()) => format!("Exported profile to {dest}"),
+                    Err(e) => format!("Export failed: {e}"),
+                });
                 cx.notify();
             });
         })
         .detach();
     }
+}
+
+/// Starting directory for the export save dialog (user home, else cwd).
+fn default_export_dir() -> std::path::PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
 }
 
 fn cached_mod_names() -> HashMap<String, String> {
@@ -685,8 +678,8 @@ impl Render for LibraryDetailView {
                     .child(
                         Button::new("export-profile-action")
                             .label("Export ZIP")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_export_dialog(window, cx);
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.export_profile(cx);
                             })),
                     );
 
@@ -811,24 +804,6 @@ impl Render for LibraryDetailView {
                     }),
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.rename_dialog = None;
-                        cx.notify();
-                    }),
-                )
-            }))
-            .children(self.export_dialog.clone().map(|input| {
-                dialog_overlay(
-                    input,
-                    "Export Profile ZIP",
-                    "Export",
-                    theme.clone(),
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        if let Some(input) = this.export_dialog.clone() {
-                            let path = input.read(cx).value().to_string();
-                            this.submit_export(path, cx);
-                        }
-                    }),
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.export_dialog = None;
                         cx.notify();
                     }),
                 )
