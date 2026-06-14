@@ -30,6 +30,9 @@ pub enum LinuxRunnerKind {
     Wine,
     #[default]
     Proton,
+    /// Hand the launch to the Steam client (`steam -applaunch`) so Steamworks
+    /// (online) and the Steam Linux Runtime (audio) are set up by Steam itself.
+    Steam,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

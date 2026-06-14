@@ -174,6 +174,7 @@ fn patch_bepinex_url_x86(value: SharedString, cx: &mut App) {
 fn patch_linux_runner_kind(value: SharedString, cx: &mut App) {
     let kind = match value.as_ref() {
         "wine" => LinuxRunnerKind::Wine,
+        "steam" => LinuxRunnerKind::Steam,
         _ => LinuxRunnerKind::Proton,
     };
     app_settings::update(
@@ -660,13 +661,21 @@ impl Render for SettingsView {
                             vec![
                                 ("proton".into(), "Proton".into()),
                                 ("wine".into(), "Wine".into()),
+                                ("steam".into(), "Steam".into()),
                             ],
                             |cx| match app_settings::get(cx).linux_runner_kind {
                                 LinuxRunnerKind::Wine => "wine".into(),
                                 LinuxRunnerKind::Proton => "proton".into(),
+                                LinuxRunnerKind::Steam => "steam".into(),
                             },
                             patch_linux_runner_kind,
                         ),
+                    )
+                    .description(
+                        "Steam launches via the Steam client (Steam must be running; \
+                         the binary/prefix fields below are ignored). For modded \
+                         launches, set the game's Steam launch options to \
+                         WINEDLLOVERRIDES=\"winhttp=n,b\" %command%.",
                     ),
                     SettingItem::new(
                         "Runner binary",

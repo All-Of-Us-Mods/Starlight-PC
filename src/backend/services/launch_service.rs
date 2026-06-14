@@ -59,6 +59,8 @@ pub enum LinuxRunner {
         #[serde(rename = "useSteamRun")]
         use_steam_run: bool,
     },
+    /// Launch through the Steam client instead of running Proton ourselves.
+    Steam,
 }
 
 #[derive(Deserialize)]
@@ -146,6 +148,13 @@ fn build_game_command(
                     .arg(game_exe);
                 cmd
             }
+            // Steam launches are handled by the dedicated `steam -applaunch`
+            // path before this is ever called.
+            LinuxRunner::Steam => {
+                return Err(AppError::Platform(
+                    "Steam runner does not build a direct game command".to_string(),
+                ));
+            }
         };
 
         Ok(cmd)
@@ -219,6 +228,63 @@ fn launch_process(mut cmd: Command, profile_id: Option<String>) -> AppResult<()>
     game_runtime::register_launched_process(child, profile_id)
 }
 
+/// Among Us' Steam app id.
+#[cfg(target_os = "linux")]
+const STEAM_APP_ID: &str = "945360";
+
+/// Write a Doorstop `doorstop_config.ini` into the game dir. Used by the
+/// Steam-launch path, where we can't pass `--doorstop-*` args on the command
+/// line — Doorstop reads this file at startup instead. Paths are wine paths.
+#[cfg(target_os = "linux")]
+fn write_doorstop_ini(
+    game_dir: &Path,
+    target_assembly: &str,
+    corlib_dir: &str,
+    coreclr_path: &str,
+) -> AppResult<()> {
+    let ini = format!(
+        "[General]\n\
+         enabled = true\n\
+         target_assembly = {target_assembly}\n\
+         \n\
+         [Il2Cpp]\n\
+         coreclr_path = {coreclr_path}\n\
+         corlib_dir = {corlib_dir}\n"
+    );
+    fs::write(game_dir.join("doorstop_config.ini"), ini)?;
+    Ok(())
+}
+
+/// Modded launch handed to the Steam client instead of running Proton
+/// ourselves. Steam owns the process, so Steamworks initializes (online play)
+/// and the game runs inside the Steam Linux Runtime (audio). Doorstop config
+/// goes through `doorstop_config.ini` since `steam -applaunch` can't forward
+/// `--doorstop-*` args.
+#[cfg(target_os = "linux")]
+fn launch_modded_via_steam(args: &LaunchModdedArgs, game_dir: &Path) -> AppResult<()> {
+    prepare_linux_winhttp_proxy(game_dir, &args.profile_path)?;
+    write_doorstop_ini(
+        game_dir,
+        &to_wine_path(&args.bepinex_dll),
+        &to_wine_path(&args.dotnet_dir),
+        &to_wine_path(&args.coreclr_path),
+    )?;
+
+    let mut cmd = Command::new("steam");
+    cmd.arg("-applaunch")
+        .arg(STEAM_APP_ID)
+        // Only reaches Proton if this call cold-starts Steam. If Steam is
+        // already running, set this once in the game's Steam launch options:
+        //   WINEDLLOVERRIDES="winhttp=n,b" %command%
+        .env("WINEDLLOVERRIDES", "winhttp=n,b");
+
+    let result = launch_process(cmd, Some(args.profile_id.clone()));
+    if result.is_ok() && args.settle_delay_secs > 0 {
+        std::thread::sleep(std::time::Duration::from_secs(args.settle_delay_secs));
+    }
+    result
+}
+
 pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     info!("game_launch_modded: game_exe={}", args.game_exe);
 
@@ -233,6 +299,14 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     if cancel_generation(&args.profile_id) != cancel_gen {
         info!("launch cancelled while queued: profile={}", args.profile_id);
         return Ok(());
+    }
+
+    // Steam runner: let the Steam client launch the game so online play
+    // (Steamworks) and audio (Steam Linux Runtime) work, injecting via
+    // doorstop_config.ini instead of command-line args.
+    #[cfg(target_os = "linux")]
+    if matches!(args.runner, LinuxRunner::Steam) {
+        return launch_modded_via_steam(&args, &game_dir);
     }
 
     #[cfg(windows)]
@@ -305,6 +379,14 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
     #[cfg(target_os = "linux")]
     cleanup_linux_doorstop_files(&game_dir)?;
 
+    // Steam runner: hand the launch to the Steam client.
+    #[cfg(target_os = "linux")]
+    if matches!(args.runner, LinuxRunner::Steam) {
+        let mut cmd = Command::new("steam");
+        cmd.arg("-applaunch").arg(STEAM_APP_ID);
+        return launch_process(cmd, None);
+    }
+
     let mut cmd = build_game_command(
         &args.game_exe,
         #[cfg(target_os = "linux")]
@@ -364,6 +446,11 @@ fn build_linux_runner_from_settings(
 ) -> AppResult<LinuxRunner> {
     use crate::backend::services::core_service::LinuxRunnerKind;
 
+    // Steam runs through the Steam client, so it needs no runner binary.
+    if matches!(settings.linux_runner_kind, LinuxRunnerKind::Steam) {
+        return Ok(LinuxRunner::Steam);
+    }
+
     let binary = settings.linux_runner_binary.trim();
     if binary.is_empty() {
         return Err(AppError::validation(
@@ -381,6 +468,7 @@ fn build_linux_runner_from_settings(
             steam_client_path: settings.linux_proton_steam_client_path.clone(),
             use_steam_run: settings.linux_proton_use_steam_run,
         },
+        LinuxRunnerKind::Steam => unreachable!("handled above"),
     })
 }
 
