@@ -11,13 +11,13 @@ use gpui_component::{
 use log::warn;
 
 use crate::backend::events::{self, BackendEvent};
+#[cfg(unix)]
+use crate::backend::services::core_service::LinuxRunnerKind;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
     core_service::{self, AppSettingsPatch, GamePlatform},
     finder_service,
 };
-#[cfg(unix)]
-use crate::backend::services::core_service::LinuxRunnerKind;
 use crate::settings as app_settings;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;

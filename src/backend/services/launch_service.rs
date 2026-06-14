@@ -231,10 +231,7 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     let cancel_gen = cancel_generation(&args.profile_id);
     let _launch_guard = LAUNCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if cancel_generation(&args.profile_id) != cancel_gen {
-        info!(
-            "launch cancelled while queued: profile={}",
-            args.profile_id
-        );
+        info!("launch cancelled while queued: profile={}", args.profile_id);
         return Ok(());
     }
 

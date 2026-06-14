@@ -334,12 +334,14 @@ pub(super) fn render_icon_dialog(
             .flex()
             .gap_2()
             .justify_end()
-            .child(Button::new("icon-dialog-cancel").label("Cancel").on_click(
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.icon_dialog = None;
-                    cx.notify();
-                }),
-            ))
+            .child(
+                Button::new("icon-dialog-cancel")
+                    .label("Cancel")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.icon_dialog = None;
+                        cx.notify();
+                    })),
+            )
             .child(
                 Button::new("icon-dialog-save")
                     .primary()
