@@ -148,13 +148,8 @@ fn build_game_command(
                     .arg(game_exe);
                 cmd
             }
-            // Steam launches are handled by the dedicated `steam -applaunch`
-            // path before this is ever called.
-            LinuxRunner::Steam => {
-                return Err(AppError::Platform(
-                    "Steam runner does not build a direct game command".to_string(),
-                ));
-            }
+            // Steam launches branch to `steam -applaunch` before reaching here.
+            LinuxRunner::Steam => unreachable!("Steam launches via steam -applaunch"),
         };
 
         Ok(cmd)
@@ -353,23 +348,17 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
 
     #[cfg(target_os = "linux")]
     let bepinex_dll = to_wine_path(&args.bepinex_dll);
-    #[cfg(windows)]
-    let bepinex_dll = args.bepinex_dll.clone();
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(not(target_os = "linux"))]
     let bepinex_dll = args.bepinex_dll.clone();
 
     #[cfg(target_os = "linux")]
     let dotnet_dir = to_wine_path(&args.dotnet_dir);
-    #[cfg(windows)]
-    let dotnet_dir = args.dotnet_dir.clone();
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(not(target_os = "linux"))]
     let dotnet_dir = args.dotnet_dir.clone();
 
     #[cfg(target_os = "linux")]
     let coreclr_path = to_wine_path(&args.coreclr_path);
-    #[cfg(windows)]
-    let coreclr_path = args.coreclr_path.clone();
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(not(target_os = "linux"))]
     let coreclr_path = args.coreclr_path.clone();
 
     cmd.current_dir(&game_dir)

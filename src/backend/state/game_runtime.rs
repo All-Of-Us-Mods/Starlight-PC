@@ -56,23 +56,25 @@ pub struct GameStatePayload {
 // carries an identifying substring in its cmdline — the profile id (via the
 // doorstop args we pass for modded launches) or `Among Us.exe` (passed as
 // the game-exe argument for any launch) — so match on that.
+/// Iterate `(pid, cmdline)` for every process in `/proc`. Cmdlines are decoded
+/// lossily and keep their NUL arg separators — callers only substring-match.
+#[cfg(target_os = "linux")]
+fn proc_cmdlines() -> impl Iterator<Item = (i32, String)> {
+    std::fs::read_dir("/proc")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let pid = entry.file_name().to_str()?.parse::<i32>().ok()?;
+            let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+            Some((pid, String::from_utf8_lossy(&cmdline).into_owned()))
+        })
+}
+
 #[cfg(target_os = "linux")]
 fn kill_by_cmdline_substring(substring: &str) {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<i32>().ok())
-        else {
-            continue;
-        };
-        let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
-            continue;
-        };
-        if String::from_utf8_lossy(&cmdline).contains(substring) {
+    for (pid, cmdline) in proc_cmdlines() {
+        if cmdline.contains(substring) {
             let _ = std::process::Command::new("kill")
                 .args(["-KILL", &pid.to_string()])
                 .status();
@@ -87,8 +89,6 @@ fn reap_process(mut child: Child) {
 }
 
 /// Reap a tracked process and record its session against the owning profile.
-/// Play-time persistence is offloaded to a detached thread so callers don't
-/// block (and don't hold the tracked-state lock) during disk I/O.
 fn reap_and_record(tracked: TrackedGameProcess) {
     let TrackedGameProcess {
         child,
@@ -96,6 +96,12 @@ fn reap_and_record(tracked: TrackedGameProcess) {
         launched_at,
     } = tracked;
     reap_process(child);
+    record_play_time(profile_id, launched_at);
+}
+
+/// Persist a play session against the owning profile. Offloaded to a detached
+/// thread so callers don't block (or hold the tracked-state lock) on disk I/O.
+fn record_play_time(profile_id: Option<String>, launched_at: Instant) {
     let Some(id) = profile_id else { return };
     let duration_ms = launched_at.elapsed().as_millis().min(i64::MAX as u128) as i64;
     if duration_ms <= 0 {
@@ -225,16 +231,20 @@ fn monitor_game_process(process_id: u32) {
     });
 }
 
-pub fn register_launched_process(child: Child, profile_id: Option<String>) -> AppResult<()> {
-    if let Some(id) = profile_id.as_deref() {
-        if let Err(e) = profile_service::update_last_launched(id) {
-            warn!("update_last_launched failed for profile {id}: {e}");
-        } else {
-            crate::backend::events::publish(
-                crate::backend::events::BackendEvent::ProfileStatsUpdated(id.to_string()),
-            );
-        }
+/// Stamp a launch against the profile and notify listeners.
+fn mark_launched(profile_id: Option<&str>) {
+    let Some(id) = profile_id else { return };
+    if let Err(e) = profile_service::update_last_launched(id) {
+        warn!("update_last_launched failed for profile {id}: {e}");
+    } else {
+        crate::backend::events::publish(
+            crate::backend::events::BackendEvent::ProfileStatsUpdated(id.to_string()),
+        );
     }
+}
+
+pub fn register_launched_process(child: Child, profile_id: Option<String>) -> AppResult<()> {
+    mark_launched(profile_id.as_deref());
 
     let process_id: u32;
     {
@@ -261,42 +271,7 @@ pub fn register_launched_process(child: Child, profile_id: Option<String>) -> Ap
 /// Proton, wine, and the game itself.
 #[cfg(target_os = "linux")]
 fn is_among_us_running() -> bool {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return false;
-    };
-    for entry in entries.flatten() {
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<i32>().ok())
-        else {
-            continue;
-        };
-        let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
-            continue;
-        };
-        if String::from_utf8_lossy(&cmdline).contains("Among Us.exe") {
-            return true;
-        }
-    }
-    false
-}
-
-#[cfg(target_os = "linux")]
-fn record_steam_session(profile_id: Option<String>, launched_at: Instant) {
-    let Some(id) = profile_id else { return };
-    let duration_ms = launched_at.elapsed().as_millis().min(i64::MAX as u128) as i64;
-    if duration_ms <= 0 {
-        return;
-    }
-    std::thread::spawn(move || {
-        if let Err(e) = profile_service::add_play_time(&id, duration_ms) {
-            warn!("add_play_time failed for profile {id}: {e}");
-        }
-        crate::backend::events::publish(crate::backend::events::BackendEvent::ProfileStatsUpdated(
-            id,
-        ));
-    });
+    proc_cmdlines().any(|(_, cmdline)| cmdline.contains("Among Us.exe"))
 }
 
 /// Watch a Steam-launched game by polling `/proc` (we have no Child handle).
@@ -329,7 +304,7 @@ fn monitor_steam_instance(instance_id: u64) {
                     state.steam_instances.retain(|i| i.id != instance_id);
                     emit_state_snapshot(&state);
                     drop(state);
-                    record_steam_session(profile_id, launched_at);
+                    record_play_time(profile_id, launched_at);
                     break;
                 }
             } else if running {
@@ -349,15 +324,7 @@ fn monitor_steam_instance(instance_id: u64) {
 /// duplicated.
 #[cfg(target_os = "linux")]
 pub fn register_steam_launch(profile_id: Option<String>) -> AppResult<()> {
-    if let Some(id) = profile_id.as_deref() {
-        if let Err(e) = profile_service::update_last_launched(id) {
-            warn!("update_last_launched failed for profile {id}: {e}");
-        } else {
-            crate::backend::events::publish(
-                crate::backend::events::BackendEvent::ProfileStatsUpdated(id.to_string()),
-            );
-        }
-    }
+    mark_launched(profile_id.as_deref());
 
     let mut state = TRACKED_STATE
         .lock()
