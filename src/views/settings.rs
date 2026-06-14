@@ -640,88 +640,105 @@ impl Render for SettingsView {
         ]);
 
         #[cfg(unix)]
-        let linux_page = SettingPage::new("Linux runtime").group(
-            SettingGroup::new()
-                .title("Wine / Proton")
-                .description("Used when launching the game on Linux.")
-                .items(vec![
-                    SettingItem::new(
-                        "Auto-detect",
-                        SettingField::render(|_, _, _| {
-                            Button::new("detect-linux-runtime")
-                                .icon(Icon::new(AppIcon::Compass))
-                                .label("Auto-detect Linux runtime")
-                                .on_click(|_, window, cx| detect_linux_runtime(window, cx))
-                        }),
-                    )
-                    .description("Probe Steam/Proton + Wine prefixes from the Among Us path."),
-                    SettingItem::new(
-                        "Runner",
-                        SettingField::dropdown(
-                            vec![
-                                ("proton".into(), "Proton".into()),
-                                ("wine".into(), "Wine".into()),
-                                ("steam".into(), "Steam".into()),
-                            ],
-                            |cx| match app_settings::get(cx).linux_runner_kind {
-                                LinuxRunnerKind::Wine => "wine".into(),
-                                LinuxRunnerKind::Proton => "proton".into(),
-                                LinuxRunnerKind::Steam => "steam".into(),
-                            },
-                            patch_linux_runner_kind,
-                        ),
-                    )
-                    .description(
-                        "Steam launches via the Steam client (Steam must be running; \
-                         the binary/prefix fields below are ignored). For modded \
-                         launches, set the game's Steam launch options to \
-                         WINEDLLOVERRIDES=\"winhttp=n,b\" %command%.",
-                    ),
-                    SettingItem::new(
-                        "Runner binary",
-                        path_field(
-                            "linux-runner-binary",
-                            false,
-                            |cx| app_settings::get(cx).linux_runner_binary.clone().into(),
-                            patch_linux_runner_binary,
-                        ),
-                    ),
-                    SettingItem::new(
-                        "Wine prefix",
-                        path_field(
-                            "linux-wine-prefix",
-                            true,
-                            |cx| app_settings::get(cx).linux_wine_prefix.clone().into(),
-                            patch_linux_wine_prefix,
-                        ),
-                    ),
-                    SettingItem::new(
-                        "Proton compat data path",
-                        path_field(
-                            "linux-proton-compat",
-                            true,
-                            |cx| {
-                                app_settings::get(cx)
-                                    .linux_proton_compat_data_path
-                                    .clone()
-                                    .into()
-                            },
-                            patch_linux_proton_compat_data_path,
-                        ),
-                    ),
-                    SettingItem::new(
-                        "Wrap Proton in steam-run",
-                        SettingField::switch(
-                            |cx| app_settings::get(cx).linux_proton_use_steam_run,
-                            patch_linux_proton_use_steam_run,
-                        ),
-                    )
-                    .description(
-                        "Launch Proton via steam-run (NixOS/non-FHS systems). \
-                         Disable to run the Proton binary directly.",
-                    ),
-                ]),
-        );
+        let linux_page = {
+            let kind = app_settings::get(cx).linux_runner_kind.clone();
+
+            let auto_detect = SettingItem::new(
+                "Auto-detect",
+                SettingField::render(|_, _, _| {
+                    Button::new("detect-linux-runtime")
+                        .icon(Icon::new(AppIcon::Compass))
+                        .label("Auto-detect Linux runtime")
+                        .on_click(|_, window, cx| detect_linux_runtime(window, cx))
+                }),
+            )
+            .description("Probe Steam/Proton + Wine prefixes from the Among Us path.");
+
+            let runner = SettingItem::new(
+                "Runner",
+                SettingField::dropdown(
+                    vec![
+                        ("steam".into(), "Steam".into()),
+                        ("proton".into(), "Proton".into()),
+                        ("wine".into(), "Wine".into()),
+                    ],
+                    |cx| match app_settings::get(cx).linux_runner_kind {
+                        LinuxRunnerKind::Wine => "wine".into(),
+                        LinuxRunnerKind::Proton => "proton".into(),
+                        LinuxRunnerKind::Steam => "steam".into(),
+                    },
+                    patch_linux_runner_kind,
+                ),
+            )
+            .description(
+                "Steam launches via the Steam client (Steam must be running). For \
+                 modded launches, set the game's Steam launch options to \
+                 WINEDLLOVERRIDES=\"winhttp=n,b\" %command%.",
+            );
+
+            let runner_binary = SettingItem::new(
+                "Runner binary",
+                path_field(
+                    "linux-runner-binary",
+                    false,
+                    |cx| app_settings::get(cx).linux_runner_binary.clone().into(),
+                    patch_linux_runner_binary,
+                ),
+            );
+
+            let wine_prefix = SettingItem::new(
+                "Wine prefix",
+                path_field(
+                    "linux-wine-prefix",
+                    true,
+                    |cx| app_settings::get(cx).linux_wine_prefix.clone().into(),
+                    patch_linux_wine_prefix,
+                ),
+            );
+
+            let proton_compat = SettingItem::new(
+                "Proton compat data path",
+                path_field(
+                    "linux-proton-compat",
+                    true,
+                    |cx| {
+                        app_settings::get(cx)
+                            .linux_proton_compat_data_path
+                            .clone()
+                            .into()
+                    },
+                    patch_linux_proton_compat_data_path,
+                ),
+            );
+
+            let steam_run = SettingItem::new(
+                "Wrap Proton in steam-run",
+                SettingField::switch(
+                    |cx| app_settings::get(cx).linux_proton_use_steam_run,
+                    patch_linux_proton_use_steam_run,
+                ),
+            )
+            .description(
+                "Launch Proton via steam-run (NixOS/non-FHS systems). \
+                 Disable to run the Proton binary directly.",
+            );
+
+            // Only show the fields the selected runner actually uses.
+            let items = match kind {
+                LinuxRunnerKind::Steam => vec![runner],
+                LinuxRunnerKind::Wine => vec![auto_detect, runner, runner_binary, wine_prefix],
+                LinuxRunnerKind::Proton => {
+                    vec![auto_detect, runner, runner_binary, proton_compat, steam_run]
+                }
+            };
+
+            SettingPage::new("Linux runtime").group(
+                SettingGroup::new()
+                    .title("Runner")
+                    .description("Used when launching the game on Linux.")
+                    .items(items),
+            )
+        };
 
         div()
             .id("settings-page")

@@ -28,10 +28,10 @@ pub enum GamePlatform {
 #[serde(rename_all = "snake_case")]
 pub enum LinuxRunnerKind {
     Wine,
-    #[default]
     Proton,
     /// Hand the launch to the Steam client (`steam -applaunch`) so Steamworks
     /// (online) and the Steam Linux Runtime (audio) are set up by Steam itself.
+    #[default]
     Steam,
 }
 
@@ -73,7 +73,7 @@ impl Default for AppSettings {
             game_platform: GamePlatform::Steam,
             cache_bepinex: false,
             xbox_app_id: None,
-            linux_runner_kind: LinuxRunnerKind::Proton,
+            linux_runner_kind: LinuxRunnerKind::Steam,
             linux_runner_binary: String::new(),
             linux_wine_prefix: String::new(),
             linux_proton_compat_data_path: String::new(),
