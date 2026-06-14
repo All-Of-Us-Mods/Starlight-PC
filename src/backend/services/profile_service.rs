@@ -1,7 +1,7 @@
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::{bepinex_service, core_service, profile_zip_service};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -108,15 +108,6 @@ fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> AppResult<Option<P
     Ok(Some(profile))
 }
 
-fn load_legacy_profiles_by_id() -> AppResult<HashMap<String, ProfileEntry>> {
-    // Legacy tauri-store registry no longer exists in the GPUI port.
-    Ok(HashMap::new())
-}
-
-fn clear_legacy_profiles_store() -> AppResult<()> {
-    Ok(())
-}
-
 fn write_profile(profile: &ProfileEntry) -> AppResult<()> {
     let profile_dir = PathBuf::from(&profile.path);
     fs::create_dir_all(&profile_dir)?;
@@ -212,8 +203,6 @@ pub fn get_profiles_dir() -> AppResult<String> {
 pub fn get_profiles() -> AppResult<Vec<ProfileEntry>> {
     let profiles_dir = PathBuf::from(get_profiles_dir()?);
     let mut profiles = Vec::new();
-    let mut legacy_profiles: Option<HashMap<String, ProfileEntry>> = None;
-    let mut migrated_legacy_count = 0usize;
 
     let entries = match fs::read_dir(&profiles_dir) {
         Ok(entries) => entries,
@@ -233,40 +222,10 @@ pub fn get_profiles() -> AppResult<Vec<ProfileEntry>> {
         if !path.is_dir() {
             continue;
         }
-        let profile = if let Some(profile) = parse_profile(&metadata_path(&path), &path)? {
-            profile
-        } else {
-            let file_name = match path.file_name().and_then(|name| name.to_str()) {
-                Some(name) => name.to_string(),
-                None => continue,
-            };
-
-            if legacy_profiles.is_none() {
-                legacy_profiles = Some(load_legacy_profiles_by_id()?);
-            }
-
-            let Some(mut legacy_profile) = legacy_profiles
-                .as_mut()
-                .and_then(|profiles_by_id| profiles_by_id.remove(&file_name))
-            else {
-                continue;
-            };
-
-            legacy_profile.path = path.to_string_lossy().to_string();
-            normalize_icon_selection(&mut legacy_profile);
-            write_profile(&legacy_profile)?;
-            migrated_legacy_count += 1;
-            legacy_profile
+        let Some(profile) = parse_profile(&metadata_path(&path), &path)? else {
+            continue;
         };
         profiles.push(profile);
-    }
-
-    if migrated_legacy_count > 0
-        && legacy_profiles
-            .as_ref()
-            .is_some_and(|profiles_by_id| profiles_by_id.is_empty())
-    {
-        clear_legacy_profiles_store()?;
     }
 
     profiles.sort_by(|a, b| {
@@ -285,28 +244,7 @@ pub fn get_profile_by_id(id: &str) -> AppResult<Option<ProfileEntry>> {
     }
 
     let profile_dir = PathBuf::from(get_profiles_dir()?).join(id);
-    if let Some(profile) = parse_profile(&metadata_path(&profile_dir), &profile_dir)? {
-        return Ok(Some(profile));
-    }
-
-    if !profile_dir.is_dir() {
-        return Ok(None);
-    }
-
-    let mut legacy_profiles = load_legacy_profiles_by_id()?;
-    let Some(mut legacy_profile) = legacy_profiles.remove(id) else {
-        return Ok(None);
-    };
-
-    legacy_profile.path = profile_dir.to_string_lossy().to_string();
-    normalize_icon_selection(&mut legacy_profile);
-    write_profile(&legacy_profile)?;
-
-    if legacy_profiles.is_empty() {
-        clear_legacy_profiles_store()?;
-    }
-
-    Ok(Some(legacy_profile))
+    parse_profile(&metadata_path(&profile_dir), &profile_dir)
 }
 
 pub fn create_profile(name: &str) -> AppResult<ProfileEntry> {

@@ -884,47 +884,31 @@ fn dialog_overlay(
     on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     on_cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
-    div()
-        .absolute()
-        .inset_0()
-        .bg(Rgba {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            a: 0.6,
-        })
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(
+    crate::views::modal_overlay(
+        &theme,
+        px(420.0),
+        [
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title)
+                .into_any_element(),
+            Input::new(&input).into_any_element(),
             div()
                 .flex()
-                .flex_col()
-                .gap_3()
-                .w(px(420.0))
-                .p_5()
-                .rounded_lg()
-                .bg(theme.background)
-                .border_1()
-                .border_color(theme.border)
-                .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
-                .child(Input::new(&input))
+                .gap_2()
+                .justify_end()
                 .child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .justify_end()
-                        .child(
-                            Button::new("dialog-cancel")
-                                .label("Cancel")
-                                .on_click(on_cancel),
-                        )
-                        .child(
-                            Button::new("dialog-confirm")
-                                .primary()
-                                .label(confirm)
-                                .on_click(on_confirm),
-                        ),
-                ),
-        )
+                    Button::new("dialog-cancel")
+                        .label("Cancel")
+                        .on_click(on_cancel),
+                )
+                .child(
+                    Button::new("dialog-confirm")
+                        .primary()
+                        .label(confirm)
+                        .on_click(on_confirm),
+                )
+                .into_any_element(),
+        ],
+    )
 }

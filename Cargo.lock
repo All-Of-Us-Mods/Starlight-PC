@@ -14,8 +14,6 @@ dependencies = [
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",
- "home",
- "image",
  "log",
  "reqwest",
  "reqwest_client",

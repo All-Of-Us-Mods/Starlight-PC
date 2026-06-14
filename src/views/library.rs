@@ -403,112 +403,74 @@ impl Render for LibraryView {
         };
 
         let create_dialog = self.create_dialog.clone().map(|input| {
-            let theme = theme.clone();
-            div()
-                .absolute()
-                .inset_0()
-                .bg(Rgba {
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                    a: 0.6,
-                })
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
+            crate::views::modal_overlay(
+                &theme,
+                px(360.0),
+                [
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("New Profile")
+                        .into_any_element(),
+                    Input::new(&input).into_any_element(),
                     div()
                         .flex()
-                        .flex_col()
-                        .gap_3()
-                        .w(px(360.0))
-                        .p_5()
-                        .rounded_lg()
-                        .bg(theme.background)
-                        .border_1()
-                        .border_color(theme.border)
-                        .child(div().font_weight(FontWeight::SEMIBOLD).child("New Profile"))
-                        .child(Input::new(&input))
+                        .gap_2()
+                        .justify_end()
+                        .child(Button::new("cancel-create").label("Cancel").on_click(
+                            cx.listener(|this, _, _window, cx| {
+                                this.create_dialog = None;
+                                cx.notify();
+                            }),
+                        ))
                         .child(
-                            div()
-                                .flex()
-                                .gap_2()
-                                .justify_end()
-                                .child(Button::new("cancel-create").label("Cancel").on_click(
-                                    cx.listener(|this, _, _window, cx| {
-                                        this.create_dialog = None;
-                                        cx.notify();
-                                    }),
-                                ))
-                                .child(
-                                    Button::new("confirm-create")
-                                        .primary()
-                                        .label("Create")
-                                        .on_click(cx.listener(|this, _, _window, cx| {
-                                            if let Some(input) = this.create_dialog.clone() {
-                                                let name = input.read(cx).value().to_string();
-                                                this.submit_create(name, cx);
-                                            }
-                                        })),
-                                ),
-                        ),
-                )
+                            Button::new("confirm-create")
+                                .primary()
+                                .label("Create")
+                                .on_click(cx.listener(|this, _, _window, cx| {
+                                    if let Some(input) = this.create_dialog.clone() {
+                                        let name = input.read(cx).value().to_string();
+                                        this.submit_create(name, cx);
+                                    }
+                                })),
+                        )
+                        .into_any_element(),
+                ],
+            )
         });
         let import_dialog = self.import_dialog.clone().map(|input| {
-            let theme = theme.clone();
-            div()
-                .absolute()
-                .inset_0()
-                .bg(Rgba {
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                    a: 0.6,
-                })
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
+            crate::views::modal_overlay(
+                &theme,
+                px(420.0),
+                [
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Import Profile ZIP")
+                        .into_any_element(),
+                    Input::new(&input).into_any_element(),
                     div()
                         .flex()
-                        .flex_col()
-                        .gap_3()
-                        .w(px(420.0))
-                        .p_5()
-                        .rounded_lg()
-                        .bg(theme.background)
-                        .border_1()
-                        .border_color(theme.border)
+                        .gap_2()
+                        .justify_end()
+                        .child(Button::new("cancel-import").label("Cancel").on_click(
+                            cx.listener(|this, _, _window, cx| {
+                                this.import_dialog = None;
+                                cx.notify();
+                            }),
+                        ))
                         .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Import Profile ZIP"),
+                            Button::new("confirm-import")
+                                .primary()
+                                .label("Import")
+                                .on_click(cx.listener(|this, _, _window, cx| {
+                                    if let Some(input) = this.import_dialog.clone() {
+                                        let path = input.read(cx).value().to_string();
+                                        this.submit_import(path, cx);
+                                    }
+                                })),
                         )
-                        .child(Input::new(&input))
-                        .child(
-                            div()
-                                .flex()
-                                .gap_2()
-                                .justify_end()
-                                .child(Button::new("cancel-import").label("Cancel").on_click(
-                                    cx.listener(|this, _, _window, cx| {
-                                        this.import_dialog = None;
-                                        cx.notify();
-                                    }),
-                                ))
-                                .child(
-                                    Button::new("confirm-import")
-                                        .primary()
-                                        .label("Import")
-                                        .on_click(cx.listener(|this, _, _window, cx| {
-                                            if let Some(input) = this.import_dialog.clone() {
-                                                let path = input.read(cx).value().to_string();
-                                                this.submit_import(path, cx);
-                                            }
-                                        })),
-                                ),
-                        ),
-                )
+                        .into_any_element(),
+                ],
+            )
         });
 
         div()

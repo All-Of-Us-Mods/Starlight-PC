@@ -1,4 +1,3 @@
-use chrono::{DateTime, Local};
 use gpui::*;
 use gpui_component::{
     Disableable as _, Icon, IconName, WindowExt,
@@ -22,7 +21,9 @@ use crate::backend::services::{
     profile_service::{self, ProfileEntry},
 };
 use crate::theme::{self, ThemeExt};
+use crate::ui::format;
 use crate::ui::mod_card::format_count;
+use crate::views::section_label;
 
 #[derive(Clone, Debug)]
 pub enum ModDetailEvent {
@@ -451,20 +452,6 @@ fn dep_row_for(r: ResolvedDependency, profile: Option<&ProfileEntry>) -> DepRow 
     }
 }
 
-fn format_date(timestamp_ms: i64) -> String {
-    DateTime::from_timestamp_millis(timestamp_ms)
-        .map(|date| date.with_timezone(&Local).format("%b %-d, %Y").to_string())
-        .unwrap_or_else(|| "Unknown date".to_string())
-}
-
-fn section_label(text: &'static str, theme: &crate::theme::Theme) -> impl IntoElement {
-    div()
-        .text_xs()
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme.text_muted)
-        .child(text)
-}
-
 fn chip(text: String) -> impl IntoElement {
     Tag::new().child(text)
 }
@@ -585,7 +572,7 @@ impl Render for ModDetailView {
                             .gap_4()
                             .text_color(theme.text_muted)
                             .child(format!("{} downloads", format_count(m.downloads)))
-                            .child(format!("Updated {}", format_date(m.updated_at)))
+                            .child(format!("Updated {}", format::date_ms(m.updated_at)))
                             .children(m.mod_type.clone().map(|t| format!("Type: {t}"))),
                     )
                     .children(m.tags.clone().filter(|tags| !tags.is_empty()).map(|tags| {

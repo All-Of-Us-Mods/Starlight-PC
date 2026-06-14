@@ -85,6 +85,11 @@ fn find_among_us_from_registry() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
+}
+
+#[cfg(target_os = "linux")]
 fn find_among_us_linux_paths() -> Vec<PathBuf> {
     fn parse_libraryfolders_paths(raw: &str) -> Vec<PathBuf> {
         let mut libraries = Vec::new();
@@ -111,7 +116,7 @@ fn find_among_us_linux_paths() -> Vec<PathBuf> {
 
     let mut detected_paths = Vec::new();
     let mut steam_roots = Vec::new();
-    if let Some(home) = home::home_dir() {
+    if let Some(home) = home_dir() {
         steam_roots.push(home.join(".local/share/Steam"));
         steam_roots.push(home.join(".steam/steam"));
         steam_roots.push(home.join(".var/app/com.valvesoftware.Steam/data/Steam"));
@@ -146,7 +151,7 @@ fn find_among_us_linux_paths() -> Vec<PathBuf> {
 #[cfg(target_os = "linux")]
 fn linux_steam_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
-    if let Some(home) = home::home_dir() {
+    if let Some(home) = home_dir() {
         roots.push(home.join(".local/share/Steam"));
         roots.push(home.join(".steam/steam"));
         roots.push(home.join(".steam/root"));
@@ -160,7 +165,7 @@ fn linux_steam_roots() -> Vec<PathBuf> {
 #[cfg(target_os = "linux")]
 fn linux_compatibility_tool_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
-    if let Some(home) = home::home_dir() {
+    if let Some(home) = home_dir() {
         roots.push(home.join(".steam/root/compatibilitytools.d"));
         roots.push(home.join(".local/share/Steam/compatibilitytools.d"));
         roots.push(home.join(".var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d"));
@@ -195,7 +200,7 @@ fn linux_wine_prefix() -> Option<PathBuf> {
             return Some(p);
         }
     }
-    if let Some(home) = home::home_dir() {
+    if let Some(home) = home_dir() {
         let default = home.join(".wine");
         if default.is_dir() {
             return Some(default);

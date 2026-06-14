@@ -3,6 +3,7 @@ use gpui::*;
 
 use crate::backend::api::Post;
 use crate::theme::{self, ThemeExt};
+use crate::views::section_label;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{Icon, IconName};
 
@@ -27,14 +28,6 @@ fn format_date(timestamp_ms: i64) -> String {
     DateTime::from_timestamp_millis(timestamp_ms)
         .map(|date| date.with_timezone(&Local).format("%B %-d, %Y").to_string())
         .unwrap_or_else(|| "Unknown date".to_string())
-}
-
-fn section_label(text: &'static str, theme: &crate::theme::Theme) -> impl IntoElement {
-    div()
-        .text_xs()
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme.text_muted)
-        .child(text)
 }
 
 impl Render for NewsDetailView {

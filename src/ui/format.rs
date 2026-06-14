@@ -3,7 +3,7 @@
 use chrono::{DateTime, Local};
 
 /// UNIX-millis → local "Mon D, YYYY · HH:MM".
-pub fn datetime_ms(timestamp_ms: i64) -> String {
+fn datetime_ms(timestamp_ms: i64) -> String {
     DateTime::from_timestamp_millis(timestamp_ms)
         .map(|dt| {
             dt.with_timezone(&Local)

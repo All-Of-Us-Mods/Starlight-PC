@@ -320,57 +320,36 @@ pub(super) fn render_icon_dialog(
         .clone()
         .map(|msg| div().text_sm().text_color(rgb(0xef4444)).child(msg));
 
-    div()
-        .absolute()
-        .inset_0()
-        .bg(Rgba {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            a: 0.6,
-        })
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .w(px(480.0))
-                .p_5()
-                .rounded_lg()
-                .bg(theme.background)
-                .border_1()
-                .border_color(theme.border)
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Edit Profile Icon"),
-                )
-                .child(mode_row)
-                .child(body)
-                .children(error_row)
-                .child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .justify_end()
-                        .child(Button::new("icon-dialog-cancel").label("Cancel").on_click(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.icon_dialog = None;
-                                cx.notify();
-                            }),
-                        ))
-                        .child(
-                            Button::new("icon-dialog-save")
-                                .primary()
-                                .label("Save")
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.save_icon(cx);
-                                })),
-                        ),
-                ),
-        )
-        .into_any_element()
+    let mut items: Vec<AnyElement> = vec![
+        div()
+            .font_weight(FontWeight::SEMIBOLD)
+            .child("Edit Profile Icon")
+            .into_any_element(),
+        mode_row.into_any_element(),
+        body,
+    ];
+    items.extend(error_row.map(IntoElement::into_any_element));
+    items.push(
+        div()
+            .flex()
+            .gap_2()
+            .justify_end()
+            .child(Button::new("icon-dialog-cancel").label("Cancel").on_click(
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.icon_dialog = None;
+                    cx.notify();
+                }),
+            ))
+            .child(
+                Button::new("icon-dialog-save")
+                    .primary()
+                    .label("Save")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.save_icon(cx);
+                    })),
+            )
+            .into_any_element(),
+    );
+
+    crate::views::modal_overlay(&theme, px(480.0), items).into_any_element()
 }

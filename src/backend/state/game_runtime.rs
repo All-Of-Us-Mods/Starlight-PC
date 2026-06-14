@@ -313,16 +313,6 @@ pub fn stop_all_tracked_instances() -> AppResult<usize> {
     stop_result
 }
 
-#[allow(dead_code)] // planned: used by xbox_service when Xbox launch lands
-pub fn register_uwp_instance(profile_id: Option<String>) -> AppResult<()> {
-    let mut state = TRACKED_STATE
-        .lock()
-        .map_err(|_| AppError::state("Failed to update game state"))?;
-    state.uwp_instances.push(profile_id);
-    emit_state_snapshot(&state);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
