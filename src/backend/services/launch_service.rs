@@ -255,6 +255,34 @@ fn write_doorstop_ini(
     Ok(())
 }
 
+/// Write a disabled `doorstop_config.ini` so a vanilla Steam launch can't
+/// inject mods even when the winhttp.dll proxy is still present (the Steam
+/// launch option loads it unconditionally).
+#[cfg(target_os = "linux")]
+fn clear_doorstop_ini(game_dir: &Path) -> AppResult<()> {
+    fs::write(
+        game_dir.join("doorstop_config.ini"),
+        "[General]\nenabled = false\n",
+    )?;
+    Ok(())
+}
+
+/// Spawn `steam -applaunch` and reap the short-lived invoker in the background.
+/// Steam reparents the actual game, so we don't track this child — running
+/// state is watched separately via [`game_runtime::register_steam_launch`].
+#[cfg(target_os = "linux")]
+fn spawn_steam(mut cmd: Command) -> AppResult<()> {
+    use std::os::unix::process::CommandExt;
+    cmd.process_group(0);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| AppError::process(format!("Failed to launch via Steam: {e}")))?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 /// Modded launch handed to the Steam client instead of running Proton
 /// ourselves. Steam owns the process, so Steamworks initializes (online play)
 /// and the game runs inside the Steam Linux Runtime (audio). Doorstop config
@@ -277,12 +305,14 @@ fn launch_modded_via_steam(args: &LaunchModdedArgs, game_dir: &Path) -> AppResul
         // already running, set this once in the game's Steam launch options:
         //   WINEDLLOVERRIDES="winhttp=n,b" %command%
         .env("WINEDLLOVERRIDES", "winhttp=n,b");
+    spawn_steam(cmd)?;
 
-    let result = launch_process(cmd, Some(args.profile_id.clone()));
-    if result.is_ok() && args.settle_delay_secs > 0 {
+    game_runtime::register_steam_launch(Some(args.profile_id.clone()))?;
+
+    if args.settle_delay_secs > 0 {
         std::thread::sleep(std::time::Duration::from_secs(args.settle_delay_secs));
     }
-    result
+    Ok(())
 }
 
 pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
@@ -373,19 +403,22 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
         .ok_or_else(|| AppError::validation("Invalid game path"))?
         .to_path_buf();
 
-    // Strip any modded-launch leftovers from the game directory so the
-    // doorstop loader can't accidentally inject a previous profile's
-    // BepInEx into a vanilla session.
-    #[cfg(target_os = "linux")]
-    cleanup_linux_doorstop_files(&game_dir)?;
-
-    // Steam runner: hand the launch to the Steam client.
+    // Steam runner: disable doorstop via the ini (clears any prior modded
+    // config) and hand the launch to the Steam client.
     #[cfg(target_os = "linux")]
     if matches!(args.runner, LinuxRunner::Steam) {
+        clear_doorstop_ini(&game_dir)?;
         let mut cmd = Command::new("steam");
         cmd.arg("-applaunch").arg(STEAM_APP_ID);
-        return launch_process(cmd, None);
+        spawn_steam(cmd)?;
+        return game_runtime::register_steam_launch(None);
     }
+
+    // Strip any modded-launch leftovers from the game directory so the
+    // doorstop loader can't accidentally inject a previous profile's
+    // BepInEx into a vanilla wine/proton session.
+    #[cfg(target_os = "linux")]
+    cleanup_linux_doorstop_files(&game_dir)?;
 
     let mut cmd = build_game_command(
         &args.game_exe,

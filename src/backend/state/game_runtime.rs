@@ -3,6 +3,8 @@ use crate::backend::services::profile_service;
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::process::Child;
+#[cfg(target_os = "linux")]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
@@ -12,10 +14,29 @@ struct TrackedGameProcess {
     launched_at: Instant,
 }
 
+/// A game handed off to the Steam client (`steam -applaunch`). Steam reparents
+/// the game outside our process tree and the spawned `steam` invoker exits
+/// immediately, so there's no Child to track — we watch `/proc` for the game
+/// process instead.
+#[cfg(target_os = "linux")]
+struct SteamInstance {
+    id: u64,
+    profile_id: Option<String>,
+    launched_at: Instant,
+    /// Set once the game process is first observed; until then we're waiting
+    /// for Steam → Proton → game to come up.
+    seen_running: bool,
+}
+
+#[cfg(target_os = "linux")]
+static STEAM_INSTANCE_SEQ: AtomicU64 = AtomicU64::new(0);
+
 #[derive(Default)]
 struct TrackedState {
     processes: Vec<TrackedGameProcess>,
     uwp_instances: Vec<Option<String>>,
+    #[cfg(target_os = "linux")]
+    steam_instances: Vec<SteamInstance>,
 }
 
 static TRACKED_STATE: LazyLock<Mutex<TrackedState>> =
@@ -109,11 +130,28 @@ fn build_state_payload(state: &TrackedState) -> GameStatePayload {
             .or_insert(0) += 1;
     }
 
-    let running_count = state.processes.len() + state.uwp_instances.len();
+    #[cfg(target_os = "linux")]
+    let steam_count = {
+        for inst in &state.steam_instances {
+            if let Some(profile_id) = &inst.profile_id {
+                *profile_instance_counts
+                    .entry(profile_id.clone())
+                    .or_insert(0) += 1;
+                *stoppable_profile_instance_counts
+                    .entry(profile_id.clone())
+                    .or_insert(0) += 1;
+            }
+        }
+        state.steam_instances.len()
+    };
+    #[cfg(not(target_os = "linux"))]
+    let steam_count = 0;
+
+    let running_count = state.processes.len() + state.uwp_instances.len() + steam_count;
     GameStatePayload {
         running: running_count > 0,
         running_count,
-        stoppable_running_count: state.processes.len(),
+        stoppable_running_count: state.processes.len() + steam_count,
         profile_instance_counts,
         stoppable_profile_instance_counts,
     }
@@ -219,6 +257,133 @@ pub fn register_launched_process(child: Child, profile_id: Option<String>) -> Ap
     Ok(())
 }
 
+/// True if any process' cmdline mentions the game exe — covers the wrapper,
+/// Proton, wine, and the game itself.
+#[cfg(target_os = "linux")]
+fn is_among_us_running() -> bool {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
+            continue;
+        };
+        if String::from_utf8_lossy(&cmdline).contains("Among Us.exe") {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "linux")]
+fn record_steam_session(profile_id: Option<String>, launched_at: Instant) {
+    let Some(id) = profile_id else { return };
+    let duration_ms = launched_at.elapsed().as_millis().min(i64::MAX as u128) as i64;
+    if duration_ms <= 0 {
+        return;
+    }
+    std::thread::spawn(move || {
+        if let Err(e) = profile_service::add_play_time(&id, duration_ms) {
+            warn!("add_play_time failed for profile {id}: {e}");
+        }
+        crate::backend::events::publish(crate::backend::events::BackendEvent::ProfileStatsUpdated(
+            id,
+        ));
+    });
+}
+
+/// Watch a Steam-launched game by polling `/proc` (we have no Child handle).
+/// Waits for the game to appear, then clears the instance when it exits.
+#[cfg(target_os = "linux")]
+fn monitor_steam_instance(instance_id: u64) {
+    const STARTUP_GRACE: Duration = Duration::from_secs(120);
+    std::thread::spawn(move || {
+        info!("Monitoring Steam-launched game state");
+        loop {
+            std::thread::sleep(Duration::from_secs(1));
+            let running = is_among_us_running();
+
+            let Ok(mut state) = TRACKED_STATE.lock() else {
+                error!("Failed to acquire game process lock");
+                break;
+            };
+            let Some(inst) = state
+                .steam_instances
+                .iter_mut()
+                .find(|i| i.id == instance_id)
+            else {
+                break;
+            };
+
+            if inst.seen_running {
+                if !running {
+                    let profile_id = inst.profile_id.clone();
+                    let launched_at = inst.launched_at;
+                    state.steam_instances.retain(|i| i.id != instance_id);
+                    emit_state_snapshot(&state);
+                    drop(state);
+                    record_steam_session(profile_id, launched_at);
+                    break;
+                }
+            } else if running {
+                inst.seen_running = true;
+            } else if inst.launched_at.elapsed() > STARTUP_GRACE {
+                info!("Steam-launched game never appeared; dropping watch");
+                state.steam_instances.retain(|i| i.id != instance_id);
+                emit_state_snapshot(&state);
+                break;
+            }
+        }
+    });
+}
+
+/// Register a Steam-launched game for tracking. Steam only ever runs one
+/// instance of the game, so an existing watch is refreshed rather than
+/// duplicated.
+#[cfg(target_os = "linux")]
+pub fn register_steam_launch(profile_id: Option<String>) -> AppResult<()> {
+    if let Some(id) = profile_id.as_deref() {
+        if let Err(e) = profile_service::update_last_launched(id) {
+            warn!("update_last_launched failed for profile {id}: {e}");
+        } else {
+            crate::backend::events::publish(
+                crate::backend::events::BackendEvent::ProfileStatsUpdated(id.to_string()),
+            );
+        }
+    }
+
+    let mut state = TRACKED_STATE
+        .lock()
+        .map_err(|_| AppError::state("Failed to acquire game process lock"))?;
+    prune_finished_processes(&mut state);
+
+    if let Some(inst) = state.steam_instances.first_mut() {
+        inst.profile_id = profile_id;
+        inst.launched_at = Instant::now();
+        inst.seen_running = false;
+        emit_state_snapshot(&state);
+    } else {
+        let instance_id = STEAM_INSTANCE_SEQ.fetch_add(1, Ordering::Relaxed);
+        state.steam_instances.push(SteamInstance {
+            id: instance_id,
+            profile_id,
+            launched_at: Instant::now(),
+            seen_running: false,
+        });
+        emit_state_snapshot(&state);
+        drop(state);
+        monitor_steam_instance(instance_id);
+    }
+    Ok(())
+}
+
 fn stop_matching_processes<F>(state: &mut TrackedState, predicate: F) -> AppResult<usize>
 where
     F: Fn(&TrackedGameProcess) -> bool,
@@ -284,11 +449,29 @@ pub fn stop_profile_instances(profile_id: &str) -> AppResult<usize> {
         .map_err(|_| AppError::state("Failed to acquire game process lock"))?;
 
     prune_finished_processes(&mut state);
-    let stop_result = stop_matching_processes(&mut state, |tracked| {
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+    let mut stopped = stop_matching_processes(&mut state, |tracked| {
         tracked.profile_id.as_deref() == Some(profile_id)
-    });
+    })?;
+
+    // Steam-launched games carry no profile id in their cmdline, so kill by
+    // the game exe name and drop the matching watch.
+    #[cfg(target_os = "linux")]
+    if state
+        .steam_instances
+        .iter()
+        .any(|i| i.profile_id.as_deref() == Some(profile_id))
+    {
+        kill_by_cmdline_substring("Among Us.exe");
+        let before = state.steam_instances.len();
+        state
+            .steam_instances
+            .retain(|i| i.profile_id.as_deref() != Some(profile_id));
+        stopped += before - state.steam_instances.len();
+    }
+
     emit_state_snapshot(&state);
-    stop_result
+    Ok(stopped)
 }
 
 pub fn current_state() -> GameStatePayload {
@@ -308,9 +491,17 @@ pub fn stop_all_tracked_instances() -> AppResult<usize> {
         .map_err(|_| AppError::state("Failed to acquire game process lock"))?;
 
     prune_finished_processes(&mut state);
-    let stop_result = stop_matching_processes(&mut state, |_| true);
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+    let mut stopped = stop_matching_processes(&mut state, |_| true)?;
+
+    #[cfg(target_os = "linux")]
+    {
+        stopped += state.steam_instances.len();
+        state.steam_instances.clear();
+    }
+
     emit_state_snapshot(&state);
-    stop_result
+    Ok(stopped)
 }
 
 #[cfg(test)]
