@@ -17,7 +17,7 @@ use crate::backend::api;
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_service::{BepInExProgress, BepInExTargetType};
 use crate::backend::services::launch_service;
-use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry};
+use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry, ZipOp};
 use crate::backend::state::game_runtime;
 use crate::settings as app_settings;
 use crate::theme::{self, ThemeExt};
@@ -49,7 +49,11 @@ pub struct LibraryDetailView {
     bep_progress: Option<BepInExProgress>,
     confirming_delete: bool,
     launch_error: Option<String>,
+    /// Success/info message (e.g. "Exported profile to …"); rendered non-red.
+    notice: Option<String>,
     rename_dialog: Option<Entity<InputState>>,
+    /// 0–100 while an export is running; `None` otherwise.
+    export_progress: Option<f64>,
     pub(super) icon_dialog: Option<IconDialogState>,
     running_count: usize,
     stoppable_count: usize,
@@ -80,7 +84,9 @@ impl LibraryDetailView {
             bep_progress: None,
             confirming_delete: false,
             launch_error: None,
+            notice: None,
             rename_dialog: None,
+            export_progress: None,
             icon_dialog: None,
             running_count: 0,
             stoppable_count: 0,
@@ -137,6 +143,12 @@ impl LibraryDetailView {
                     }
                     BackendEvent::ProfileStatsUpdated(id) if id == id_for_events => {
                         let _ = this.update(cx, |this, cx| this.spawn_load(cx));
+                    }
+                    BackendEvent::ZipProgress(p) if matches!(p.op, ZipOp::Export) => {
+                        let _ = this.update(cx, |this, cx| {
+                            this.export_progress = Some(p.progress);
+                            cx.notify();
+                        });
                     }
                     _ => {}
                 }
@@ -387,15 +399,22 @@ impl LibraryDetailView {
             };
             let dest = path.to_string_lossy().into_owned();
             let dest_for_task = dest.clone();
+            let _ = this.update(cx, |this, cx| {
+                this.export_progress = Some(0.0);
+                this.notice = None;
+                this.launch_error = None;
+                cx.notify();
+            });
             let result = cx
                 .background_executor()
                 .spawn(async move { profile_service::export_profile_zip(&id, &dest_for_task) })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.launch_error = Some(match result {
-                    Ok(()) => format!("Exported profile to {dest}"),
-                    Err(e) => format!("Export failed: {e}"),
-                });
+                this.export_progress = None;
+                match result {
+                    Ok(()) => this.notice = Some(format!("Exported profile to {dest}")),
+                    Err(e) => this.launch_error = Some(format!("Export failed: {e}")),
+                }
                 cx.notify();
             });
         })
@@ -541,6 +560,11 @@ impl Render for LibraryDetailView {
                     .launch_error
                     .clone()
                     .map(|msg| div().text_sm().text_color(rgb(0xef4444)).child(msg));
+
+                let notice = self
+                    .notice
+                    .clone()
+                    .map(|msg| div().text_sm().text_color(rgb(0x22c55e)).child(msg));
 
                 let progress_row = self.bep_progress.as_ref().map(|p| {
                     div()
@@ -733,7 +757,8 @@ impl Render for LibraryDetailView {
                     .children(progress_row)
                     .children(install_btn)
                     .children(launch_row)
-                    .children(launch_err);
+                    .children(launch_err)
+                    .children(notice);
 
                 let stats = div()
                     .grid()
@@ -789,6 +814,19 @@ impl Render for LibraryDetailView {
             .p_8()
             .pt(px(48.0))
             .child(back)
+            .children(self.export_progress.map(|p| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.text_muted)
+                            .child(format!("Exporting… {p:.0}%")),
+                    )
+                    .child(Progress::new("export-progress").value(p as f32))
+            }))
             .child(body)
             .children(self.rename_dialog.clone().map(|input| {
                 dialog_overlay(

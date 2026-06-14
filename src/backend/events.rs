@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 
 use crate::backend::services::bepinex_service::BepInExProgress;
 use crate::backend::services::mod_download_service::ModDownloadProgress;
+use crate::backend::services::profile_service::ZipProgress;
 use crate::backend::state::game_runtime::GameStatePayload;
 
 #[derive(Clone, Debug)]
@@ -16,6 +17,8 @@ pub enum BackendEvent {
     BepInExProgress(BepInExProgress),
     ModDownloadProgress(ModDownloadProgress),
     GameStateChanged(GameStatePayload),
+    /// Progress of an in-flight profile import/export.
+    ZipProgress(ZipProgress),
     /// A profile's persisted stats (last_launched / total_play_time) just
     /// changed. Views can use this to reload the profile entry.
     ProfileStatsUpdated(String),

@@ -13,7 +13,11 @@ pub struct ZipProfileInfo {
     pub metadata_bytes: Option<Vec<u8>>,
 }
 
-pub fn export_profile_zip(profile_path: String, destination: String) -> AppResult<()> {
+pub fn export_profile_zip(
+    profile_path: String,
+    destination: String,
+    mut on_progress: impl FnMut(f64),
+) -> AppResult<()> {
     let profile_dir = Path::new(&profile_path);
     if !profile_dir.exists() || !profile_dir.is_dir() {
         return Err(AppError::validation(format!(
@@ -43,7 +47,13 @@ pub fn export_profile_zip(profile_path: String, destination: String) -> AppResul
         managed_files: &managed_files,
     };
 
-    add_directory_to_zip(&mut zip, profile_dir, &ctx, &mut metadata_written)?;
+    let mut progress = ExportProgress {
+        written: 0,
+        total: count_export_files(profile_dir, &ctx).max(1),
+        emit: &mut on_progress,
+    };
+
+    add_directory_to_zip(&mut zip, profile_dir, &ctx, &mut metadata_written, &mut progress)?;
 
     if !metadata_written {
         zip.start_file("profile.json", options)?;
@@ -51,6 +61,7 @@ pub fn export_profile_zip(profile_path: String, destination: String) -> AppResul
     }
 
     zip.finish()?;
+    on_progress(100.0);
     info!("Exported profile zip: {} -> {}", profile_path, destination);
     Ok(())
 }
@@ -139,6 +150,7 @@ pub fn extract_profile_from_zip(
     zip_path: &str,
     destination: &str,
     root_prefix: Option<&str>,
+    mut on_progress: impl FnMut(f64),
 ) -> AppResult<()> {
     let zip_file = File::open(zip_path)?;
     let mut archive = ZipArchive::new(zip_file)?;
@@ -146,7 +158,9 @@ pub fn extract_profile_from_zip(
     let destination_path = Path::new(&destination);
     fs::create_dir_all(destination_path)?;
 
+    let total = archive.len().max(1);
     for i in 0..archive.len() {
+        on_progress((i as f64 / total as f64) * 100.0);
         let mut entry = archive.by_index(i)?;
         let Some(raw_entry_path) = entry.enclosed_name().map(|p| p.to_path_buf()) else {
             warn!("Skipping entry {} with unsafe path", i);
@@ -193,6 +207,7 @@ pub fn extract_profile_from_zip(
         }
     }
 
+    on_progress(100.0);
     info!("Imported profile from zip: {} -> {}", zip_path, destination);
     Ok(())
 }
@@ -205,11 +220,56 @@ struct ZipExportContext<'a> {
     managed_files: &'a std::collections::HashSet<String>,
 }
 
+/// Tracks files written vs. total so we can report 0–100% progress.
+struct ExportProgress<'a> {
+    written: usize,
+    total: usize,
+    emit: &'a mut dyn FnMut(f64),
+}
+
+impl ExportProgress<'_> {
+    fn tick(&mut self) {
+        self.written += 1;
+        (self.emit)((self.written as f64 / self.total as f64) * 100.0);
+    }
+}
+
+/// Count the files `add_directory_to_zip` would write, applying the same skip
+/// rules, so progress has a denominator.
+fn count_export_files(current_dir: &Path, ctx: &ZipExportContext<'_>) -> usize {
+    let Ok(entries) = fs::read_dir(current_dir) else {
+        return 0;
+    };
+    let mut count = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == ctx.destination_path {
+            continue;
+        }
+        let Ok(relative) = path.strip_prefix(ctx.root_dir) else {
+            continue;
+        };
+        if should_skip_export_file(relative, ctx.managed_files) {
+            continue;
+        }
+        if to_zip_path(relative).map(|p| p.is_empty()).unwrap_or(true) {
+            continue;
+        }
+        if path.is_dir() {
+            count += count_export_files(&path, ctx);
+        } else {
+            count += 1;
+        }
+    }
+    count
+}
+
 fn add_directory_to_zip(
     zip: &mut ZipWriter<File>,
     current_dir: &Path,
     ctx: &ZipExportContext<'_>,
     metadata_written: &mut bool,
+    progress: &mut ExportProgress<'_>,
 ) -> AppResult<()> {
     let entries = fs::read_dir(current_dir)?;
     for entry in entries {
@@ -233,7 +293,7 @@ fn add_directory_to_zip(
 
         if path.is_dir() {
             zip.add_directory(format!("{zip_path}/"), ctx.options)?;
-            add_directory_to_zip(zip, &path, ctx, metadata_written)?;
+            add_directory_to_zip(zip, &path, ctx, metadata_written, progress)?;
             continue;
         }
 
@@ -251,6 +311,7 @@ fn add_directory_to_zip(
             let mut file = File::open(&path)?;
             std::io::copy(&mut file, zip)?;
         }
+        progress.tick();
     }
 
     Ok(())

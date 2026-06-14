@@ -3,7 +3,7 @@ use log::warn;
 
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::launch_service;
-use crate::backend::services::profile_service::{self, ProfileEntry};
+use crate::backend::services::profile_service::{self, ProfileEntry, ZipOp};
 use crate::backend::state::game_runtime;
 use crate::theme::{self, ThemeExt};
 use crate::ui::format;
@@ -11,6 +11,7 @@ use crate::ui::icon::AppIcon;
 use crate::ui::profile_icon::profile_icon;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::progress::Progress;
 use gpui_component::skeleton::Skeleton;
 use gpui_component::{Disableable, Icon, IconName};
 
@@ -27,6 +28,8 @@ pub struct LibraryView {
     error: Option<String>,
     running_count: usize,
     stoppable_count: usize,
+    /// 0–100 while a profile import is running; `None` otherwise.
+    import_progress: Option<f64>,
 }
 
 enum LoadState {
@@ -44,6 +47,7 @@ impl LibraryView {
             error: None,
             running_count: initial.running_count,
             stoppable_count: initial.stoppable_running_count,
+            import_progress: None,
         };
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -70,12 +74,21 @@ impl LibraryView {
         let mut rx = events::subscribe();
         cx.spawn(async move |this, cx| {
             while let Ok(event) = rx.recv().await {
-                if let BackendEvent::GameStateChanged(payload) = event {
-                    let _ = this.update(cx, |this, cx| {
-                        this.running_count = payload.running_count;
-                        this.stoppable_count = payload.stoppable_running_count;
-                        cx.notify();
-                    });
+                match event {
+                    BackendEvent::GameStateChanged(payload) => {
+                        let _ = this.update(cx, |this, cx| {
+                            this.running_count = payload.running_count;
+                            this.stoppable_count = payload.stoppable_running_count;
+                            cx.notify();
+                        });
+                    }
+                    BackendEvent::ZipProgress(p) if matches!(p.op, ZipOp::Import) => {
+                        let _ = this.update(cx, |this, cx| {
+                            this.import_progress = Some(p.progress);
+                            cx.notify();
+                        });
+                    }
+                    _ => {}
                 }
             }
         })
@@ -142,11 +155,16 @@ impl LibraryView {
                 return;
             };
             let path = path.to_string_lossy().into_owned();
+            let _ = this.update(cx, |this, cx| {
+                this.import_progress = Some(0.0);
+                cx.notify();
+            });
             let result = cx
                 .background_executor()
                 .spawn(async move { profile_service::import_profile_zip(&path) })
                 .await;
             let _ = this.update(cx, |this, cx| {
+                this.import_progress = None;
                 if let Err(e) = result {
                     this.error = Some(format!("Import failed: {e}"));
                 }
@@ -447,6 +465,20 @@ impl Render for LibraryView {
                     .p_3()
                     .text_color(theme.text)
                     .child(message)
+            }))
+            .children(self.import_progress.map(|p| {
+                div()
+                    .mb_4()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.text_muted)
+                            .child(format!("Importing… {p:.0}%")),
+                    )
+                    .child(Progress::new("import-progress").value(p as f32))
             }))
             .child(body)
             .children(create_dialog)

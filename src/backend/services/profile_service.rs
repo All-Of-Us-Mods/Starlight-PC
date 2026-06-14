@@ -617,6 +617,25 @@ struct ImportedMetadata {
     mods: Option<serde_json::Value>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum ZipOp {
+    Import,
+    Export,
+}
+
+/// Progress (0–100) of an in-flight profile import/export, for the UI bar.
+#[derive(Clone, Debug)]
+pub struct ZipProgress {
+    pub op: ZipOp,
+    pub progress: f64,
+}
+
+fn publish_zip_progress(op: ZipOp, progress: f64) {
+    crate::backend::events::publish(crate::backend::events::BackendEvent::ZipProgress(
+        ZipProgress { op, progress },
+    ));
+}
+
 pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
     let mut profiles = get_profiles()?;
     let zip_name = derive_name_from_zip_path(zip_path);
@@ -655,6 +674,12 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
             zip_path,
             &profile_path.to_string_lossy(),
             info.root_prefix.as_deref(),
+            |p| {
+                publish_zip_progress(
+                    ZipOp::Import,
+                    (index as f64 + p / 100.0) / zip_count as f64 * 100.0,
+                )
+            },
         );
 
         if let Err(error) = extract_result {
@@ -763,5 +788,7 @@ pub fn export_profile_zip(profile_id: &str, destination: &str) -> AppResult<()> 
             "Profile '{profile_id}' not found"
         )));
     };
-    profile_zip_service::export_profile_zip(profile.path, destination.to_string())
+    profile_zip_service::export_profile_zip(profile.path, destination.to_string(), |p| {
+        publish_zip_progress(ZipOp::Export, p)
+    })
 }
