@@ -6,10 +6,12 @@ use std::path::{Path, PathBuf};
 use winreg::{RegKey, enums::*};
 
 const AMONG_US_EXE: &str = "Among Us.exe";
+#[cfg(target_os = "linux")]
 const AMONG_US_STEAM_APP_ID: &str = "945360";
 const EPIC_FOLDER: &str = "Among Us_Data/StreamingAssets/aa/EGS";
 const XBOX_FOLDER: &str = "Among Us_Data/StreamingAssets/aa/Win10";
 
+#[cfg(target_os = "linux")]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinuxRunnerDetection {

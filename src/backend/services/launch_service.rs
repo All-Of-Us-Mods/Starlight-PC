@@ -3,8 +3,7 @@ use crate::backend::services::profile_service::ProfileEntry;
 use crate::backend::state::game_runtime;
 use log::{debug, info};
 use serde::Deserialize;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 /// Serializes modded launches. Held across prep + spawn and then for the
@@ -43,6 +42,7 @@ pub fn cancel_pending_launches(profile_id: &str) {
         .or_insert(0) += 1;
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum LinuxRunner {

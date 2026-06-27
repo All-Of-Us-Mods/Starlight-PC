@@ -219,6 +219,7 @@ fn patch_linux_proton_compat_data_path(value: SharedString, cx: &mut App) {
     );
 }
 
+#[cfg(unix)]
 fn patch_linux_proton_use_steam_run(value: bool, cx: &mut App) {
     app_settings::update(
         cx,
