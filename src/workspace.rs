@@ -10,7 +10,7 @@ use crate::views::mod_detail::{ModDetailEvent, ModDetailView};
 use crate::views::news_detail::{NewsDetailEvent, NewsDetailView};
 use crate::views::settings::SettingsView;
 use gpui_component::sidebar::{Sidebar, SidebarHeader, SidebarMenu, SidebarMenuItem};
-use gpui_component::{Icon, IconName};
+use gpui_component::{Icon, IconName, TitleBar};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -214,18 +214,48 @@ impl Render for Workspace {
 
         div()
             .flex()
+            .flex_col()
             .size_full()
             .font_family(theme::FONT_FAMILY)
             .text_color(theme.text)
             .text_size(px(14.0))
             .bg(theme.background)
-            .child(self.render_sidenav(cx))
+            // Draggable custom title bar: provides window move + min/max/close
+            // controls since the OS titlebar is transparent.
+            .child(
+                TitleBar::new().child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Icon::new(AppIcon::Starlight)
+                                .size(px(16.0))
+                                .text_color(rgb(0xffc107)),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Starlight"),
+                        ),
+                ),
+            )
             .child(
                 div()
+                    .flex()
                     .flex_1()
-                    .h_full()
+                    .min_h(px(0.0))
+                    .w_full()
                     .overflow_hidden()
-                    .child(self.render_content()),
+                    .child(self.render_sidenav(cx))
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(self.render_content()),
+                    ),
             )
             .children(sheet_layer)
             .children(dialog_layer)

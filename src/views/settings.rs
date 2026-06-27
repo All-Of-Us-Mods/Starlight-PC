@@ -759,7 +759,7 @@ impl Render for SettingsView {
                     .font_weight(FontWeight::BOLD)
                     .child("Settings"),
             )
-            .child(Settings::new("starlight-settings").pages({
+            .child(Settings::new("starlight-settings").sidebar_width(px(190.0)).pages({
                 #[cfg_attr(not(unix), allow(unused_mut))]
                 let mut pages = vec![game_page, launch_page, bepinex_page];
                 #[cfg(unix)]

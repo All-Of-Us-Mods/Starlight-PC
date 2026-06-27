@@ -43,11 +43,11 @@ fn main() {
                     size(px(1024.), px(768.)),
                     cx,
                 ))),
-                titlebar: Some(TitlebarOptions {
-                    title: None,
-                    appears_transparent: true,
-                    traffic_light_position: Some(point(px(12.0), px(12.0))),
-                }),
+                titlebar: Some(gpui_component::TitleBar::title_bar_options()),
+                // Keep the window from shrinking small enough that the nav +
+                // settings sidebars crowd the content off-screen.
+                window_min_size: Some(size(px(820.0), px(600.0))),
+                app_id: Some("starlight".into()),
                 ..Default::default()
             };
 
