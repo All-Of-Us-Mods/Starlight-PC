@@ -13,6 +13,7 @@ use crate::views::library::{LibraryEvent, LibraryView};
 use crate::views::library_detail::{LibraryDetailEvent, LibraryDetailView};
 use crate::views::mod_detail::ModDetailView;
 use crate::views::news_detail::NewsDetailView;
+use crate::views::servers::ServersView;
 use crate::views::settings::SettingsView;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::notification::Notification;
@@ -24,6 +25,7 @@ pub enum Tab {
     Home,
     Explore,
     Library,
+    Servers,
     Settings,
 }
 
@@ -33,6 +35,7 @@ impl Tab {
             Tab::Home => "Home",
             Tab::Explore => "Explore",
             Tab::Library => "Library",
+            Tab::Servers => "Servers",
             Tab::Settings => "Settings",
         }
     }
@@ -42,6 +45,7 @@ impl Tab {
             Tab::Home => Icon::new(AppIcon::Home),
             Tab::Explore => Icon::new(AppIcon::Compass),
             Tab::Library => Icon::new(AppIcon::Library),
+            Tab::Servers => Icon::new(IconName::Globe),
             Tab::Settings => Icon::new(IconName::Settings),
         }
     }
@@ -55,6 +59,7 @@ enum Page {
     Home,
     Explore,
     Library,
+    Servers,
     Settings,
     ModDetail(Entity<ModDetailView>),
     LibraryDetail(Entity<LibraryDetailView>),
@@ -68,6 +73,7 @@ pub struct Workspace {
     library: Entity<LibraryView>,
     home: Entity<HomeView>,
     explore: Entity<ExploreView>,
+    servers: Entity<ServersView>,
     settings: Entity<SettingsView>,
     /// Most recently launched profile, shown as the title-bar quick-launch
     /// button. `None` until some profile has been launched at least once.
@@ -83,6 +89,7 @@ impl Workspace {
         let library = cx.new(|cx| LibraryView::new(window, cx));
         let home = cx.new(HomeView::new);
         let explore = cx.new(|cx| ExploreView::new(window, cx));
+        let servers = cx.new(ServersView::new);
         let settings = cx.new(SettingsView::new);
         let initial = game_runtime::current_state();
 
@@ -140,6 +147,7 @@ impl Workspace {
             library,
             home,
             explore,
+            servers,
             settings,
             last_launched: None,
             running_count: initial.running_count,
@@ -230,6 +238,7 @@ impl Workspace {
                 Page::Home => Some(Tab::Home),
                 Page::Explore => Some(Tab::Explore),
                 Page::Library | Page::LibraryDetail(_) => Some(Tab::Library),
+                Page::Servers => Some(Tab::Servers),
                 Page::Settings => Some(Tab::Settings),
                 Page::ModDetail(_) | Page::NewsDetail(_) => None,
             })
@@ -240,6 +249,7 @@ impl Workspace {
             Page::Home => "Home".into(),
             Page::Explore => "Explore".into(),
             Page::Library => "Library".into(),
+            Page::Servers => "Servers".into(),
             Page::Settings => "Settings".into(),
             Page::ModDetail(v) => v.read(cx).title(),
             Page::LibraryDetail(v) => v.read(cx).title(),
@@ -253,6 +263,7 @@ impl Workspace {
             (Page::Home, Tab::Home)
                 | (Page::Explore, Tab::Explore)
                 | (Page::Library, Tab::Library)
+                | (Page::Servers, Tab::Servers)
                 | (Page::Settings, Tab::Settings)
         );
         if already_here {
@@ -262,6 +273,7 @@ impl Workspace {
             Tab::Home => Page::Home,
             Tab::Explore => Page::Explore,
             Tab::Library => Page::Library,
+            Tab::Servers => Page::Servers,
             Tab::Settings => Page::Settings,
         };
         self.navigate(page, cx);
@@ -296,6 +308,7 @@ impl Workspace {
                     .child(self.menu_item(Tab::Home, cx))
                     .child(self.menu_item(Tab::Explore, cx))
                     .child(self.menu_item(Tab::Library, cx))
+                    .child(self.menu_item(Tab::Servers, cx))
                     .child(self.menu_item(Tab::Settings, cx)),
             )
     }
@@ -426,6 +439,7 @@ impl Workspace {
             Page::Home => self.home.clone().into_any_element(),
             Page::Explore => self.explore.clone().into_any_element(),
             Page::Library => self.library.clone().into_any_element(),
+            Page::Servers => self.servers.clone().into_any_element(),
             Page::Settings => self.settings.clone().into_any_element(),
             Page::ModDetail(v) => v.clone().into_any_element(),
             Page::LibraryDetail(v) => v.clone().into_any_element(),

@@ -8,3 +8,4 @@ pub mod mod_download_service;
 pub mod mod_install_service;
 pub mod profile_service;
 pub mod profile_zip_service;
+pub mod region_service;

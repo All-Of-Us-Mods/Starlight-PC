@@ -82,6 +82,19 @@ pub struct ModVersionInfo {
     pub platforms: Option<Vec<PlatformDownload>>,
 }
 
+/// A community server from the Starlight servers API, addable as an in-game
+/// Among Us region via `region_service`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Server {
+    pub id: u32,
+    pub name: String,
+    pub owner: String,
+    pub address: String,
+    pub port: u16,
+    pub dtls: bool,
+    pub translate_name: i64,
+}
+
 fn get_json<T: for<'de> Deserialize<'de>>(url: &str) -> AppResult<T> {
     Ok(reqwest::blocking::get(url)?
         .error_for_status()?
@@ -139,4 +152,8 @@ pub fn search_mods(query: &str, limit: u32, offset: u32) -> AppResult<Vec<ModRes
         limit,
         offset,
     ))
+}
+
+pub fn fetch_servers() -> AppResult<Vec<Server>> {
+    get_json(&format!("{}/api/v3/servers", DEFAULT_API_BASE_URL))
 }
