@@ -15,6 +15,9 @@ use crate::backend::api::Server;
 use crate::backend::error::{AppError, AppResult};
 
 const STATIC_HTTP_TYPE: &str = "StaticHttpRegionInfo, Assembly-CSharp";
+/// `TranslateName` for user-added regions — the id the modded servers use, so
+/// Among Us shows the region's literal `Name`.
+const CUSTOM_TRANSLATE_NAME: i64 = 1003;
 
 /// Among Us' region list (`regionInfo.json`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +130,29 @@ pub fn add_server_region(server: &Server) -> AppResult<bool> {
     Ok(true)
 }
 
+/// Add a user-provided server as a region, normalizing the address to a bare
+/// host. No-op (returns `false`) if a region already targets the same host:port.
+pub fn add_custom_region(name: &str, address: &str, port: u16, dtls: bool) -> AppResult<bool> {
+    let host = host_of(address.trim());
+    let mut info = read_region_info()?;
+    if info
+        .regions
+        .iter()
+        .any(|r| region_has_server(r, host, port))
+    {
+        return Ok(false);
+    }
+    info.regions.push(build_region(
+        name.trim(),
+        host,
+        port,
+        dtls,
+        CUSTOM_TRANSLATE_NAME,
+    ));
+    write_region_info(&info)?;
+    Ok(true)
+}
+
 /// Remove the region with `name`.
 pub fn remove_region(name: &str) -> AppResult<()> {
     let mut info = read_region_info()?;
@@ -139,22 +165,32 @@ pub fn remove_region(name: &str) -> AppResult<()> {
 }
 
 fn server_region(server: &Server) -> Value {
-    let scheme = if server.port == 443 { "https" } else { "http" };
-    let ip = format!("{scheme}://{}", server.address);
+    build_region(
+        &server.name,
+        &server.address,
+        server.port,
+        server.dtls,
+        server.translate_name,
+    )
+}
+
+fn build_region(name: &str, address: &str, port: u16, dtls: bool, translate_name: i64) -> Value {
+    let scheme = if port == 443 { "https" } else { "http" };
+    let ip = format!("{scheme}://{address}");
     json!({
         "$type": STATIC_HTTP_TYPE,
-        "Name": server.name,
-        "PingServer": server.address,
+        "Name": name,
+        "PingServer": address,
         "Servers": [{
             "Name": "Http-1",
             "Ip": ip,
-            "Port": server.port,
-            "UseDtls": server.dtls,
+            "Port": port,
+            "UseDtls": dtls,
             "Players": 0,
             "ConnectionFailures": 0,
         }],
         "TargetServer": null,
-        "TranslateName": server.translate_name,
+        "TranslateName": translate_name,
     })
 }
 

@@ -6,6 +6,8 @@ use crate::backend::services::region_service::{self, RegionInfo};
 use crate::theme::ThemeExt;
 use crate::views::{page_root, section_label};
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::checkbox::Checkbox;
+use gpui_component::input::{Input, InputState};
 use gpui_component::skeleton::Skeleton;
 use gpui_component::{Icon, IconName, Sizable};
 
@@ -14,7 +16,17 @@ pub struct ServersView {
     /// Current contents of Among Us' `regionInfo.json`, or `None` if it could
     /// not be read (e.g. non-Windows).
     regions: Option<RegionInfo>,
+    custom_dialog: Option<CustomServerInput>,
     notice: Option<String>,
+    error: Option<String>,
+}
+
+/// Inputs for the "add custom server" modal.
+struct CustomServerInput {
+    name: Entity<InputState>,
+    address: Entity<InputState>,
+    port: Entity<InputState>,
+    dtls: bool,
     error: Option<String>,
 }
 
@@ -30,6 +42,7 @@ impl ServersView {
         Self {
             state: LoadState::Loading,
             regions: None,
+            custom_dialog: None,
             notice: None,
             error: None,
         }
@@ -119,6 +132,144 @@ impl ServersView {
             });
         })
         .detach();
+    }
+
+    fn open_custom_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder("My Server"));
+        let address = cx.new(|cx| InputState::new(window, cx).placeholder("au-eu.example.com"));
+        let port = cx.new(|cx| InputState::new(window, cx).default_value("443"));
+        name.read(cx).focus_handle(cx).focus(window, cx);
+        self.custom_dialog = Some(CustomServerInput {
+            name,
+            address,
+            port,
+            dtls: false,
+            error: None,
+        });
+        cx.notify();
+    }
+
+    fn submit_custom(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = self.custom_dialog.as_ref() else {
+            return;
+        };
+        let name = dialog.name.read(cx).value().trim().to_string();
+        let address = dialog.address.read(cx).value().trim().to_string();
+        let port_text = dialog.port.read(cx).value().trim().to_string();
+        let dtls = dialog.dtls;
+
+        if name.is_empty() || address.is_empty() {
+            if let Some(d) = self.custom_dialog.as_mut() {
+                d.error = Some("Name and address are required.".into());
+            }
+            cx.notify();
+            return;
+        }
+        let Ok(port) = port_text.parse::<u16>() else {
+            if let Some(d) = self.custom_dialog.as_mut() {
+                d.error = Some("Port must be a number between 1 and 65535.".into());
+            }
+            cx.notify();
+            return;
+        };
+
+        self.custom_dialog = None;
+        self.notice = None;
+        self.error = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    region_service::add_custom_region(&name, &address, port, dtls)
+                        .map(|added| (name, added))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok((name, true)) => this.notice = Some(format!("Added region \"{name}\"")),
+                    Ok((_, false)) => {
+                        this.notice = Some("A region for that address already exists.".into())
+                    }
+                    Err(e) => {
+                        warn!("add custom region failed: {e}");
+                        this.error = Some(e.to_string());
+                    }
+                }
+                this.reload_regions(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn render_custom_dialog(
+        &self,
+        theme: &crate::theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let dialog = self.custom_dialog.as_ref()?;
+        let field = |label: &'static str, input: &Entity<InputState>| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(div().text_xs().text_color(theme.text_muted).child(label))
+                .child(Input::new(input))
+                .into_any_element()
+        };
+
+        let mut items: Vec<AnyElement> = vec![
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Add custom server")
+                .into_any_element(),
+            field("Name", &dialog.name),
+            field("Address", &dialog.address),
+            field("Port", &dialog.port),
+            Checkbox::new("custom-dtls")
+                .label("Use DTLS")
+                .checked(dialog.dtls)
+                .on_click(cx.listener(|this, checked: &bool, _window, cx| {
+                    if let Some(d) = this.custom_dialog.as_mut() {
+                        d.dtls = *checked;
+                    }
+                    cx.notify();
+                }))
+                .into_any_element(),
+        ];
+        if let Some(err) = &dialog.error {
+            items.push(
+                div()
+                    .text_xs()
+                    .text_color(theme.danger)
+                    .child(err.clone())
+                    .into_any_element(),
+            );
+        }
+        items.push(
+            div()
+                .flex()
+                .gap_2()
+                .justify_end()
+                .child(
+                    Button::new("custom-cancel")
+                        .label("Cancel")
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.custom_dialog = None;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new("custom-add")
+                        .primary()
+                        .label("Add")
+                        .on_click(cx.listener(|this, _, _window, cx| this.submit_custom(cx))),
+                )
+                .into_any_element(),
+        );
+
+        Some(crate::views::modal_overlay(theme, px(420.0), items).into_any_element())
     }
 
     fn is_installed(&self, server: &Server) -> bool {
@@ -284,6 +435,7 @@ impl Render for ServersView {
         let theme = cx.theme().clone();
 
         page_root("servers-page", &theme)
+            .relative()
             .overflow_y_scroll()
             .gap_6()
             .child(
@@ -317,7 +469,23 @@ impl Render for ServersView {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(section_label("Installed regions", &theme))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(section_label("Installed regions", &theme))
+                            .child(
+                                Button::new("add-custom-server")
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(Icon::new(IconName::Plus))
+                                    .label("Add custom")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_custom_dialog(window, cx)
+                                    })),
+                            ),
+                    )
                     .child(self.render_installed(&theme, cx)),
             )
             .child(
@@ -328,5 +496,6 @@ impl Render for ServersView {
                     .child(section_label("Available servers", &theme))
                     .child(self.render_available(&theme, cx)),
             )
+            .children(self.render_custom_dialog(&theme, cx))
     }
 }
