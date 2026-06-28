@@ -1,5 +1,10 @@
 use gpui::*;
+use log::warn;
 
+use crate::backend::events::{self, BackendEvent};
+use crate::backend::services::launch_service;
+use crate::backend::services::profile_service::{self, ProfileEntry};
+use crate::backend::state::game_runtime;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
 use crate::views::explore::ExploreView;
@@ -10,8 +15,9 @@ use crate::views::mod_detail::ModDetailView;
 use crate::views::news_detail::NewsDetailView;
 use crate::views::settings::SettingsView;
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::notification::Notification;
 use gpui_component::sidebar::{Sidebar, SidebarHeader, SidebarMenu, SidebarMenuItem};
-use gpui_component::{Disableable, Icon, IconName, TitleBar};
+use gpui_component::{Disableable, Icon, IconName, Sizable, TitleBar, WindowExt};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -63,6 +69,13 @@ pub struct Workspace {
     home: Entity<HomeView>,
     explore: Entity<ExploreView>,
     settings: Entity<SettingsView>,
+    /// Most recently launched profile, shown as the title-bar quick-launch
+    /// button. `None` until some profile has been launched at least once.
+    last_launched: Option<ProfileEntry>,
+    /// Live game-instance counts (from `GameStateChanged`); when `running_count`
+    /// is non-zero the title-bar button becomes a red "Stop".
+    running_count: usize,
+    stoppable_count: usize,
 }
 
 impl Workspace {
@@ -71,6 +84,7 @@ impl Workspace {
         let home = cx.new(HomeView::new);
         let explore = cx.new(|cx| ExploreView::new(window, cx));
         let settings = cx.new(SettingsView::new);
+        let initial = game_runtime::current_state();
 
         cx.subscribe(
             &home,
@@ -97,6 +111,29 @@ impl Workspace {
         )
         .detach();
 
+        // Refresh the title-bar quick-launch target whenever a profile's launch
+        // stats change (fired after every launch).
+        let mut rx = events::subscribe();
+        cx.spawn(async move |this, cx| {
+            while let Ok(event) = rx.recv().await {
+                match event {
+                    BackendEvent::ProfileStatsUpdated(_) => {
+                        let _ = this.update(cx, |_, cx| Self::reload_last_launched(cx));
+                    }
+                    BackendEvent::GameStateChanged(payload) => {
+                        let _ = this.update(cx, |this, cx| {
+                            this.running_count = payload.running_count;
+                            this.stoppable_count = payload.stoppable_running_count;
+                            cx.notify();
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .detach();
+        Self::reload_last_launched(cx);
+
         Self {
             history: vec![Page::Library],
             cursor: 0,
@@ -104,7 +141,28 @@ impl Workspace {
             home,
             explore,
             settings,
+            last_launched: None,
+            running_count: initial.running_count,
+            stoppable_count: initial.stoppable_running_count,
         }
+    }
+
+    /// Reload the most-recently-launched profile (for the title-bar launch
+    /// button). `get_profiles` returns profiles sorted by last-launched first,
+    /// so the first one that has actually been launched is the target.
+    fn reload_last_launched(cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let profiles = cx
+                .background_executor()
+                .spawn(async { profile_service::get_profiles().unwrap_or_default() })
+                .await;
+            let last = profiles.into_iter().find(|p| p.last_launched_at.is_some());
+            let _ = this.update(cx, |this, cx| {
+                this.last_launched = last;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn current(&self) -> &Page {
@@ -260,6 +318,7 @@ impl Workspace {
                     .child(
                         Button::new("nav-back")
                             .ghost()
+                            .small()
                             .icon(Icon::new(IconName::ArrowLeft))
                             .disabled(!self.can_go_back())
                             .on_click(cx.listener(|this, _, _window, cx| this.go_back(cx))),
@@ -267,6 +326,7 @@ impl Workspace {
                     .child(
                         Button::new("nav-forward")
                             .ghost()
+                            .small()
                             .icon(Icon::new(IconName::ArrowRight))
                             .disabled(!self.can_go_forward())
                             .on_click(cx.listener(|this, _, _window, cx| this.go_forward(cx))),
@@ -279,6 +339,86 @@ impl Workspace {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(self.current_title(cx)),
             )
+    }
+
+    /// Title-bar action button: a red "Stop" while any game is running,
+    /// otherwise "Launch <profile>" for the most recently launched profile
+    /// (hidden until something has been launched).
+    fn render_launch(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let button = if self.running_count > 0 {
+            let label = if self.running_count > 1 {
+                format!("Stop ({})", self.running_count)
+            } else {
+                "Stop".to_string()
+            };
+            let mut btn = Button::new("titlebar-launch")
+                .danger()
+                .small()
+                .icon(Icon::new(IconName::Close))
+                .label(label);
+            if self.stoppable_count == 0 {
+                // Only UWP instances are tracked — they can't be stopped here.
+                btn = btn.disabled(true);
+            } else {
+                btn = btn.on_click(cx.listener(|this, _, window, cx| this.stop_all(window, cx)));
+            }
+            btn
+        } else {
+            let name = self.last_launched.as_ref()?.name.clone();
+            Button::new("titlebar-launch")
+                .primary()
+                .small()
+                .icon(Icon::new(IconName::Play))
+                .label(format!("Launch {name}"))
+                .on_click(cx.listener(|this, _, window, cx| this.launch_last(window, cx)))
+        };
+        Some(
+            // Same drag-swallowing guard as the nav buttons (see render_nav).
+            div()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(button),
+        )
+    }
+
+    /// Launch the most recently launched profile (modded) in the background,
+    /// surfacing failures as a notification.
+    fn launch_last(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(profile) = self.last_launched.clone() else {
+            return;
+        };
+        let window_handle = window.window_handle();
+        cx.spawn(async move |_this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { launch_service::launch_modded_for_profile(profile) })
+                .await;
+            if let Err(e) = result {
+                warn!("Title-bar launch failed: {e}");
+                let _ = window_handle.update(cx, |_, window, cx| {
+                    window
+                        .push_notification(Notification::error(format!("Launch failed: {e}")), cx);
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Stop all running game instances, surfacing failures as a notification.
+    fn stop_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let window_handle = window.window_handle();
+        cx.spawn(async move |_this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async { game_runtime::stop_all_tracked_instances() })
+                .await;
+            if let Err(e) = result {
+                warn!("Title-bar stop failed: {e}");
+                let _ = window_handle.update(cx, |_, window, cx| {
+                    window.push_notification(Notification::error(format!("Stop failed: {e}")), cx);
+                });
+            }
+        })
+        .detach();
     }
 
     fn render_content(&self) -> AnyElement {
@@ -311,8 +451,12 @@ impl Workspace {
         cx.observe(&detail, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&detail, |this, _, ev: &LibraryDetailEvent, cx| match ev {
             // The detail view closes itself after deleting its profile; drop it
-            // from history rather than leaving a dangling "not found" page.
-            LibraryDetailEvent::Close => this.close_current(cx),
+            // from history rather than leaving a dangling "not found" page, and
+            // refresh the quick-launch target in case it was the deleted one.
+            LibraryDetailEvent::Close => {
+                this.close_current(cx);
+                Self::reload_last_launched(cx);
+            }
         })
         .detach();
         self.navigate(Page::LibraryDetail(detail), cx);
@@ -337,9 +481,14 @@ impl Render for Workspace {
             .text_color(theme.text)
             .text_size(px(14.0))
             .bg(theme.background)
-            // Draggable custom title bar: window move + min/max/close controls
-            // plus app-wide back/forward navigation and the current page title.
-            .child(TitleBar::new().child(self.render_nav(cx)))
+            // Draggable custom title bar: window move + min/max/close controls,
+            // app-wide back/forward navigation, the current page title, and a
+            // quick-launch button for the last launched profile.
+            .child(
+                TitleBar::new()
+                    .child(self.render_nav(cx))
+                    .children(self.render_launch(cx)),
+            )
             .child(
                 div()
                     .flex()
