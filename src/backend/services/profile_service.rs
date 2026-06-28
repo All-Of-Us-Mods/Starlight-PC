@@ -13,11 +13,20 @@ const CUSTOM_ICON_BASE_NAME: &str = "icon";
 const CUSTOM_ICON_EXTENSIONS: [&str; 7] =
     [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif"];
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileModEntry {
     pub mod_id: String,
     pub version: String,
     pub file: Option<String>,
+    /// Whether the plugin is loaded by BepInEx. Disabled mods keep their file on
+    /// disk as `<file>.disabled`. Defaults true for profiles saved before this
+    /// field existed.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -452,13 +461,54 @@ pub fn add_mod_to_profile(
     {
         existing.version = version.to_string();
         existing.file = Some(base_name.to_string());
+        existing.enabled = true;
     } else {
         profile.mods.push(ProfileModEntry {
             mod_id: mod_id.to_string(),
             version: version.to_string(),
             file: Some(base_name.to_string()),
+            enabled: true,
         });
     }
+    write_profile(&profile)
+}
+
+/// Enable or disable a profile's mod. BepInEx only loads `*.dll`, so a disabled
+/// mod is kept on disk as `<file>.disabled` and renamed back when re-enabled.
+pub fn set_mod_enabled(profile_id: &str, mod_id: &str, enabled: bool) -> AppResult<()> {
+    let Some(mut profile) = get_profile_by_id(profile_id)? else {
+        return Err(AppError::validation(format!(
+            "Profile '{profile_id}' not found"
+        )));
+    };
+    let Some(index) = profile.mods.iter().position(|m| m.mod_id == mod_id) else {
+        return Err(AppError::validation("Mod is not installed in this profile"));
+    };
+    let Some(file) = profile.mods[index].file.clone() else {
+        return Err(AppError::validation(
+            "This mod has no file to enable/disable",
+        ));
+    };
+
+    let base_name = Path::new(&file)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| *name == file && !file.contains('/') && !file.contains('\\'))
+        .ok_or_else(|| AppError::validation("Invalid mod file name"))?;
+
+    let plugins_dir = PathBuf::from(&profile.path).join("BepInEx").join("plugins");
+    let enabled_path = plugins_dir.join(base_name);
+    let disabled_path = plugins_dir.join(format!("{base_name}.disabled"));
+
+    if enabled {
+        if disabled_path.exists() {
+            fs::rename(&disabled_path, &enabled_path)?;
+        }
+    } else if enabled_path.exists() {
+        fs::rename(&enabled_path, &disabled_path)?;
+    }
+
+    profile.mods[index].enabled = enabled;
     write_profile(&profile)
 }
 
@@ -734,6 +784,7 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
                                 mod_id: mod_id.clone(),
                                 version,
                                 file: None,
+                                enabled: true,
                             });
                         }
                     } else if let Some(mods_array) = mods_value.as_array() {

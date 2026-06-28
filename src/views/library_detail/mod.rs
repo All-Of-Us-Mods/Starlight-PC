@@ -30,6 +30,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::progress::Progress;
 use gpui_component::skeleton::Skeleton;
+use gpui_component::switch::Switch;
 use gpui_component::{Disableable, Icon, IconName};
 
 use icon_dialog::{IconDialogState, render_icon_dialog};
@@ -263,6 +264,34 @@ impl LibraryDetailView {
                 }
             })
             .detach();
+    }
+
+    fn toggle_mod(&mut self, mod_id: String, enabled: bool, cx: &mut Context<Self>) {
+        // Optimistic UI update; reverted by a reload if the on-disk op fails.
+        if let LoadState::Loaded(profile) = &mut self.state
+            && let Some(entry) = profile.mods.iter_mut().find(|m| m.mod_id == mod_id)
+        {
+            entry.enabled = enabled;
+        }
+        cx.notify();
+
+        let profile_id = self.profile_id.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(
+                    async move { profile_service::set_mod_enabled(&profile_id, &mod_id, enabled) },
+                )
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    warn!("toggle mod failed: {e}");
+                    this.launch_error = Some(format!("Toggle failed: {e}"));
+                    this.spawn_load(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     fn open_profile_folder(&self) {
@@ -585,6 +614,14 @@ impl Render for LibraryDetailView {
                         .map(|(ix, m)| {
                             let display = mod_display_name(m, &mod_names);
                             let is_last = ix + 1 == profile.mods.len();
+                            let name_color = if m.enabled {
+                                theme.text
+                            } else {
+                                theme.text_muted
+                            };
+                            let mod_id = m.mod_id.clone();
+                            let enabled = m.enabled;
+                            let has_file = m.file.is_some();
                             let mut row = div().flex().items_center().gap_3().px_3().py_2();
                             if !is_last {
                                 row = row.border_b_1().border_color(theme.border);
@@ -604,6 +641,7 @@ impl Render for LibraryDetailView {
                                     .flex_1()
                                     .truncate()
                                     .font_weight(FontWeight::MEDIUM)
+                                    .text_color(name_color)
                                     .child(display),
                             )
                             .child(
@@ -612,6 +650,16 @@ impl Render for LibraryDetailView {
                                     .text_color(theme.text_muted)
                                     .child(m.version.clone()),
                             )
+                            // Mods imported without a known filename can't be toggled on disk.
+                            .children(has_file.then(|| {
+                                Switch::new(SharedString::from(format!("mod-toggle-{ix}")))
+                                    .checked(enabled)
+                                    .on_click(cx.listener(
+                                        move |this, checked: &bool, _window, cx| {
+                                            this.toggle_mod(mod_id.clone(), *checked, cx)
+                                        },
+                                    ))
+                            }))
                             .into_any_element()
                         })
                         .collect();
