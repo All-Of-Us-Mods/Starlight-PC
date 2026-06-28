@@ -33,6 +33,39 @@ pub fn region_name(region: &Value) -> &str {
         .unwrap_or("Unknown")
 }
 
+/// Whether `region` already targets `address`:`port`. Matched on host + port
+/// (ignoring the URL scheme) so we can tell an API server is installed
+/// regardless of its display name.
+pub fn region_has_server(region: &Value, address: &str, port: u16) -> bool {
+    let ping_matches = region
+        .get("PingServer")
+        .and_then(Value::as_str)
+        .is_some_and(|p| host_of(p).eq_ignore_ascii_case(address));
+    region
+        .get("Servers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|s| {
+            let port_matches =
+                s.get("Port").and_then(Value::as_u64).unwrap_or(0) == u64::from(port);
+            let host_matches = s
+                .get("Ip")
+                .and_then(Value::as_str)
+                .is_some_and(|ip| host_of(ip).eq_ignore_ascii_case(address));
+            port_matches && (host_matches || ping_matches)
+        })
+}
+
+/// The host portion of a server URL — strips an `http(s)://` scheme and any path.
+fn host_of(url: &str) -> &str {
+    let without_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+    without_scheme.split('/').next().unwrap_or(without_scheme)
+}
+
 #[cfg(windows)]
 fn region_info_path() -> AppResult<PathBuf> {
     // %APPDATA% is the Roaming folder; regionInfo.json lives one level up under
@@ -79,10 +112,14 @@ fn write_region_info(info: &RegionInfo) -> AppResult<()> {
 }
 
 /// Add a server from the API as a region. No-op (returns `false`) if a region
-/// with the same name already exists.
+/// already targets the same host:port.
 pub fn add_server_region(server: &Server) -> AppResult<bool> {
     let mut info = read_region_info()?;
-    if info.regions.iter().any(|r| region_name(r) == server.name) {
+    if info
+        .regions
+        .iter()
+        .any(|r| region_has_server(r, &server.address, server.port))
+    {
         return Ok(false);
     }
     info.regions.push(server_region(server));

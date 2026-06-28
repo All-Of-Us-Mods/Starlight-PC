@@ -121,11 +121,11 @@ impl ServersView {
         .detach();
     }
 
-    fn is_installed(&self, server_name: &str) -> bool {
+    fn is_installed(&self, server: &Server) -> bool {
         self.regions.as_ref().is_some_and(|info| {
             info.regions
                 .iter()
-                .any(|r| region_service::region_name(r) == server_name)
+                .any(|r| region_service::region_has_server(r, &server.address, server.port))
         })
     }
 
@@ -211,8 +211,17 @@ impl ServersView {
                 .child("No servers available.")
                 .into_any_element(),
             LoadState::Loaded(servers) => {
-                let rows = servers.iter().map(|server| {
-                    let installed = self.is_installed(&server.name);
+                // Hide servers that are already configured (matched on host:port).
+                let available: Vec<&Server> =
+                    servers.iter().filter(|s| !self.is_installed(s)).collect();
+                if available.is_empty() {
+                    return div()
+                        .text_sm()
+                        .text_color(theme.text_muted)
+                        .child("All available servers have been added.")
+                        .into_any_element();
+                }
+                let rows = available.into_iter().map(|server| {
                     let server_for_add = server.clone();
                     div()
                         .flex()
@@ -247,17 +256,7 @@ impl ServersView {
                                         )),
                                 ),
                         )
-                        .child(if installed {
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_1()
-                                .text_xs()
-                                .text_color(theme.text_muted)
-                                .child(Icon::new(IconName::Check).size(px(14.0)))
-                                .child("Added")
-                                .into_any_element()
-                        } else {
+                        .child(
                             Button::new(SharedString::from(format!("add-server-{}", server.id)))
                                 .primary()
                                 .xsmall()
@@ -265,9 +264,8 @@ impl ServersView {
                                 .label("Add")
                                 .on_click(cx.listener(move |this, _, _window, cx| {
                                     this.add_server(server_for_add.clone(), cx)
-                                }))
-                                .into_any_element()
-                        })
+                                })),
+                        )
                         .into_any_element()
                 });
                 div()
