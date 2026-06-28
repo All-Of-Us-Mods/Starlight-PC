@@ -69,9 +69,7 @@ where
                 fs::create_dir_all(parent)?;
             }
             let mut output = File::create(&output_path)?;
-            let mut buffer = Vec::with_capacity(entry.size() as usize);
-            entry.read_to_end(&mut buffer)?;
-            output.write_all(&buffer)?;
+            std::io::copy(&mut entry, &mut output)?;
         }
 
         on_progress(i + 1, total_entries);

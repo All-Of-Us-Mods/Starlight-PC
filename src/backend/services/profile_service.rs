@@ -135,12 +135,9 @@ fn normalize_custom_icon_extension(raw: &str) -> Option<String> {
 }
 
 fn normalize_icon_selection(profile: &mut ProfileEntry) {
-    let mode = profile
-        .icon_mode
-        .clone()
-        .unwrap_or_else(|| "default".to_string());
+    let mode = profile.icon_mode.as_deref().unwrap_or("default");
 
-    match mode.as_str() {
+    match mode {
         "mod" => {
             let has_mod = profile.icon_mod_id.as_ref().is_some_and(|icon_mod_id| {
                 profile
@@ -289,9 +286,8 @@ pub fn create_profile(name: &str) -> AppResult<ProfileEntry> {
 }
 
 pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
-    let profile_id_owned = profile_id.to_string();
-    let mut profile = get_profile_by_id(&profile_id_owned)?
-        .ok_or_else(|| AppError::validation(format!("Profile '{profile_id_owned}' not found")))?;
+    let mut profile = get_profile_by_id(profile_id)?
+        .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))?;
 
     let settings = core_service::get_settings()?;
     let install_arch = match settings.game_platform {
@@ -316,7 +312,7 @@ pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
         profile.path.clone(),
         cache_path,
         bepinex_service::BepInExTargetType::Profile,
-        &profile_id_owned,
+        profile_id,
     )?;
 
     profile.bepinex_installed = Some(true);
@@ -650,6 +646,7 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
     let mut imported_profiles = Vec::new();
     let mut created_paths = Vec::new();
     let zip_count = zip_infos.len();
+    let profiles_dir = PathBuf::from(get_profiles_dir()?);
 
     for (index, info) in zip_infos.into_iter().enumerate() {
         let timestamp = now_millis() + index as i64;
@@ -666,7 +663,7 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
             });
 
         let profile_id = build_profile_id(&base_name, timestamp);
-        let profile_path = PathBuf::from(get_profiles_dir()?).join(&profile_id);
+        let profile_path = profiles_dir.join(&profile_id);
         fs::create_dir_all(&profile_path)?;
         created_paths.push(profile_path.clone());
 

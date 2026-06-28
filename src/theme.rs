@@ -9,6 +9,10 @@ pub struct Theme {
     pub text_muted: Rgba,
     pub border: Rgba,
     pub hover: Rgba,
+    /// Status colors for inline error / success / warning text.
+    pub danger: Rgba,
+    pub success: Rgba,
+    pub warning: Rgba,
 }
 
 impl Global for Theme {}
@@ -22,6 +26,9 @@ pub fn init(cx: &mut App) {
         text_muted: rgb(0xa1a1aa),
         border: rgb(0x27272a),
         hover: rgb(0x27272a),
+        danger: rgb(0xef4444),
+        success: rgb(0x22c55e),
+        warning: rgb(0xf59e0b),
     });
 }
 

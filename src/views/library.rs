@@ -5,7 +5,7 @@ use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::launch_service;
 use crate::backend::services::profile_service::{self, ProfileEntry, ZipOp};
 use crate::backend::state::game_runtime;
-use crate::theme::{self, ThemeExt};
+use crate::theme::ThemeExt;
 use crate::ui::format;
 use crate::ui::icon::AppIcon;
 use crate::ui::profile_icon::profile_icon;
@@ -49,27 +49,7 @@ impl LibraryView {
             stoppable_count: initial.stoppable_running_count,
             import_progress: None,
         };
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async { profile_service::get_profiles() })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.state = match result {
-                    Ok(mut profiles) => {
-                        profiles
-                            .sort_by_key(|p| std::cmp::Reverse(p.last_launched_at.unwrap_or(0)));
-                        LoadState::Loaded(profiles)
-                    }
-                    Err(e) => {
-                        warn!("Failed to load profiles: {e}");
-                        LoadState::Failed(e.to_string())
-                    }
-                };
-                cx.notify();
-            });
-        })
-        .detach();
+        view.load_profiles(cx);
 
         let mut rx = events::subscribe();
         cx.spawn(async move |this, cx| {
@@ -97,9 +77,9 @@ impl LibraryView {
         view
     }
 
-    pub fn refresh(&mut self, cx: &mut Context<Self>) {
-        self.state = LoadState::Loading;
-        cx.notify();
+    /// Fetch profiles on the background executor and replace `state`. They
+    /// arrive already sorted (last launched first) from `get_profiles`.
+    fn load_profiles(&self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -107,17 +87,22 @@ impl LibraryView {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.state = match result {
-                    Ok(mut profiles) => {
-                        profiles
-                            .sort_by_key(|p| std::cmp::Reverse(p.last_launched_at.unwrap_or(0)));
-                        LoadState::Loaded(profiles)
+                    Ok(profiles) => LoadState::Loaded(profiles),
+                    Err(e) => {
+                        warn!("Failed to load profiles: {e}");
+                        LoadState::Failed(e.to_string())
                     }
-                    Err(e) => LoadState::Failed(e.to_string()),
                 };
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.state = LoadState::Loading;
+        cx.notify();
+        self.load_profiles(cx);
     }
 
     fn open_create_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -339,7 +324,7 @@ impl LibraryView {
                     .children((profile.bepinex_installed != Some(true)).then(|| {
                         div()
                             .text_xs()
-                            .text_color(rgb(0xf59e0b))
+                            .text_color(theme.warning)
                             .child("BepInEx not installed")
                     }))
                     .child(div().text_xs().text_color(theme.text_muted).child(format!(
@@ -387,7 +372,7 @@ impl Render for LibraryView {
                     .into_any_element()
             }
             LoadState::Failed(message) => div()
-                .text_color(rgb(0xef4444))
+                .text_color(theme.danger)
                 .child(format!("Failed to load profiles: {message}"))
                 .into_any_element(),
             LoadState::Loaded(profiles) if profiles.is_empty() => div()
@@ -444,18 +429,9 @@ impl Render for LibraryView {
                     ],
                 )
             });
-        div()
-            .id("library-page")
+        crate::views::page_root("library-page", &theme)
             .relative()
-            .flex()
-            .flex_col()
-            .size_full()
             .overflow_y_scroll()
-            .font_family(theme::FONT_FAMILY)
-            .text_color(theme.text)
-            .text_size(px(14.0))
-            .p_8()
-            .pt(px(48.0))
             .child(self.render_header(cx))
             .children(self.error.clone().map(|message| {
                 div()

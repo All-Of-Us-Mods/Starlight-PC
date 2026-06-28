@@ -318,7 +318,7 @@ pub(super) fn render_icon_dialog(
     let error_row = state
         .error
         .clone()
-        .map(|msg| div().text_sm().text_color(rgb(0xef4444)).child(msg));
+        .map(|msg| div().text_sm().text_color(theme.danger).child(msg));
 
     let mut items: Vec<AnyElement> = vec![
         div()

@@ -2,10 +2,8 @@ use chrono::{DateTime, Local};
 use gpui::*;
 
 use crate::backend::api::Post;
-use crate::theme::{self, ThemeExt};
-use crate::views::section_label;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::{Icon, IconName};
+use crate::theme::ThemeExt;
+use crate::views::{back_button, page_root, section_label};
 
 #[derive(Clone, Debug)]
 pub enum NewsDetailEvent {
@@ -34,25 +32,12 @@ impl Render for NewsDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let back = Button::new("back")
-            .ghost()
-            .icon(Icon::new(IconName::ArrowLeft))
-            .label("Back")
-            .on_click(cx.listener(|_, _, _window, cx| {
-                cx.emit(NewsDetailEvent::Close);
-            }));
+        let back = back_button(cx.listener(|_, _, _window, cx| {
+            cx.emit(NewsDetailEvent::Close);
+        }));
 
-        div()
-            .id("news-detail-page")
-            .flex()
-            .flex_col()
-            .size_full()
+        page_root("news-detail-page", &theme)
             .overflow_y_scroll()
-            .font_family(theme::FONT_FAMILY)
-            .text_color(theme.text)
-            .text_size(px(14.0))
-            .p_8()
-            .pt(px(48.0))
             .gap_6()
             .child(back)
             .child(

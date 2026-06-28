@@ -1,6 +1,6 @@
 use gpui::*;
 use gpui_component::{
-    Disableable as _, Icon, IconName, WindowExt,
+    Disableable as _, Icon, WindowExt,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     input::{Input, InputState},
@@ -20,10 +20,10 @@ use crate::backend::services::{
     mod_install_service::{self, InstallModInput, ResolvedDependency},
     profile_service::{self, ProfileEntry},
 };
-use crate::theme::{self, ThemeExt};
+use crate::theme::ThemeExt;
 use crate::ui::format;
 use crate::ui::mod_card::format_count;
-use crate::views::section_label;
+use crate::views::{back_button, page_root, section_label};
 
 #[derive(Clone, Debug)]
 pub enum ModDetailEvent {
@@ -167,13 +167,12 @@ impl ModDetailView {
         version: String,
         cx: &mut Context<Self>,
     ) {
-        let id_for_task = mod_id.clone();
         let version_for_task = version.clone();
         cx.spawn(async move |this, cx| {
             let resolved = cx
                 .background_executor()
                 .spawn(async move {
-                    let info = api::fetch_mod_version_info(&id_for_task, &version_for_task).ok();
+                    let info = api::fetch_mod_version_info(&mod_id, &version_for_task).ok();
                     let deps = info.map(|i| i.dependencies).unwrap_or_default();
                     mod_install_service::resolve_dependencies(&deps).ok()
                 })
@@ -185,8 +184,7 @@ impl ModDetailView {
                 let still_relevant = this
                     .install
                     .as_ref()
-                    .map(|p| p.selected_version == version)
-                    .unwrap_or(false);
+                    .is_some_and(|p| p.selected_version == version);
                 if !still_relevant {
                     return;
                 }
@@ -223,9 +221,8 @@ impl ModDetailView {
         panel.selected_profile_id = Some(profile_id.clone());
         let profile = self.profiles.iter().find(|p| p.id == profile_id);
         for row in &mut panel.deps {
-            let installed = profile
-                .map(|p| profile_has_mod_at(p, &row.mod_id, &row.resolved_version))
-                .unwrap_or(false);
+            let installed =
+                profile.is_some_and(|p| profile_has_mod_at(p, &row.mod_id, &row.resolved_version));
             row.already_installed = installed;
             row.checked = !installed;
         }
@@ -357,8 +354,7 @@ impl ModDetailView {
             .profiles
             .iter()
             .find(|p| p.id == profile_id)
-            .map(|p| p.bepinex_installed != Some(true))
-            .unwrap_or(true);
+            .is_none_or(|p| p.bepinex_installed != Some(true));
         if let Some(panel) = self.install.as_mut() {
             panel.status = InstallStatus::Installing {
                 message: if needs_bepinex {
@@ -436,9 +432,7 @@ fn profile_has_mod_at(profile: &ProfileEntry, mod_id: &str, version: &str) -> bo
 }
 
 fn dep_row_for(r: ResolvedDependency, profile: Option<&ProfileEntry>) -> DepRow {
-    let installed = profile
-        .map(|p| profile_has_mod_at(p, &r.mod_id, &r.resolved_version))
-        .unwrap_or(false);
+    let installed = profile.is_some_and(|p| profile_has_mod_at(p, &r.mod_id, &r.resolved_version));
     let optional = r.dependency_type.eq_ignore_ascii_case("optional");
     DepRow {
         mod_id: r.mod_id,
@@ -460,13 +454,9 @@ impl Render for ModDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let back = Button::new("back")
-            .ghost()
-            .icon(Icon::new(IconName::ArrowLeft))
-            .label("Back")
-            .on_click(cx.listener(|_, _, _window, cx| {
-                cx.emit(ModDetailEvent::Close);
-            }));
+        let back = back_button(cx.listener(|_, _, _window, cx| {
+            cx.emit(ModDetailEvent::Close);
+        }));
 
         let body: AnyElement = match &self.state {
             LoadState::Loading => div()
@@ -500,7 +490,7 @@ impl Render for ModDetailView {
                 )
                 .into_any_element(),
             LoadState::Failed(e) => div()
-                .text_color(rgb(0xef4444))
+                .text_color(theme.danger)
                 .child(format!("Failed: {e}"))
                 .into_any_element(),
             LoadState::Loaded(data) => {
@@ -650,18 +640,9 @@ impl Render for ModDetailView {
             }
         };
 
-        div()
-            .id("mod-detail-page")
-            .flex()
-            .flex_col()
+        page_root("mod-detail-page", &theme)
             .gap_4()
-            .size_full()
             .overflow_y_scroll()
-            .font_family(theme::FONT_FAMILY)
-            .text_color(theme.text)
-            .text_size(px(14.0))
-            .p_8()
-            .pt(px(48.0))
             .child(back)
             .child(body)
     }
@@ -699,14 +680,14 @@ fn render_install_panel(
         InstallStatus::Done => Some(
             div()
                 .text_xs()
-                .text_color(rgb(0x22c55e))
+                .text_color(theme.success)
                 .child("Installed.")
                 .into_any_element(),
         ),
         InstallStatus::Failed(e) => Some(
             div()
                 .text_xs()
-                .text_color(rgb(0xef4444))
+                .text_color(theme.danger)
                 .child(format!("Failed: {e}"))
                 .into_any_element(),
         ),

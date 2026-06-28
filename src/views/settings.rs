@@ -19,7 +19,7 @@ use crate::backend::services::{
     finder_service,
 };
 use crate::settings as app_settings;
-use crate::theme::{self, ThemeExt};
+use crate::theme::ThemeExt;
 use crate::ui::icon::AppIcon;
 
 type PathSetter = Rc<dyn Fn(SharedString, &mut App)>;
@@ -64,21 +64,41 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn cache_present(arch: &str) -> bool {
-    core_service::get_bepinex_cache_path(arch)
-        .ok()
-        .and_then(|p| bepinex_service::cache_size(&p))
-        .is_some()
-}
-
-fn cache_status_label(arch: &str) -> SharedString {
-    match core_service::get_bepinex_cache_path(arch) {
+/// Build the download/clear row + status description for one BepInEx cache
+/// architecture. The cache is sized once here and reused for both the "Clear"
+/// button's visibility and the description, instead of stat-ing the file twice.
+fn cache_item(arch: &'static str, label: &'static str) -> SettingItem {
+    let (present, status): (bool, SharedString) = match core_service::get_bepinex_cache_path(arch) {
         Ok(path) => match bepinex_service::cache_size(&path) {
-            Some(size) => format!("Cached · {}", format_bytes(size)).into(),
-            None => "Not cached".into(),
+            Some(size) => (true, format!("Cached · {}", format_bytes(size)).into()),
+            None => (false, "Not cached".into()),
         },
-        Err(_) => "Cache path unavailable".into(),
-    }
+        Err(_) => (false, "Cache path unavailable".into()),
+    };
+    SettingItem::new(
+        label,
+        SettingField::render(move |_, _, _| {
+            div()
+                .flex()
+                .gap_2()
+                .child(
+                    Button::new(SharedString::from(format!("cache-{arch}")))
+                        .icon(Icon::new(AppIcon::Download))
+                        .label("Download")
+                        .on_click(move |_, window, cx| download_bepinex_cache(arch, window, cx)),
+                )
+                .when(present, |row| {
+                    row.child(
+                        Button::new(SharedString::from(format!("clear-{arch}")))
+                            .danger()
+                            .icon(Icon::new(IconName::Delete))
+                            .label("Clear")
+                            .on_click(move |_, window, cx| clear_bepinex_cache(arch, window, cx)),
+                    )
+                })
+        }),
+    )
+    .description(status)
 }
 
 // ---------- patch helpers (used by setter closures) ----------
@@ -416,25 +436,23 @@ fn download_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App)
     } else {
         settings.bepinex_url_x86
     };
-    let arch_owned = arch.to_string();
     let window_handle = window.window_handle();
     cx.spawn(async move |cx| {
-        let arch_for_task = arch_owned.clone();
         let result = cx
             .background_executor()
             .spawn(async move {
-                bepinex_service::download_bepinex_to_cache(url, cache_path, arch_for_task)
+                bepinex_service::download_bepinex_to_cache(url, cache_path, arch.to_string())
             })
             .await;
         let _ = window_handle.update(cx, |_, window, cx| match result {
             Ok(()) => window.push_notification(
-                Notification::success(format!("Downloaded BepInEx {arch_owned}")),
+                Notification::success(format!("Downloaded BepInEx {arch}")),
                 cx,
             ),
             Err(e) => {
-                warn!("BepInEx cache download ({arch_owned}) failed: {e}");
+                warn!("BepInEx cache download ({arch}) failed: {e}");
                 window.push_notification(
-                    Notification::error(format!("BepInEx {arch_owned} download failed: {e}")),
+                    Notification::error(format!("BepInEx {arch} download failed: {e}")),
                     cx,
                 );
             }
@@ -562,62 +580,8 @@ impl Render for SettingsView {
                     ),
                 )
                 .description("Reuse cached archives across profile installs."),
-                SettingItem::new(
-                    "x64 cache",
-                    SettingField::render(|_, _, _| {
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                Button::new("cache-x64")
-                                    .icon(Icon::new(AppIcon::Download))
-                                    .label("Download")
-                                    .on_click(|_, window, cx| {
-                                        download_bepinex_cache("x64", window, cx)
-                                    }),
-                            )
-                            .when(cache_present("x64"), |row| {
-                                row.child(
-                                    Button::new("clear-x64")
-                                        .danger()
-                                        .icon(Icon::new(IconName::Delete))
-                                        .label("Clear")
-                                        .on_click(|_, window, cx| {
-                                            clear_bepinex_cache("x64", window, cx)
-                                        }),
-                                )
-                            })
-                    }),
-                )
-                .description(cache_status_label("x64")),
-                SettingItem::new(
-                    "x86 cache",
-                    SettingField::render(|_, _, _| {
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                Button::new("cache-x86")
-                                    .icon(Icon::new(AppIcon::Download))
-                                    .label("Download")
-                                    .on_click(|_, window, cx| {
-                                        download_bepinex_cache("x86", window, cx)
-                                    }),
-                            )
-                            .when(cache_present("x86"), |row| {
-                                row.child(
-                                    Button::new("clear-x86")
-                                        .danger()
-                                        .icon(Icon::new(IconName::Delete))
-                                        .label("Clear")
-                                        .on_click(|_, window, cx| {
-                                            clear_bepinex_cache("x86", window, cx)
-                                        }),
-                                )
-                            })
-                    }),
-                )
-                .description(cache_status_label("x86")),
+                cache_item("x64", "x64 cache"),
+                cache_item("x86", "x86 cache"),
             ]),
             SettingGroup::new()
                 .title("Download URLs")
@@ -741,17 +705,8 @@ impl Render for SettingsView {
             )
         };
 
-        div()
-            .id("settings-page")
-            .flex()
-            .flex_col()
-            .size_full()
+        crate::views::page_root("settings-page", &theme)
             .overflow_y_scroll()
-            .font_family(theme::FONT_FAMILY)
-            .text_color(theme.text)
-            .text_size(px(14.0))
-            .p_8()
-            .pt(px(48.0))
             .gap_4()
             .child(
                 div()
@@ -759,12 +714,16 @@ impl Render for SettingsView {
                     .font_weight(FontWeight::BOLD)
                     .child("Settings"),
             )
-            .child(Settings::new("starlight-settings").sidebar_width(px(190.0)).pages({
-                #[cfg_attr(not(unix), allow(unused_mut))]
-                let mut pages = vec![game_page, launch_page, bepinex_page];
-                #[cfg(unix)]
-                pages.push(linux_page);
-                pages
-            }))
+            .child(
+                Settings::new("starlight-settings")
+                    .sidebar_width(px(190.0))
+                    .pages({
+                        #[cfg_attr(not(unix), allow(unused_mut))]
+                        let mut pages = vec![game_page, launch_page, bepinex_page];
+                        #[cfg(unix)]
+                        pages.push(linux_page);
+                        pages
+                    }),
+            )
     }
 }

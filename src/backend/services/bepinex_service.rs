@@ -39,6 +39,43 @@ fn emit(
     ));
 }
 
+/// `download_file` progress callback: emit a "downloading" event with the
+/// percent computed once. No-op until the total size is known.
+fn emit_download_progress(
+    downloaded: u64,
+    total: Option<u64>,
+    target_type: BepInExTargetType,
+    target_id: &str,
+) {
+    if let Some(total) = total {
+        let pct = downloaded as f64 / total as f64 * 100.0;
+        emit(
+            "downloading",
+            pct,
+            &format!("Downloading... {pct:.0}%"),
+            target_type,
+            target_id,
+        );
+    }
+}
+
+/// `extract_zip` progress callback: emit an "extracting" event for entry
+/// `current` of `total`.
+fn emit_extract_progress(
+    current: usize,
+    total: usize,
+    target_type: BepInExTargetType,
+    target_id: &str,
+) {
+    emit(
+        "extracting",
+        current as f64 / total as f64 * 100.0,
+        &format!("Extracting {current}/{total}"),
+        target_type,
+        target_id,
+    );
+}
+
 pub fn install_bepinex(
     url: String,
     destination: String,
@@ -61,13 +98,7 @@ pub fn install_bepinex(
                 target_id,
             );
             extract_zip(cache_file, dest, |cur, total| {
-                emit(
-                    "extracting",
-                    cur as f64 / total as f64 * 100.0,
-                    &format!("Extracting {}/{}", cur, total),
-                    target_type,
-                    target_id,
-                );
+                emit_extract_progress(cur, total, target_type, target_id)
             })?;
             emit("complete", 100.0, "Complete!", target_type, target_id);
             return Ok(());
@@ -77,15 +108,7 @@ pub fn install_bepinex(
     let temp = dest.with_extension("zip.tmp");
     emit("downloading", 0.0, "Downloading...", target_type, target_id);
     download_file(&url, &temp, |dl, total| {
-        if let Some(t) = total {
-            emit(
-                "downloading",
-                dl as f64 / t as f64 * 100.0,
-                &format!("Downloading... {:.0}%", dl as f64 / t as f64 * 100.0),
-                target_type,
-                target_id,
-            );
-        }
+        emit_download_progress(dl, total, target_type, target_id)
     })?;
 
     if let Some(ref cache) = cache_path {
@@ -102,13 +125,7 @@ pub fn install_bepinex(
 
     emit("extracting", 0.0, "Extracting...", target_type, target_id);
     extract_zip(&temp, dest, |cur, total| {
-        emit(
-            "extracting",
-            cur as f64 / total as f64 * 100.0,
-            &format!("Extracting {}/{}", cur, total),
-            target_type,
-            target_id,
-        );
+        emit_extract_progress(cur, total, target_type, target_id)
     })?;
 
     fs::remove_file(&temp).ok();
@@ -131,15 +148,7 @@ pub fn download_bepinex_to_cache(
         &architecture,
     );
     download_file(&url, cache_file, |dl, total| {
-        if let Some(t) = total {
-            emit(
-                "downloading",
-                dl as f64 / t as f64 * 100.0,
-                &format!("Downloading... {:.0}%", dl as f64 / t as f64 * 100.0),
-                BepInExTargetType::Cache,
-                &architecture,
-            );
-        }
+        emit_download_progress(dl, total, BepInExTargetType::Cache, &architecture)
     })?;
 
     emit(

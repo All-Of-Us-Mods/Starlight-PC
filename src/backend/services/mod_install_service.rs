@@ -12,8 +12,7 @@ use std::path::PathBuf;
 use semver::{Version, VersionReq};
 
 use crate::backend::api::{
-    self, DEFAULT_API_BASE_URL, ModDependency, ModResponse, ModVersion, ModVersionInfo,
-    PlatformDownload,
+    self, DEFAULT_API_BASE_URL, ModDependency, ModVersion, ModVersionInfo, PlatformDownload,
 };
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::{
@@ -214,10 +213,6 @@ fn resolve_download_target(
     })
 }
 
-fn fetch_mod_meta(mod_id: &str) -> AppResult<ModResponse> {
-    api::fetch_mod(mod_id)
-}
-
 /// Download each mod into the profile's `BepInEx/plugins/` directory and
 /// register it in the profile manifest. Returns the list of installed mods
 /// (in input order). Rolls back on failure.
@@ -251,7 +246,6 @@ pub fn install_mods_for_profile(
 
     for item in mods {
         let info = api::fetch_mod_version_info(&item.mod_id, &item.version)?;
-        let _meta = fetch_mod_meta(&item.mod_id)?;
         let target =
             match resolve_download_target(&item.mod_id, &item.version, &info, &game_platform) {
                 Ok(t) => t,

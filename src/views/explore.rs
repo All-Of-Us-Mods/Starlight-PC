@@ -1,7 +1,7 @@
 use gpui::*;
 
 use crate::backend::api::{self, ModResponse};
-use crate::theme::{self, ThemeExt};
+use crate::theme::ThemeExt;
 use crate::ui::mod_card::{self, MOD_CARD_HEIGHT};
 use gpui_component::Selectable;
 use gpui_component::button::{Button, ButtonVariants};
@@ -99,7 +99,6 @@ impl ExploreView {
         let query = self.query.clone();
         let page_size = self.page_size;
         let offset = self.page * page_size;
-        let want_total = query.is_empty();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -116,11 +115,7 @@ impl ExploreView {
                 match result {
                     Ok((mods, total)) => {
                         this.state = LoadState::Loaded(mods);
-                        if want_total {
-                            this.total = total;
-                        } else {
-                            this.total = None;
-                        }
+                        this.total = total;
                     }
                     Err(e) => {
                         this.state = LoadState::Failed(e.to_string());
@@ -173,7 +168,6 @@ impl ExploreView {
         &self,
         id: &'static str,
         sort: SortBy,
-        _theme: &crate::theme::Theme,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         Button::new(id)
@@ -232,7 +226,7 @@ impl Render for ExploreView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_color(rgb(0xef4444))
+                .text_color(theme.danger)
                 .child(format!("Failed to load mods: {e}"))
                 .into_any_element(),
             LoadState::Loaded(mods) if mods.is_empty() => div()
@@ -295,21 +289,12 @@ impl Render for ExploreView {
                     .flex_1()
                     .child(Input::new(&self.search_input).prefix(Icon::new(IconName::Search))),
             )
-            .child(self.sort_pill("sort-downloads", SortBy::Downloads, &theme, cx))
-            .child(self.sort_pill("sort-updated", SortBy::Updated, &theme, cx))
-            .child(self.sort_pill("sort-created", SortBy::Created, &theme, cx));
+            .child(self.sort_pill("sort-downloads", SortBy::Downloads, cx))
+            .child(self.sort_pill("sort-updated", SortBy::Updated, cx))
+            .child(self.sort_pill("sort-created", SortBy::Created, cx));
 
-        div()
-            .id("explore-page")
-            .flex()
-            .flex_col()
-            .size_full()
+        crate::views::page_root("explore-page", &theme)
             .overflow_hidden()
-            .font_family(theme::FONT_FAMILY)
-            .text_color(theme.text)
-            .text_size(px(14.0))
-            .p_8()
-            .pt(px(48.0))
             .gap_4()
             .child(
                 div()

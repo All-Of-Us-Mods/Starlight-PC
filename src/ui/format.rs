@@ -28,7 +28,7 @@ pub fn last_launched(timestamp_ms: Option<i64>) -> String {
     }
 }
 
-/// Stat-card value for `total_play_time`. `None`/`0` → `"Never played"`,
+/// Stat-card value for `total_play_time`. `None`/`0` → `"Never"`,
 /// sub-minute → `"< 1 min"`, otherwise `"Xh Ym"` or `"Y min"`.
 pub fn play_time(ms: Option<i64>) -> String {
     let total_ms = ms.unwrap_or(0).max(0);

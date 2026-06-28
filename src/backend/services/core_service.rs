@@ -2,7 +2,7 @@ use crate::backend::directories;
 use crate::backend::error::AppResult;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const DEFAULT_BEPINEX_URL_X86: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x86-6.0.0-be.752%2Bdd0655f.zip";
 const DEFAULT_BEPINEX_URL_X64: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.752%2Bdd0655f.zip";
@@ -106,7 +106,7 @@ fn settings_path() -> AppResult<PathBuf> {
     Ok(directories::app_data_dir()?.join(SETTINGS_FILE_NAME))
 }
 
-fn write_settings_to_file(path: &PathBuf, settings: &AppSettings) -> AppResult<()> {
+fn write_settings_to_file(path: &Path, settings: &AppSettings) -> AppResult<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -205,14 +205,6 @@ fn read_legacy_settings() -> AppResult<Option<AppSettings>> {
     Ok(Some(settings))
 }
 
-fn bepinex_cache_path(architecture: &str) -> AppResult<String> {
-    Ok(directories::app_data_dir()?
-        .join("cache")
-        .join(format!("bepinex-{architecture}.zip"))
-        .to_string_lossy()
-        .to_string())
-}
-
 pub fn get_settings() -> AppResult<AppSettings> {
     let path = settings_path()?;
     if path.exists() {
@@ -292,5 +284,9 @@ pub fn update_settings(patch: AppSettingsPatch) -> AppResult<AppSettings> {
 }
 
 pub fn get_bepinex_cache_path(architecture: &str) -> AppResult<String> {
-    bepinex_cache_path(architecture)
+    Ok(directories::app_data_dir()?
+        .join("cache")
+        .join(format!("bepinex-{architecture}.zip"))
+        .to_string_lossy()
+        .to_string())
 }

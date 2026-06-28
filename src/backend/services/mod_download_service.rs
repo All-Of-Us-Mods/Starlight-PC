@@ -67,6 +67,7 @@ pub fn download_mod(
     let mut downloaded: u64 = 0;
     let mut buffer = Vec::new();
     let mut chunk = vec![0u8; 64 * 1024];
+    let mut last_pct: i64 = -1;
 
     emit_progress(&mod_id, 0, total_size, "downloading");
 
@@ -78,7 +79,15 @@ pub fn download_mod(
         hasher.update(&chunk[..n]);
         buffer.extend_from_slice(&chunk[..n]);
         downloaded += n as u64;
-        emit_progress(&mod_id, downloaded, total_size, "downloading");
+        // Throttle to whole-percent changes (or a single emit when the size is
+        // unknown/zero) so a large download doesn't flood the event bus.
+        let pct = total_size
+            .and_then(|t| (downloaded * 100).checked_div(t))
+            .unwrap_or(0) as i64;
+        if pct != last_pct {
+            last_pct = pct;
+            emit_progress(&mod_id, downloaded, total_size, "downloading");
+        }
     }
 
     emit_progress(&mod_id, downloaded, total_size, "verifying");

@@ -1,7 +1,7 @@
 use gpui::*;
 
 use crate::backend::api::{self, ModResponse, Post};
-use crate::theme::{self, ThemeExt};
+use crate::theme::ThemeExt;
 use crate::ui::mod_card;
 use gpui_component::skeleton::Skeleton;
 
@@ -166,7 +166,7 @@ impl Render for HomeView {
                 .children((0..4).map(|_| news_card_skeleton(&theme).into_any_element()))
                 .into_any_element(),
             Loading::Failed(e) => div()
-                .text_color(rgb(0xef4444))
+                .text_color(theme.danger)
                 .child(e.clone())
                 .into_any_element(),
             Loading::Ready(items) => carousel(
@@ -186,7 +186,7 @@ impl Render for HomeView {
                 }))
                 .into_any_element(),
             Loading::Failed(e) => div()
-                .text_color(rgb(0xef4444))
+                .text_color(theme.danger)
                 .child(e.clone())
                 .into_any_element(),
             Loading::Ready(items) => carousel(
@@ -199,17 +199,8 @@ impl Render for HomeView {
             .into_any_element(),
         };
 
-        div()
-            .id("home-page")
-            .flex()
-            .flex_col()
-            .size_full()
+        crate::views::page_root("home-page", &theme)
             .overflow_y_scroll()
-            .font_family(theme::FONT_FAMILY)
-            .text_color(theme.text)
-            .text_size(px(14.0))
-            .p_8()
-            .pt(px(48.0))
             .gap_8()
             .child(div().text_2xl().font_weight(FontWeight::BOLD).child("Home"))
             .child(

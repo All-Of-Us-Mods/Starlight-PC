@@ -5,6 +5,8 @@ use log::{debug, info};
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::process::Command;
+#[cfg(target_os = "linux")]
+use std::{fs, path::Path};
 
 /// Serializes modded launches. Held across prep + spawn and then for the
 /// per-launch settle delay afterwards, so a second launch fired in quick

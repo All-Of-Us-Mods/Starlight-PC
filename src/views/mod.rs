@@ -8,6 +8,36 @@ pub mod settings;
 
 use crate::theme::Theme;
 use gpui::*;
+use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::{Icon, IconName};
+
+/// Shared outer container for every top-level page: full-size vertical flex
+/// with the app font, base text color/size, and the standard page padding
+/// (extra top padding clears the custom title bar). Callers chain on the bits
+/// that vary per page — `.overflow_*()`, `.gap_*()`, `.relative()`, children.
+pub fn page_root(id: &'static str, theme: &Theme) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .flex_col()
+        .size_full()
+        .font_family(crate::theme::FONT_FAMILY)
+        .text_color(theme.text)
+        .text_size(px(14.0))
+        .p_8()
+        .pt(px(48.0))
+}
+
+/// Ghost "Back" button with a left-arrow icon, shared by the detail views.
+/// The caller injects the click handler, typically
+/// `cx.listener(|_, _, _, cx| cx.emit(SomeDetailEvent::Close))`.
+pub fn back_button(on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Button {
+    Button::new("back")
+        .ghost()
+        .icon(Icon::new(IconName::ArrowLeft))
+        .label("Back")
+        .on_click(on_click)
+}
 
 /// Muted, small-caps heading used above content sections in detail views.
 pub fn section_label(text: &'static str, theme: &Theme) -> impl IntoElement {

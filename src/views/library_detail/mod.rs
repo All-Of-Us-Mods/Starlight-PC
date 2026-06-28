@@ -20,11 +20,12 @@ use crate::backend::services::launch_service;
 use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry, ZipOp};
 use crate::backend::state::game_runtime;
 use crate::settings as app_settings;
-use crate::theme::{self, ThemeExt};
+use crate::theme::ThemeExt;
 use crate::ui::format;
 use crate::ui::icon::AppIcon;
 use crate::ui::log_panel::LogPanel;
 use crate::ui::profile_icon::profile_icon;
+use crate::views::{back_button, page_root};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::progress::Progress;
@@ -460,15 +461,11 @@ impl Render for LibraryDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let back = div().flex().child(
-            Button::new("back")
-                .ghost()
-                .icon(Icon::new(IconName::ArrowLeft))
-                .label("Back")
-                .on_click(cx.listener(|_, _, _window, cx| {
-                    cx.emit(LibraryDetailEvent::Close);
-                })),
-        );
+        let back = div()
+            .flex()
+            .child(back_button(cx.listener(|_, _, _window, cx| {
+                cx.emit(LibraryDetailEvent::Close);
+            })));
 
         let body: AnyElement = match &self.state {
             LoadState::Loading => div()
@@ -481,11 +478,11 @@ impl Render for LibraryDetailView {
                 .child(Skeleton::new().w_full().h(px(120.0)).rounded_lg())
                 .into_any_element(),
             LoadState::NotFound => div()
-                .text_color(rgb(0xef4444))
+                .text_color(theme.danger)
                 .child("Profile not found")
                 .into_any_element(),
             LoadState::Failed(e) => div()
-                .text_color(rgb(0xef4444))
+                .text_color(theme.danger)
                 .child(format!("Failed: {e}"))
                 .into_any_element(),
             LoadState::Loaded(profile) => {
@@ -556,12 +553,12 @@ impl Render for LibraryDetailView {
                 let launch_err = self
                     .launch_error
                     .clone()
-                    .map(|msg| div().text_sm().text_color(rgb(0xef4444)).child(msg));
+                    .map(|msg| div().text_sm().text_color(theme.danger).child(msg));
 
                 let notice = self
                     .notice
                     .clone()
-                    .map(|msg| div().text_sm().text_color(rgb(0x22c55e)).child(msg));
+                    .map(|msg| div().text_sm().text_color(theme.success).child(msg));
 
                 let progress_row = self.bep_progress.as_ref().map(|p| {
                     div()
@@ -745,7 +742,7 @@ impl Render for LibraryDetailView {
                                         div()
                                             .mt_1()
                                             .text_xs()
-                                            .text_color(rgb(0xf59e0b))
+                                            .text_color(theme.warning)
                                             .child("⚠ BepInEx not installed")
                                     })),
                             )
@@ -798,18 +795,9 @@ impl Render for LibraryDetailView {
             }
         };
 
-        div()
-            .id("library-detail-page")
-            .flex()
-            .flex_col()
+        page_root("library-detail-page", &theme)
             .gap_4()
-            .size_full()
             .overflow_y_scroll()
-            .font_family(theme::FONT_FAMILY)
-            .text_color(theme.text)
-            .text_size(px(14.0))
-            .p_8()
-            .pt(px(48.0))
             .child(back)
             .children(self.export_progress.map(|p| {
                 div()

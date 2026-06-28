@@ -1,4 +1,4 @@
-use crate::backend::error::{AppError, AppResult};
+use crate::backend::error::AppResult;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_API_BASE_URL: &str = "https://starlight.allofus.dev";
@@ -83,10 +83,9 @@ pub struct ModVersionInfo {
 }
 
 fn get_json<T: for<'de> Deserialize<'de>>(url: &str) -> AppResult<T> {
-    reqwest::blocking::get(url)?
+    Ok(reqwest::blocking::get(url)?
         .error_for_status()?
-        .json::<T>()
-        .map_err(|e| AppError::Http(e.to_string()))
+        .json::<T>()?)
 }
 
 pub fn fetch_news() -> AppResult<Vec<Post>> {
