@@ -6,11 +6,12 @@ use crate::views::explore::ExploreView;
 use crate::views::home::HomeView;
 use crate::views::library::{LibraryEvent, LibraryView};
 use crate::views::library_detail::{LibraryDetailEvent, LibraryDetailView};
-use crate::views::mod_detail::{ModDetailEvent, ModDetailView};
-use crate::views::news_detail::{NewsDetailEvent, NewsDetailView};
+use crate::views::mod_detail::ModDetailView;
+use crate::views::news_detail::NewsDetailView;
 use crate::views::settings::SettingsView;
+use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::sidebar::{Sidebar, SidebarHeader, SidebarMenu, SidebarMenuItem};
-use gpui_component::{Icon, IconName, TitleBar};
+use gpui_component::{Disableable, Icon, IconName, TitleBar};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -40,19 +41,24 @@ impl Tab {
     }
 }
 
-enum ActiveView {
-    Home(Entity<HomeView>),
-    Explore(Entity<ExploreView>),
+/// One entry in the navigation history. Top-level tabs reuse the persistent
+/// view entities held by [`Workspace`]; detail pages carry their own (fresh,
+/// state-preserving) entity so back/forward can revisit them.
+#[derive(Clone)]
+enum Page {
+    Home,
+    Explore,
     Library,
-    LibraryDetail(Entity<LibraryDetailView>),
+    Settings,
     ModDetail(Entity<ModDetailView>),
+    LibraryDetail(Entity<LibraryDetailView>),
     NewsDetail(Entity<NewsDetailView>),
-    Settings(Entity<SettingsView>),
 }
 
 pub struct Workspace {
-    tab: Tab,
-    view: ActiveView,
+    /// Browser-style navigation history; `cursor` is the entry currently shown.
+    history: Vec<Page>,
+    cursor: usize,
     library: Entity<LibraryView>,
     home: Entity<HomeView>,
     explore: Entity<ExploreView>,
@@ -86,27 +92,14 @@ impl Workspace {
             &library,
             window,
             |this, _, event: &LibraryEvent, window, cx| match event {
-                LibraryEvent::Open(profile_id) => {
-                    let id = profile_id.clone();
-                    let detail = cx.new(|cx| LibraryDetailView::new(id, window, cx));
-                    cx.subscribe(&detail, |this, _, ev: &LibraryDetailEvent, cx| match ev {
-                        LibraryDetailEvent::Close => {
-                            this.library.update(cx, |lib, cx| lib.refresh(cx));
-                            this.view = ActiveView::Library;
-                            cx.notify();
-                        }
-                    })
-                    .detach();
-                    this.view = ActiveView::LibraryDetail(detail);
-                    cx.notify();
-                }
+                LibraryEvent::Open(profile_id) => this.open_profile(profile_id.clone(), window, cx),
             },
         )
         .detach();
 
         Self {
-            tab: Tab::Library,
-            view: ActiveView::Library,
+            history: vec![Page::Library],
+            cursor: 0,
             library,
             home,
             explore,
@@ -114,26 +107,112 @@ impl Workspace {
         }
     }
 
-    fn switch_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
-        self.tab = tab;
-        self.view = match tab {
-            Tab::Home => ActiveView::Home(self.home.clone()),
-            Tab::Explore => ActiveView::Explore(self.explore.clone()),
-            Tab::Library => {
-                // Profiles can change from anywhere (mod install, BepInEx install,
-                // …); pull a fresh list whenever the user navigates back here.
-                self.library.update(cx, |lib, cx| lib.refresh(cx));
-                ActiveView::Library
-            }
-            Tab::Settings => ActiveView::Settings(self.settings.clone()),
-        };
+    fn current(&self) -> &Page {
+        &self.history[self.cursor]
+    }
+
+    fn can_go_back(&self) -> bool {
+        self.cursor > 0
+    }
+
+    fn can_go_forward(&self) -> bool {
+        self.cursor + 1 < self.history.len()
+    }
+
+    /// Push a new page, dropping any forward history (browser semantics).
+    fn navigate(&mut self, page: Page, cx: &mut Context<Self>) {
+        self.history.truncate(self.cursor + 1);
+        self.history.push(page);
+        self.cursor = self.history.len() - 1;
+        self.after_navigate(cx);
+    }
+
+    fn go_back(&mut self, cx: &mut Context<Self>) {
+        if self.can_go_back() {
+            self.cursor -= 1;
+            self.after_navigate(cx);
+        }
+    }
+
+    fn go_forward(&mut self, cx: &mut Context<Self>) {
+        if self.can_go_forward() {
+            self.cursor += 1;
+            self.after_navigate(cx);
+        }
+    }
+
+    /// Drop the current page (and any forward history) and step back to the
+    /// previous one. Used when a page closes itself, e.g. after a profile is
+    /// deleted — it shouldn't linger in forward history.
+    fn close_current(&mut self, cx: &mut Context<Self>) {
+        if self.cursor > 0 {
+            self.history.truncate(self.cursor);
+            self.cursor -= 1;
+        }
+        self.after_navigate(cx);
+    }
+
+    /// Side effects whenever the current page changes. Profiles can change from
+    /// anywhere (mod install, BepInEx install, …); pull a fresh list whenever
+    /// the Library list becomes visible.
+    fn after_navigate(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.current(), Page::Library) {
+            self.library.update(cx, |lib, cx| lib.refresh(cx));
+        }
         cx.notify();
+    }
+
+    /// The sidebar tab to highlight: the nearest top-level section at or behind
+    /// the current page (so a mod detail opened from Explore keeps Explore lit).
+    fn active_tab(&self) -> Option<Tab> {
+        self.history[..=self.cursor]
+            .iter()
+            .rev()
+            .find_map(|p| match p {
+                Page::Home => Some(Tab::Home),
+                Page::Explore => Some(Tab::Explore),
+                Page::Library | Page::LibraryDetail(_) => Some(Tab::Library),
+                Page::Settings => Some(Tab::Settings),
+                Page::ModDetail(_) | Page::NewsDetail(_) => None,
+            })
+    }
+
+    fn current_title(&self, cx: &App) -> SharedString {
+        match self.current() {
+            Page::Home => "Home".into(),
+            Page::Explore => "Explore".into(),
+            Page::Library => "Library".into(),
+            Page::Settings => "Settings".into(),
+            Page::ModDetail(v) => v.read(cx).title(),
+            Page::LibraryDetail(v) => v.read(cx).title(),
+            Page::NewsDetail(v) => v.read(cx).title(),
+        }
+    }
+
+    fn switch_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
+        let already_here = matches!(
+            (self.current(), tab),
+            (Page::Home, Tab::Home)
+                | (Page::Explore, Tab::Explore)
+                | (Page::Library, Tab::Library)
+                | (Page::Settings, Tab::Settings)
+        );
+        if already_here {
+            return;
+        }
+        let page = match tab {
+            Tab::Home => Page::Home,
+            Tab::Explore => Page::Explore,
+            Tab::Library => Page::Library,
+            Tab::Settings => Page::Settings,
+        };
+        self.navigate(page, cx);
     }
 
     fn menu_item(&self, tab: Tab, cx: &mut Context<Self>) -> SidebarMenuItem {
         SidebarMenuItem::new(tab.label())
             .icon(tab.icon())
-            .active(self.tab == tab)
+            .active(self.active_tab() == Some(tab))
             .on_click(cx.listener(move |this, _, _window, cx| this.switch_tab(tab, cx)))
     }
 
@@ -163,42 +242,80 @@ impl Workspace {
             )
     }
 
+    /// Back/forward navigation controls plus the current page title, shown in
+    /// the custom title bar (replacing the per-page back buttons).
+    fn render_nav(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(
+                // The title bar treats a left mouse-down as the start of a window
+                // drag; stop propagation here so clicks reach the nav buttons.
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(
+                        Button::new("nav-back")
+                            .ghost()
+                            .icon(Icon::new(IconName::ArrowLeft))
+                            .disabled(!self.can_go_back())
+                            .on_click(cx.listener(|this, _, _window, cx| this.go_back(cx))),
+                    )
+                    .child(
+                        Button::new("nav-forward")
+                            .ghost()
+                            .icon(Icon::new(IconName::ArrowRight))
+                            .disabled(!self.can_go_forward())
+                            .on_click(cx.listener(|this, _, _window, cx| this.go_forward(cx))),
+                    ),
+            )
+            .child(
+                div()
+                    .ml_1()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(self.current_title(cx)),
+            )
+    }
+
     fn render_content(&self) -> AnyElement {
-        match &self.view {
-            ActiveView::Home(v) => v.clone().into_any_element(),
-            ActiveView::Explore(v) => v.clone().into_any_element(),
-            ActiveView::Library => self.library.clone().into_any_element(),
-            ActiveView::LibraryDetail(v) => v.clone().into_any_element(),
-            ActiveView::ModDetail(v) => v.clone().into_any_element(),
-            ActiveView::NewsDetail(v) => v.clone().into_any_element(),
-            ActiveView::Settings(v) => v.clone().into_any_element(),
+        match self.current() {
+            Page::Home => self.home.clone().into_any_element(),
+            Page::Explore => self.explore.clone().into_any_element(),
+            Page::Library => self.library.clone().into_any_element(),
+            Page::Settings => self.settings.clone().into_any_element(),
+            Page::ModDetail(v) => v.clone().into_any_element(),
+            Page::LibraryDetail(v) => v.clone().into_any_element(),
+            Page::NewsDetail(v) => v.clone().into_any_element(),
         }
     }
 
     fn open_mod(&mut self, mod_id: String, cx: &mut Context<Self>) {
         let detail = cx.new(|cx| ModDetailView::new(mod_id, cx));
-        let return_tab = self.tab;
-        cx.subscribe(&detail, move |this, _, ev: &ModDetailEvent, cx| match ev {
-            ModDetailEvent::Close => {
-                this.switch_tab(return_tab, cx);
-            }
-        })
-        .detach();
-        self.view = ActiveView::ModDetail(detail);
-        cx.notify();
+        // Re-render the title bar when the mod finishes loading (title updates).
+        cx.observe(&detail, |_, _, cx| cx.notify()).detach();
+        self.navigate(Page::ModDetail(detail), cx);
     }
 
     fn open_news(&mut self, post: crate::backend::api::Post, cx: &mut Context<Self>) {
         let detail = cx.new(|_| NewsDetailView::new(post));
-        let return_tab = self.tab;
-        cx.subscribe(&detail, move |this, _, ev: &NewsDetailEvent, cx| match ev {
-            NewsDetailEvent::Close => {
-                this.switch_tab(return_tab, cx);
-            }
+        self.navigate(Page::NewsDetail(detail), cx);
+    }
+
+    fn open_profile(&mut self, profile_id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let detail = cx.new(|cx| LibraryDetailView::new(profile_id, window, cx));
+        // Keep the title bar in sync once the profile loads (title updates).
+        cx.observe(&detail, |_, _, cx| cx.notify()).detach();
+        cx.subscribe(&detail, |this, _, ev: &LibraryDetailEvent, cx| match ev {
+            // The detail view closes itself after deleting its profile; drop it
+            // from history rather than leaving a dangling "not found" page.
+            LibraryDetailEvent::Close => this.close_current(cx),
         })
         .detach();
-        self.view = ActiveView::NewsDetail(detail);
-        cx.notify();
+        self.navigate(Page::LibraryDetail(detail), cx);
     }
 }
 
@@ -220,27 +337,9 @@ impl Render for Workspace {
             .text_color(theme.text)
             .text_size(px(14.0))
             .bg(theme.background)
-            // Draggable custom title bar: provides window move + min/max/close
-            // controls since the OS titlebar is transparent.
-            .child(
-                TitleBar::new().child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            Icon::new(AppIcon::Starlight)
-                                .size(px(16.0))
-                                .text_color(rgb(0xffc107)),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Starlight"),
-                        ),
-                ),
-            )
+            // Draggable custom title bar: window move + min/max/close controls
+            // plus app-wide back/forward navigation and the current page title.
+            .child(TitleBar::new().child(self.render_nav(cx)))
             .child(
                 div()
                     .flex()

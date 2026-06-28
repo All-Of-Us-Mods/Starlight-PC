@@ -23,14 +23,7 @@ use crate::backend::services::{
 use crate::theme::ThemeExt;
 use crate::ui::format;
 use crate::ui::mod_card::format_count;
-use crate::views::{back_button, page_root, section_label};
-
-#[derive(Clone, Debug)]
-pub enum ModDetailEvent {
-    Close,
-}
-
-impl EventEmitter<ModDetailEvent> for ModDetailView {}
+use crate::views::{page_root, section_label};
 
 pub struct ModDetailView {
     state: LoadState,
@@ -138,6 +131,14 @@ impl ModDetailView {
         .detach();
 
         view
+    }
+
+    /// Title shown in the app title bar — the mod name once loaded.
+    pub fn title(&self) -> SharedString {
+        match &self.state {
+            LoadState::Loaded(data) => data.mod_info.name.clone().into(),
+            _ => "Mod".into(),
+        }
     }
 
     fn open_install_panel(&mut self, cx: &mut Context<Self>) {
@@ -454,10 +455,6 @@ impl Render for ModDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let back = back_button(cx.listener(|_, _, _window, cx| {
-            cx.emit(ModDetailEvent::Close);
-        }));
-
         let body: AnyElement = match &self.state {
             LoadState::Loading => div()
                 .flex()
@@ -643,7 +640,6 @@ impl Render for ModDetailView {
         page_root("mod-detail-page", &theme)
             .gap_4()
             .overflow_y_scroll()
-            .child(back)
             .child(body)
     }
 }

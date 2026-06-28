@@ -9,14 +9,16 @@ edition = "2024"
 rust-version = "1.92.0"
 
 [dependencies]
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
+# Pinned to the same Zed rev that gpui-component depends on, so the whole tree
+# resolves to a single gpui. Bump this together with the gpui-component update.
+gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = [
   "font-kit",
   "runtime_shaders",
   "x11",
   "wayland",
 ] }
-reqwest_client = { git = "https://github.com/zed-industries/zed" }
+reqwest_client = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
 gpui-component = { git = "https://github.com/longbridge/gpui-component", features = [
   "tree-sitter-markdown",
 ] }

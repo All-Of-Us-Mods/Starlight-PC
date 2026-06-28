@@ -25,7 +25,7 @@ use crate::ui::format;
 use crate::ui::icon::AppIcon;
 use crate::ui::log_panel::LogPanel;
 use crate::ui::profile_icon::profile_icon;
-use crate::views::{back_button, page_root};
+use crate::views::page_root;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::progress::Progress;
@@ -158,6 +158,14 @@ impl LibraryDetailView {
         .detach();
 
         view
+    }
+
+    /// Title shown in the app title bar — the profile name once loaded.
+    pub fn title(&self) -> SharedString {
+        match &self.state {
+            LoadState::Loaded(profile) => profile.name.clone().into(),
+            _ => "Profile".into(),
+        }
     }
 
     pub(super) fn spawn_load(&self, cx: &mut Context<Self>) {
@@ -460,12 +468,6 @@ fn open_folder(path: &Path) -> std::io::Result<()> {
 impl Render for LibraryDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-
-        let back = div()
-            .flex()
-            .child(back_button(cx.listener(|_, _, _window, cx| {
-                cx.emit(LibraryDetailEvent::Close);
-            })));
 
         let body: AnyElement = match &self.state {
             LoadState::Loading => div()
@@ -798,7 +800,6 @@ impl Render for LibraryDetailView {
         page_root("library-detail-page", &theme)
             .gap_4()
             .overflow_y_scroll()
-            .child(back)
             .children(self.export_progress.map(|p| {
                 div()
                     .flex()

@@ -3,14 +3,7 @@ use gpui::*;
 
 use crate::backend::api::Post;
 use crate::theme::ThemeExt;
-use crate::views::{back_button, page_root, section_label};
-
-#[derive(Clone, Debug)]
-pub enum NewsDetailEvent {
-    Close,
-}
-
-impl EventEmitter<NewsDetailEvent> for NewsDetailView {}
+use crate::views::{page_root, section_label};
 
 pub struct NewsDetailView {
     post: Post,
@@ -19,6 +12,11 @@ pub struct NewsDetailView {
 impl NewsDetailView {
     pub fn new(post: Post) -> Self {
         Self { post }
+    }
+
+    /// Title shown in the app title bar — the post headline.
+    pub fn title(&self) -> SharedString {
+        self.post.title.clone().into()
     }
 }
 
@@ -32,14 +30,9 @@ impl Render for NewsDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let back = back_button(cx.listener(|_, _, _window, cx| {
-            cx.emit(NewsDetailEvent::Close);
-        }));
-
         page_root("news-detail-page", &theme)
             .overflow_y_scroll()
             .gap_6()
-            .child(back)
             .child(
                 div()
                     .max_w(px(840.0))
