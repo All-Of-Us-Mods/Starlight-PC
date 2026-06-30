@@ -63,9 +63,11 @@ struct LobbyRow {
     /// Display name for the lobby's region (from the server's own region list,
     /// falling back to the enabled region's name).
     region_label: String,
-    /// Server origin of the enabled region this lobby was found on, used to
-    /// point Among Us at the right region before launching.
-    server_url: String,
+    /// Host + port of the enabled region this lobby was found on, used to
+    /// point Among Us at the right region before launching. Scheme-agnostic —
+    /// see `region_service::region_server_host_port`.
+    server_host: String,
+    server_port: u16,
 }
 
 struct LaunchDialog {
@@ -102,7 +104,7 @@ impl LobbiesView {
                     continue;
                 };
                 if this
-                    .update(cx, |this, _cx| this.reap_finished_temp_profiles(&payload))
+                    .update(cx, |this, cx| this.reap_finished_temp_profiles(&payload, cx))
                     .is_err()
                 {
                     break;
@@ -143,10 +145,11 @@ impl LobbiesView {
                         let tasks: Vec<_> = servers
                             .into_iter()
                             .map(|srv| {
-                                let url = srv.url.clone();
+                                let host = srv.host.clone();
+                                let port = srv.port;
                                 let task = cx
                                     .background_executor()
-                                    .spawn(async move { api::fetch_lobbies(&url) });
+                                    .spawn(async move { api::fetch_lobbies(&host, port) });
                                 (srv, task)
                             })
                             .collect();
@@ -175,7 +178,8 @@ impl LobbiesView {
                                 rows.push(LobbyRow {
                                     game,
                                     region_label,
-                                    server_url: srv.url.clone(),
+                                    server_host: srv.host.clone(),
+                                    server_port: srv.port,
                                 });
                             }
                         }
@@ -252,9 +256,16 @@ impl LobbiesView {
         self.temp_cleanup.insert(profile_id, already_running);
     }
 
+    /// Stop watching a temporary profile without deleting it here — used when
+    /// the caller has already deleted it (e.g. a launch failure cleanup), so
+    /// a later `GameStateChanged` doesn't attempt a redundant delete.
+    fn forget_temp_profile(&mut self, profile_id: &str) {
+        self.temp_cleanup.remove(profile_id);
+    }
+
     /// Delete any temporary profile whose tracked instance count has dropped
     /// back to zero after having been seen running at least once.
-    fn reap_finished_temp_profiles(&mut self, payload: &GameStatePayload) {
+    fn reap_finished_temp_profiles(&mut self, payload: &GameStatePayload, cx: &mut Context<Self>) {
         let mut finished = Vec::new();
         self.temp_cleanup.retain(|id, seen_running| {
             if payload.profile_instance_counts.contains_key(id) {
@@ -268,11 +279,17 @@ impl LobbiesView {
             }
         });
         for id in finished {
-            std::thread::spawn(move || {
-                if let Err(e) = profile_service::delete_profile(&id) {
+            cx.spawn(async move |_this, cx| {
+                let id_for_delete = id.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { profile_service::delete_profile(&id_for_delete) })
+                    .await;
+                if let Err(e) = result {
                     warn!("failed to delete temporary lobby profile {id}: {e}");
                 }
-            });
+            })
+            .detach();
         }
     }
 
@@ -321,7 +338,7 @@ impl LobbiesView {
         let target = self
             .profiles
             .iter()
-            .find(|p| preview_mod_installs(required_mods, &p.mods).to_install.is_empty())
+            .find(|p| preview_mod_installs(required_mods, &p.mods).fully_satisfied())
             .or_else(|| self.profiles.first())
             .map(|p| LaunchTarget::Existing(p.id.clone()))
             .unwrap_or(LaunchTarget::Temporary);
@@ -350,41 +367,99 @@ impl LobbiesView {
         cx.notify();
 
         let code = lobby.game.code.clone().unwrap_or_default();
-        let server_url = lobby.server_url.clone();
-        let required: Vec<InstallModInput> = lobby
-            .game
-            .mods
-            .iter()
-            .filter_map(|m| {
-                Some(InstallModInput {
-                    mod_id: m.id.clone()?,
-                    version: m.version.clone()?,
-                })
-            })
-            .collect();
+        let server_host = lobby.server_host.clone();
+        let server_port = lobby.server_port;
+        // Mods with an id but no version can't be installed (we don't know
+        // which version), but still count toward the "skipped" total so the
+        // launch summary doesn't silently omit them.
+        let mut required: Vec<InstallModInput> = Vec::new();
+        let mut versionless = 0usize;
+        for m in &lobby.game.mods {
+            let Some(id) = m.id.clone() else { continue };
+            match m.version.clone() {
+                Some(version) => required.push(InstallModInput { mod_id: id, version }),
+                None => versionless += 1,
+            }
+        }
 
         cx.spawn(async move |this, cx| {
+            // Resolve (or create) the target profile first and start watching
+            // it for cleanup immediately if it's temporary — before any
+            // further work that could fail, and before the game itself could
+            // even exit, closing the race where a fast-exiting game leaves a
+            // temp profile unwatched (and so never reaped).
+            let resolved = cx
+                .background_executor()
+                .spawn(async move { resolve_launch_profile(target) })
+                .await;
+            let (profile, temp_profile_id) = match resolved {
+                Ok(resolved) => resolved,
+                Err(e) => {
+                    warn!("failed to resolve launch profile: {e}");
+                    let _ = this.update(cx, |this, cx| {
+                        if let Some(d) = this.launch_dialog.as_mut() {
+                            d.busy = false;
+                            d.error = Some(e.to_string());
+                        }
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+            if let Some(id) = temp_profile_id.clone() {
+                let _ = this.update(cx, |this, cx| {
+                    this.track_temp_profile(id);
+                    cx.notify();
+                });
+            }
+
             let outcome = cx
                 .background_executor()
-                .spawn(async move { launch_into_lobby(target, required, &server_url) })
+                .spawn(async move {
+                    launch_into_lobby_for_profile(
+                        profile,
+                        required,
+                        versionless,
+                        &server_host,
+                        server_port,
+                    )
+                })
                 .await;
+
             let _ = this.update(cx, |this, cx| {
                 match outcome {
-                    Ok(outcome) => {
+                    Ok(summary) => {
                         this.launch_dialog = None;
                         let mut message = String::new();
                         if !code.is_empty() {
                             this.copy_code(code.clone(), cx);
                             message = format!("Code {code} copied to clipboard. ");
                         }
-                        message.push_str(&outcome.summary);
+                        message.push_str(&summary);
                         this.notice = Some(message);
-                        if let Some(temp_id) = outcome.temp_profile_id {
-                            this.track_temp_profile(temp_id);
-                        }
                     }
                     Err(e) => {
                         warn!("launch into lobby failed: {e}");
+                        // The launch never succeeded, so there's no game
+                        // process to wait for — clean up a temp profile right
+                        // away instead of leaving it tracked with nothing to
+                        // ever transition it out of "pending".
+                        if let Some(id) = temp_profile_id {
+                            this.forget_temp_profile(&id);
+                            cx.spawn(async move |_this, cx| {
+                                let id_for_delete = id.clone();
+                                let result = cx
+                                    .background_executor()
+                                    .spawn(async move { profile_service::delete_profile(&id_for_delete) })
+                                    .await;
+                                if let Err(e) = result {
+                                    warn!(
+                                        "failed to clean up temp profile {id} after launch error: {e}"
+                                    );
+                                }
+                            })
+                            .detach();
+                        }
                         if let Some(d) = this.launch_dialog.as_mut() {
                             d.busy = false;
                             d.error = Some(e.to_string());
@@ -513,10 +588,7 @@ impl LobbiesView {
                                 .flex_wrap()
                                 .gap_1p5()
                                 .children(
-                                    game.mods
-                                        .iter()
-                                        .filter(|m| m.id.is_some())
-                                        .map(|m| render_mod_chip(m, theme)),
+                                    game.mods.iter().map(|m| render_mod_chip(m, theme)),
                                 ),
                         )
                     }),
@@ -632,12 +704,7 @@ impl LobbiesView {
                     .flex()
                     .flex_wrap()
                     .gap_1p5()
-                    .children(
-                        required_mods
-                            .iter()
-                            .filter(|m| m.id.is_some())
-                            .map(|m| render_mod_chip(m, theme)),
-                    )
+                    .children(required_mods.iter().map(|m| render_mod_chip(m, theme)))
                     .into_any_element(),
             );
         }
@@ -826,31 +893,36 @@ impl Render for LobbiesView {
 /// A small icon + label for one of a lobby's required mods, correlated
 /// against the shared Starlight catalog cache by id when possible. Falls
 /// back to the bare mod id with a default icon when the catalog has no match
-/// (or the lookup hasn't resolved yet).
+/// (or the lookup hasn't resolved yet), or to a generic "Unknown mod" label
+/// when the server didn't even send an id for this entry.
 fn render_mod_chip(lobby_mod: &LobbyMod, theme: &Theme) -> AnyElement {
-    let id = lobby_mod.id.clone().unwrap_or_default();
-    let resolved = mod_catalog_cache::get(&id).flatten();
+    let resolved = lobby_mod
+        .id
+        .as_deref()
+        .and_then(mod_catalog_cache::get)
+        .flatten();
 
-    let label = match (&resolved, &lobby_mod.version) {
-        (Some(info), Some(version)) => format!("{} {version}", info.name),
-        (Some(info), None) => info.name.clone(),
-        (None, Some(version)) => format!("{id} {version}"),
-        (None, None) => id.clone(),
+    let label = match (lobby_mod.id.as_deref(), &resolved, &lobby_mod.version) {
+        (_, Some(info), Some(version)) => format!("{} {version}", info.name),
+        (_, Some(info), None) => info.name.clone(),
+        (Some(id), None, Some(version)) => format!("{id} {version}"),
+        (Some(id), None, None) => id.to_string(),
+        (None, _, Some(version)) => format!("Unknown mod {version}"),
+        (None, _, None) => "Unknown mod".to_string(),
     };
 
-    let icon: AnyElement = if resolved.is_some() {
-        img(api::mod_thumbnail_url(&id))
+    let icon: AnyElement = match (&resolved, lobby_mod.id.as_deref()) {
+        (Some(_), Some(id)) => img(api::mod_thumbnail_url(id))
             .w(px(14.0))
             .h(px(14.0))
             .flex_none()
             .rounded_sm()
             .object_fit(ObjectFit::Contain)
-            .into_any_element()
-    } else {
-        Icon::new(IconName::File)
+            .into_any_element(),
+        _ => Icon::new(IconName::File)
             .size(px(12.0))
             .text_color(theme.text_muted)
-            .into_any_element()
+            .into_any_element(),
     };
 
     div()
@@ -876,19 +948,32 @@ fn render_mod_chip(lobby_mod: &LobbyMod, theme: &Theme) -> AnyElement {
 }
 
 /// What launching `required` mods into a profile already holding `installed`
-/// would do: the catalog names of mods that would be newly installed, and how
-/// many required mods aren't in the Starlight catalog (and so would be
-/// skipped — see `mod_install_service::plan_lobby_mods`). Only covers the
-/// lobby's directly-required mods, not their transitive dependencies (which
-/// need a network round-trip to resolve and so aren't known until launch).
+/// would do: the catalog names of mods that would be newly installed, how many
+/// required mods aren't in the Starlight catalog (and so would be skipped —
+/// see `mod_install_service::plan_lobby_mods`), and how many still-missing
+/// mods haven't had their catalog lookup resolve yet (so we genuinely don't
+/// know if they're installable). Only covers the lobby's directly-required
+/// mods, not their transitive dependencies (which need a network round-trip
+/// to resolve and so aren't known until launch).
 struct ModInstallPreview {
     to_install: Vec<String>,
     unavailable: usize,
+    pending: usize,
+}
+
+impl ModInstallPreview {
+    /// Whether this profile is confirmed to already have every resolvable
+    /// required mod — `false` while any mod's catalog status is still unknown,
+    /// rather than optimistically assuming it'll turn out installed.
+    fn fully_satisfied(&self) -> bool {
+        self.to_install.is_empty() && self.pending == 0
+    }
 }
 
 fn preview_mod_installs(required: &[LobbyMod], installed: &[ProfileModEntry]) -> ModInstallPreview {
     let mut to_install = Vec::new();
     let mut unavailable = 0;
+    let mut pending = 0;
     for m in required {
         let Some(id) = &m.id else { continue };
         let already_installed = installed.iter().any(|p| {
@@ -904,21 +989,22 @@ fn preview_mod_installs(required: &[LobbyMod], installed: &[ProfileModEntry]) ->
         match mod_catalog_cache::get(id) {
             Some(Some(info)) => to_install.push(info.name),
             Some(None) => unavailable += 1,
-            // Not resolved yet — assume installable; the chip list above
-            // updates once the lookup completes.
-            None => to_install.push(id.clone()),
+            // Not resolved yet — unknown, not "will install"; the chip list
+            // and this preview both update once the lookup completes.
+            None => pending += 1,
         }
     }
     ModInstallPreview {
         to_install,
         unavailable,
+        pending,
     }
 }
 
 /// Human-readable label for a [`ModInstallPreview`], plus the color to show
 /// it in (the theme's success color when nothing needs to change).
 fn install_summary(preview: &ModInstallPreview, theme: &Theme) -> (String, Rgba) {
-    if preview.to_install.is_empty() && preview.unavailable == 0 {
+    if preview.fully_satisfied() && preview.unavailable == 0 {
         return (
             "All required mods already installed".to_string(),
             theme.success,
@@ -935,6 +1021,9 @@ fn install_summary(preview: &ModInstallPreview, theme: &Theme) -> (String, Rgba)
             text.push_str(&format!(", +{extra} more"));
         }
         parts.push(text);
+    }
+    if preview.pending > 0 {
+        parts.push(format!("checking {} mod(s)…", preview.pending));
     }
     if preview.unavailable > 0 {
         parts.push(format!(
@@ -958,39 +1047,47 @@ fn map_name(map_id: Option<u32>) -> &'static str {
     }
 }
 
-/// Outcome of a successful `launch_into_lobby` call.
-struct LaunchOutcome {
-    /// Short summary of what happened (the caller adds the copied-code note).
-    summary: String,
-    /// Set when the launch used a temporary profile, so the caller can watch
-    /// for its game exiting and delete it.
-    temp_profile_id: Option<String>,
+/// Resolve a launch target to a concrete profile: an existing profile by id,
+/// or a freshly-created temporary one. Returns the temp profile's id again
+/// (`None` for an existing profile) so the caller can start watching it for
+/// cleanup right away, before doing anything else that could fail or race the
+/// launched game's own exit. Blocking; run on the background executor.
+fn resolve_launch_profile(target: LaunchTarget) -> AppResult<(ProfileEntry, Option<String>)> {
+    match target {
+        LaunchTarget::Existing(id) => {
+            let profile = profile_service::get_profile_by_id(&id)?
+                .ok_or_else(|| AppError::validation("The selected profile no longer exists"))?;
+            Ok((profile, None))
+        }
+        LaunchTarget::Temporary => {
+            let profile = create_temp_profile()?;
+            let id = profile.id.clone();
+            Ok((profile, Some(id)))
+        }
+    }
 }
 
-/// Resolve the target profile, install the lobby's required mods (best-effort),
-/// point Among Us at the lobby's region, and launch. Blocking; run on the
-/// background executor.
-fn launch_into_lobby(
-    target: LaunchTarget,
+/// Install the lobby's required mods into `profile`, point Among Us at the
+/// lobby's region, and launch. `versionless` is the count of required mods
+/// the lobby sent with no version (uninstallable, but still reported as
+/// skipped rather than silently dropped). Blocking; run on the background
+/// executor.
+fn launch_into_lobby_for_profile(
+    profile: ProfileEntry,
     required: Vec<InstallModInput>,
-    server_url: &str,
-) -> AppResult<LaunchOutcome> {
-    let is_temp = matches!(target, LaunchTarget::Temporary);
-    let profile = match target {
-        LaunchTarget::Existing(id) => profile_service::get_profile_by_id(&id)?
-            .ok_or_else(|| AppError::validation("The selected profile no longer exists"))?,
-        LaunchTarget::Temporary => create_temp_profile()?,
-    };
-    let temp_profile_id = is_temp.then(|| profile.id.clone());
-
+    versionless: usize,
+    server_host: &str,
+    server_port: u16,
+) -> AppResult<String> {
     if profile.bepinex_installed != Some(true) {
         profile_service::install_bepinex_for_profile(&profile.id)?;
     }
 
-    let mut skipped = 0usize;
+    let mut skipped = versionless;
+    let mut failed = 0usize;
     if !required.is_empty() {
         let (installable, unresolved) = mod_install_service::plan_lobby_mods(&required);
-        skipped = unresolved.len();
+        skipped += unresolved.len();
         // Skip mods already present at the exact version the lobby wants.
         let missing: Vec<InstallModInput> = installable
             .into_iter()
@@ -1001,12 +1098,25 @@ fn launch_into_lobby(
                     .any(|p| p.mod_id == m.mod_id && p.version == m.version)
             })
             .collect();
-        if !missing.is_empty() {
-            mod_install_service::install_mods_for_profile(&profile.id, &missing)?;
+        // Install one mod at a time: install_mods_for_profile rolls back its
+        // whole batch on a single failure, which is right for one coherent
+        // "install this mod" user action but wrong here — a lobby launch
+        // wants each required mod to be independently best-effort, so one
+        // flaky download doesn't sink mods that already succeeded.
+        for item in missing {
+            let mod_id = item.mod_id.clone();
+            if let Err(e) = mod_install_service::install_mods_for_profile(
+                &profile.id,
+                std::slice::from_ref(&item),
+            ) {
+                warn!("failed to install mod {mod_id} for lobby launch: {e}");
+                failed += 1;
+            }
         }
     }
 
-    let region_set = region_service::select_region_by_server_url(server_url).unwrap_or(false);
+    let region_set =
+        region_service::select_region_by_host_port(server_host, server_port).unwrap_or(false);
 
     // Reload so the launch sees the freshly installed BepInEx / mods.
     let profile = profile_service::get_profile_by_id(&profile.id)?
@@ -1023,10 +1133,10 @@ fn launch_into_lobby(
             " {skipped} required mod(s) weren't in the catalog and were skipped."
         ));
     }
-    Ok(LaunchOutcome {
-        summary,
-        temp_profile_id,
-    })
+    if failed > 0 {
+        summary.push_str(&format!(" {failed} mod(s) failed to install and were skipped."));
+    }
+    Ok(summary)
 }
 
 /// Create a fresh throwaway profile for a one-off lobby launch, uniquely named

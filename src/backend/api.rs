@@ -184,6 +184,25 @@ pub fn fetch_mod(id: &str) -> AppResult<ModResponse> {
     get_json(&format!("{}/api/v3/mods/{}", DEFAULT_API_BASE_URL, id))
 }
 
+/// Outcome of looking up a single catalog mod, distinguishing a confirmed
+/// absence (HTTP 404 — safe to cache indefinitely) from any other failure
+/// (network/timeout/5xx — transient, callers shouldn't cache it as "missing").
+pub enum ModLookup {
+    Found(Box<ModResponse>),
+    NotFound,
+}
+
+pub fn lookup_mod(id: &str) -> AppResult<ModLookup> {
+    let url = format!("{}/api/v3/mods/{}", DEFAULT_API_BASE_URL, id);
+    let response = reqwest::blocking::get(&url)?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(ModLookup::NotFound);
+    }
+    Ok(ModLookup::Found(Box::new(
+        response.error_for_status()?.json::<ModResponse>()?,
+    )))
+}
+
 pub fn fetch_mod_versions(id: &str) -> AppResult<Vec<ModVersion>> {
     get_json(&format!(
         "{}/api/v3/mods/{}/versions",
@@ -219,15 +238,34 @@ pub fn fetch_servers() -> AppResult<Vec<Server>> {
 }
 
 /// Fetch the public lobby list from a server that implements the optional
-/// `/x-api/games` endpoint (see `hpllp013.yaml`). `base_url` is the region's
-/// server origin, e.g. `https://au-eu.duikbo.at`. Short timeouts keep a
-/// non-implementing or unresponsive server from stalling a refresh — callers
+/// `/x-api/games` endpoint (see `hpllp013.yaml`). `host`/`port` identify the
+/// region's server; the scheme to use isn't reliably known (a custom region's
+/// stored `Ip` scheme is only ever a guess — see `region_service::build_region`),
+/// so this tries HTTPS first and falls back to plain HTTP. Short timeouts keep
+/// a non-implementing or unresponsive server from stalling a refresh — callers
 /// treat any error as "this server has no lobby list" and skip it.
-pub fn fetch_lobbies(base_url: &str) -> AppResult<GamesResult> {
-    let url = format!("{}/x-api/games", base_url.trim_end_matches('/'));
+pub fn fetch_lobbies(host: &str, port: u16) -> AppResult<GamesResult> {
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(8))
         .build()?;
-    Ok(client.get(&url).send()?.error_for_status()?.json::<GamesResult>()?)
+
+    let mut last_err = None;
+    for scheme in ["https", "http"] {
+        let default_port = if scheme == "https" { 443 } else { 80 };
+        let origin = if port == default_port {
+            format!("{scheme}://{host}")
+        } else {
+            format!("{scheme}://{host}:{port}")
+        };
+        match client
+            .get(format!("{origin}/x-api/games"))
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+        {
+            Ok(response) => return Ok(response.json::<GamesResult>()?),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.expect("loop runs at least once").into())
 }
