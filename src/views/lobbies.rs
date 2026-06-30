@@ -14,7 +14,7 @@ use crate::backend::api::{self, Game, LobbyMod};
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::mod_install_service::{self, InstallModInput};
-use crate::backend::services::profile_service::{self, ProfileEntry};
+use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry};
 use crate::backend::services::{launch_service, region_service};
 use crate::backend::state::game_runtime::{self, GameStatePayload};
 use crate::backend::state::mod_catalog_cache;
@@ -79,6 +79,16 @@ struct LaunchDialog {
 enum LaunchTarget {
     Existing(String),
     Temporary,
+}
+
+/// Display fields for one row of the launch dialog's profile picker.
+struct TargetOption<'a> {
+    target: LaunchTarget,
+    title: &'a str,
+    subtitle: &'a str,
+    /// Per-profile mod install preview (see `install_summary`); empty to hide.
+    detail: &'a str,
+    detail_color: Rgba,
 }
 
 impl LobbiesView {
@@ -303,10 +313,16 @@ impl LobbiesView {
     }
 
     fn open_launch_dialog(&mut self, lobby: LobbyRow, cx: &mut Context<Self>) {
-        // Default to the first existing profile, or a temporary one if none.
+        // Preselect the most-recently-launched profile that already has every
+        // required mod installed (`self.profiles` is sorted last-launched
+        // first); otherwise fall back to the most-recently-launched profile,
+        // or a temporary one if there are no profiles at all.
+        let required_mods = &lobby.game.mods;
         let target = self
             .profiles
-            .first()
+            .iter()
+            .find(|p| preview_mod_installs(required_mods, &p.mods).to_install.is_empty())
+            .or_else(|| self.profiles.first())
             .map(|p| LaunchTarget::Existing(p.id.clone()))
             .unwrap_or(LaunchTarget::Temporary);
         self.launch_dialog = Some(LaunchDialog {
@@ -535,41 +551,48 @@ impl LobbiesView {
         let dialog = self.launch_dialog.as_ref()?;
         let game = &dialog.lobby.game;
         let code = game.code.clone().unwrap_or_else(|| "------".to_string());
-        let mod_count = game.mods.len();
+        let required_mods = &game.mods;
+        let no_mods: Vec<ProfileModEntry> = Vec::new();
 
         let mut option_rows: Vec<AnyElement> = self
             .profiles
             .iter()
             .map(|p| {
-                let subtitle = if p.bepinex_installed.unwrap_or(false) {
+                let bep_subtitle = if p.bepinex_installed.unwrap_or(false) {
                     "Modded profile"
                 } else {
                     "BepInEx will be installed"
                 };
+                let preview = preview_mod_installs(required_mods, &p.mods);
+                let (detail, detail_color) = install_summary(&preview, theme);
                 self.render_target_option(
-                    LaunchTarget::Existing(p.id.clone()),
-                    &p.name,
-                    subtitle,
+                    TargetOption {
+                        target: LaunchTarget::Existing(p.id.clone()),
+                        title: &p.name,
+                        subtitle: bep_subtitle,
+                        detail: &detail,
+                        detail_color,
+                    },
                     &dialog.target,
                     theme,
                     cx,
                 )
             })
             .collect();
+        let temp_preview = preview_mod_installs(required_mods, &no_mods);
+        let (temp_detail, temp_detail_color) = install_summary(&temp_preview, theme);
         option_rows.push(self.render_target_option(
-            LaunchTarget::Temporary,
-            "Temporary profile",
-            "Fresh profile, deleted automatically once the game closes",
+            TargetOption {
+                target: LaunchTarget::Temporary,
+                title: "Temporary profile",
+                subtitle: "Fresh profile, deleted automatically once the game closes",
+                detail: &temp_detail,
+                detail_color: temp_detail_color,
+            },
             &dialog.target,
             theme,
             cx,
         ));
-
-        let mods_note = if mod_count == 0 {
-            "No mods required.".to_string()
-        } else {
-            format!("{mod_count} required mod(s) will be installed if missing.")
-        };
 
         let mut items: Vec<AnyElement> = vec![
             div()
@@ -581,7 +604,9 @@ impl LobbiesView {
                 .text_color(theme.text_muted)
                 .child(format!("Region: {}", dialog.lobby.region_label))
                 .into_any_element(),
-            section_label("Profile", theme).into_any_element(),
+        ];
+        items.push(section_label("Profile", theme).into_any_element());
+        items.push(
             div()
                 .id("launch-profile-list")
                 .flex()
@@ -591,12 +616,31 @@ impl LobbiesView {
                 .overflow_y_scroll()
                 .children(option_rows)
                 .into_any_element(),
-            div()
-                .text_xs()
-                .text_color(theme.text_muted)
-                .child(mods_note)
-                .into_any_element(),
-        ];
+        );
+        if required_mods.is_empty() {
+            items.push(
+                div()
+                    .text_xs()
+                    .text_color(theme.text_muted)
+                    .child("No mods required.")
+                    .into_any_element(),
+            );
+        } else {
+            items.push(section_label("Required mods", theme).into_any_element());
+            items.push(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_1p5()
+                    .children(
+                        required_mods
+                            .iter()
+                            .filter(|m| m.id.is_some())
+                            .map(|m| render_mod_chip(m, theme)),
+                    )
+                    .into_any_element(),
+            );
+        }
         if let Some(err) = &dialog.error {
             items.push(
                 div()
@@ -640,13 +684,18 @@ impl LobbiesView {
 
     fn render_target_option(
         &self,
-        target: LaunchTarget,
-        title: &str,
-        subtitle: &str,
+        option: TargetOption,
         selected: &LaunchTarget,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let TargetOption {
+            target,
+            title,
+            subtitle,
+            detail,
+            detail_color,
+        } = option;
         let is_selected = &target == selected;
         let id = match &target {
             LaunchTarget::Existing(pid) => format!("target-{pid}"),
@@ -699,7 +748,16 @@ impl LobbiesView {
                             .text_xs()
                             .text_color(theme.text_muted)
                             .child(subtitle.to_string()),
-                    ),
+                    )
+                    .when(!detail.is_empty(), |s| {
+                        s.child(
+                            div()
+                                .truncate()
+                                .text_xs()
+                                .text_color(detail_color)
+                                .child(detail.to_string()),
+                        )
+                    }),
             )
             .into_any_element()
     }
@@ -815,6 +873,76 @@ fn render_mod_chip(lobby_mod: &LobbyMod, theme: &Theme) -> AnyElement {
                 .child(label),
         )
         .into_any_element()
+}
+
+/// What launching `required` mods into a profile already holding `installed`
+/// would do: the catalog names of mods that would be newly installed, and how
+/// many required mods aren't in the Starlight catalog (and so would be
+/// skipped — see `mod_install_service::plan_lobby_mods`). Only covers the
+/// lobby's directly-required mods, not their transitive dependencies (which
+/// need a network round-trip to resolve and so aren't known until launch).
+struct ModInstallPreview {
+    to_install: Vec<String>,
+    unavailable: usize,
+}
+
+fn preview_mod_installs(required: &[LobbyMod], installed: &[ProfileModEntry]) -> ModInstallPreview {
+    let mut to_install = Vec::new();
+    let mut unavailable = 0;
+    for m in required {
+        let Some(id) = &m.id else { continue };
+        let already_installed = installed.iter().any(|p| {
+            p.mod_id == *id
+                && match &m.version {
+                    Some(v) => &p.version == v,
+                    None => true,
+                }
+        });
+        if already_installed {
+            continue;
+        }
+        match mod_catalog_cache::get(id) {
+            Some(Some(info)) => to_install.push(info.name),
+            Some(None) => unavailable += 1,
+            // Not resolved yet — assume installable; the chip list above
+            // updates once the lookup completes.
+            None => to_install.push(id.clone()),
+        }
+    }
+    ModInstallPreview {
+        to_install,
+        unavailable,
+    }
+}
+
+/// Human-readable label for a [`ModInstallPreview`], plus the color to show
+/// it in (the theme's success color when nothing needs to change).
+fn install_summary(preview: &ModInstallPreview, theme: &Theme) -> (String, Rgba) {
+    if preview.to_install.is_empty() && preview.unavailable == 0 {
+        return (
+            "All required mods already installed".to_string(),
+            theme.success,
+        );
+    }
+    let mut parts = Vec::new();
+    if !preview.to_install.is_empty() {
+        const MAX_NAMES: usize = 3;
+        let mut names = preview.to_install.clone();
+        let extra = names.len().saturating_sub(MAX_NAMES);
+        names.truncate(MAX_NAMES);
+        let mut text = format!("Will install: {}", names.join(", "));
+        if extra > 0 {
+            text.push_str(&format!(", +{extra} more"));
+        }
+        parts.push(text);
+    }
+    if preview.unavailable > 0 {
+        parts.push(format!(
+            "{} not in the catalog (will be skipped)",
+            preview.unavailable
+        ));
+    }
+    (parts.join(" · "), theme.text_muted)
 }
 
 /// Map id → Among Us map name (see `MapNames.cs`).
