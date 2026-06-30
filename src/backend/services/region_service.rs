@@ -60,6 +60,72 @@ pub fn region_has_server(region: &Value, address: &str, port: u16) -> bool {
         })
 }
 
+/// Origin (`scheme://host[:port]`) of a region's primary server, suitable for
+/// querying optional endpoints like the public lobby list. `None` if the
+/// region has no usable HTTP server entry. The port is appended only when it
+/// differs from the scheme's default, matching how `build_region` writes `Ip`.
+pub fn region_server_url(region: &Value) -> Option<String> {
+    let server = region
+        .get("Servers")
+        .and_then(Value::as_array)
+        .and_then(|servers| servers.first())?;
+    let ip = server.get("Ip").and_then(Value::as_str)?;
+    let port = server.get("Port").and_then(Value::as_u64).unwrap_or(443);
+    let scheme = if ip.starts_with("http://") {
+        "http"
+    } else {
+        "https"
+    };
+    let host = host_of(ip);
+    let default_port = if scheme == "https" { 443 } else { 80 };
+    if port == default_port {
+        Some(format!("{scheme}://{host}"))
+    } else {
+        Some(format!("{scheme}://{host}:{port}"))
+    }
+}
+
+/// A region the user has enabled (present in `regionInfo.json`) paired with its
+/// server origin — the set of servers to poll for public lobby lists.
+#[derive(Debug, Clone)]
+pub struct LobbyServer {
+    pub region_name: String,
+    pub url: String,
+}
+
+/// The enabled regions to query for lobbies: every region in `regionInfo.json`
+/// that exposes a usable server origin.
+pub fn lobby_servers() -> AppResult<Vec<LobbyServer>> {
+    let info = read_region_info()?;
+    Ok(info
+        .regions
+        .iter()
+        .filter_map(|region| {
+            region_server_url(region).map(|url| LobbyServer {
+                region_name: region_name(region).to_string(),
+                url,
+            })
+        })
+        .collect())
+}
+
+/// Point Among Us' in-game region selector at the region whose server origin is
+/// `url`, so a launched game lands in the lobby's region. Returns whether a
+/// matching region was found.
+pub fn select_region_by_server_url(url: &str) -> AppResult<bool> {
+    let mut info = read_region_info()?;
+    let Some(idx) = info
+        .regions
+        .iter()
+        .position(|region| region_server_url(region).as_deref() == Some(url))
+    else {
+        return Ok(false);
+    };
+    info.current_region_idx = idx as i32;
+    write_region_info(&info)?;
+    Ok(true)
+}
+
 /// The host portion of a server URL — strips an `http(s)://` scheme and any path.
 fn host_of(url: &str) -> &str {
     let without_scheme = url

@@ -123,6 +123,41 @@ fn walk_dep(dep: &ModDependency, visited: &mut HashSet<String>, out: &mut Vec<Re
     });
 }
 
+/// Expand the mods a lobby requires into a concrete install list, including
+/// transitive dependencies and ordered deepest-first so dependencies install
+/// before dependents. Mods (or dependencies) that can't be resolved against the
+/// catalog are skipped and returned as the second value, so a single unknown
+/// mod doesn't block installing the rest. Does not filter already-installed
+/// versions — that's the caller's job, since it needs the target profile.
+pub fn plan_lobby_mods(required: &[InstallModInput]) -> (Vec<InstallModInput>, Vec<String>) {
+    let mut out: Vec<InstallModInput> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut unresolved: Vec<String> = Vec::new();
+
+    for req in required {
+        // Confirm the exact mod+version exists and pull its dependency tree.
+        let Ok(info) = api::fetch_mod_version_info(&req.mod_id, &req.version) else {
+            unresolved.push(req.mod_id.clone());
+            continue;
+        };
+        if let Ok(deps) = resolve_dependencies(&info.dependencies) {
+            for dep in deps {
+                if seen.insert(dep.mod_id.clone()) {
+                    out.push(InstallModInput {
+                        mod_id: dep.mod_id,
+                        version: dep.resolved_version,
+                    });
+                }
+            }
+        }
+        if seen.insert(req.mod_id.clone()) {
+            out.push(req.clone());
+        }
+    }
+
+    (out, unresolved)
+}
+
 fn absolute_url(path_or_url: &str) -> String {
     if path_or_url.starts_with("http://") || path_or_url.starts_with("https://") {
         return path_or_url.to_string();
