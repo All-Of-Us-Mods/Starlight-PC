@@ -11,7 +11,6 @@ use log::warn;
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
-use std::sync::{LazyLock, Mutex};
 
 use crate::backend::api;
 use crate::backend::events::{self, BackendEvent};
@@ -19,6 +18,7 @@ use crate::backend::services::bepinex_service::{BepInExProgress, BepInExTargetTy
 use crate::backend::services::launch_service;
 use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry, ZipOp};
 use crate::backend::state::game_runtime;
+use crate::backend::state::mod_catalog_cache;
 use crate::settings as app_settings;
 use crate::theme::ThemeExt;
 use crate::ui::format;
@@ -34,9 +34,6 @@ use gpui_component::switch::Switch;
 use gpui_component::{Disableable, Icon, IconName};
 
 use icon_dialog::{IconDialogState, render_icon_dialog};
-
-static MOD_NAME_CACHE: LazyLock<Mutex<HashMap<String, String>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone, Debug)]
 pub enum LibraryDetailEvent {
@@ -94,7 +91,7 @@ impl LibraryDetailView {
             stoppable_count: 0,
             pending_launches: 0,
             log_panel,
-            mod_names: cached_mod_names(),
+            mod_names: mod_catalog_cache::cached_names(),
         };
 
         view.spawn_load(cx);
@@ -196,7 +193,7 @@ impl LibraryDetailView {
         let LoadState::Loaded(profile) = &self.state else {
             return;
         };
-        let cached = cached_mod_names();
+        let cached = mod_catalog_cache::cached_names();
         let pending: Vec<String> = profile
             .mods
             .iter()
@@ -220,11 +217,10 @@ impl LibraryDetailView {
                 let id_for_fetch = mod_id.clone();
                 let resolved = cx
                     .background_executor()
-                    .spawn(async move { api::fetch_mod(&id_for_fetch).ok().map(|m| m.name) })
+                    .spawn(async move { mod_catalog_cache::fetch(&id_for_fetch).map(|m| m.name) })
                     .await;
                 if let Some(name) = resolved {
                     let _ = this.update(cx, |this, cx| {
-                        cache_mod_name(mod_id.clone(), name.clone());
                         this.mod_names.insert(mod_id, name);
                         cx.notify();
                     });
@@ -463,19 +459,6 @@ impl LibraryDetailView {
 /// Starting directory for the export save dialog (user home, else cwd).
 fn default_export_dir() -> std::path::PathBuf {
     std::env::home_dir().unwrap_or_else(|| ".".into())
-}
-
-fn cached_mod_names() -> HashMap<String, String> {
-    MOD_NAME_CACHE
-        .lock()
-        .map(|cache| cache.clone())
-        .unwrap_or_default()
-}
-
-fn cache_mod_name(mod_id: String, name: String) {
-    if let Ok(mut cache) = MOD_NAME_CACHE.lock() {
-        cache.insert(mod_id, name);
-    }
 }
 
 fn open_folder(path: &Path) -> std::io::Result<()> {

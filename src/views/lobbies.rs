@@ -4,19 +4,20 @@
 //! join code or launch straight into a lobby — picking an existing profile or
 //! a temporary one, with the lobby's required mods installed automatically.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use gpui::{prelude::FluentBuilder as _, *};
 use log::warn;
 
-use crate::backend::api::{self, Game};
+use crate::backend::api::{self, Game, LobbyMod};
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::mod_install_service::{self, InstallModInput};
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::backend::services::{launch_service, region_service};
 use crate::backend::state::game_runtime::{self, GameStatePayload};
+use crate::backend::state::mod_catalog_cache;
 use crate::theme::{Theme, ThemeExt};
 use crate::views::{modal_overlay, page_root, section_label};
 use gpui_component::button::{Button, ButtonVariants};
@@ -41,6 +42,10 @@ pub struct LobbiesView {
     /// profile with a running instance (so we don't delete it before its game
     /// even started).
     temp_cleanup: HashMap<String, bool>,
+    /// Mod ids with a catalog lookup currently in flight from this view, so a
+    /// later refresh doesn't kick off a duplicate fetch. Resolved info itself
+    /// lives in the shared `mod_catalog_cache`, not here.
+    mod_lookup_pending: HashSet<String>,
     /// The auto-refresh loop; dropped (and thus cancelled) with the view.
     _refresh: Task<()>,
 }
@@ -172,9 +177,16 @@ impl LobbiesView {
                                 .then(b.game.player_count.cmp(&a.game.player_count))
                         });
 
+                        let mod_ids: Vec<String> = rows
+                            .iter()
+                            .flat_map(|row| row.game.mods.iter())
+                            .filter_map(|m| m.id.clone())
+                            .collect();
+
                         let _ = this.update(cx, |this, cx| {
                             this.state = LoadState::Loaded(rows);
                             this.refreshing = false;
+                            this.ensure_mod_info(mod_ids, cx);
                             cx.notify();
                         });
                     }
@@ -209,6 +221,7 @@ impl LobbiesView {
             error: None,
             refreshing: false,
             temp_cleanup: HashMap::new(),
+            mod_lookup_pending: HashSet::new(),
             _refresh: refresh,
         }
     }
@@ -251,6 +264,42 @@ impl LobbiesView {
                 }
             });
         }
+    }
+
+    /// Kick off background catalog lookups (via the shared `mod_catalog_cache`,
+    /// also used by the Library's profile detail page) for any of `mod_ids`
+    /// not already cached or in flight, so `render_row` can correlate a
+    /// lobby's required mods to the Starlight catalog (name + thumbnail),
+    /// falling back to the bare id when a mod isn't in the catalog.
+    fn ensure_mod_info(&mut self, mod_ids: Vec<String>, cx: &mut Context<Self>) {
+        let missing: Vec<String> = mod_ids
+            .into_iter()
+            .filter(|id| mod_catalog_cache::get(id).is_none())
+            .filter(|id| self.mod_lookup_pending.insert(id.clone()))
+            .collect();
+        if missing.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            let tasks: Vec<_> = missing
+                .iter()
+                .cloned()
+                .map(|id| {
+                    cx.background_executor()
+                        .spawn(async move { mod_catalog_cache::fetch(&id) })
+                })
+                .collect();
+            for task in tasks {
+                task.await;
+            }
+            let _ = this.update(cx, |this, cx| {
+                for id in &missing {
+                    this.mod_lookup_pending.remove(id);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn open_launch_dialog(&mut self, lobby: LobbyRow, cx: &mut Context<Self>) {
@@ -384,15 +433,8 @@ impl LobbiesView {
             game.player_count.unwrap_or(0),
             game.max_players.unwrap_or(0)
         );
-        let mut meta = vec![
-            players,
-            map_name(game.map_id).to_string(),
-            row.region_label.clone(),
-        ];
-        if !game.mods.is_empty() {
-            meta.push(format!("{} mod(s)", game.mods.len()));
-        }
-        let meta_line = meta.join(" · ");
+        let meta_line = [players, map_name(game.map_id).to_string(), row.region_label.clone()]
+            .join(" · ");
 
         let is_open = game.status.as_deref() == Some("Lobby");
         let status_text = game.status.clone().unwrap_or_else(|| "Unknown".to_string());
@@ -447,7 +489,21 @@ impl LobbiesView {
                             .text_xs()
                             .text_color(theme.text_muted)
                             .child(meta_line),
-                    ),
+                    )
+                    .when(!game.mods.is_empty(), |s| {
+                        s.child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .gap_1p5()
+                                .children(
+                                    game.mods
+                                        .iter()
+                                        .filter(|m| m.id.is_some())
+                                        .map(|m| render_mod_chip(m, theme)),
+                                ),
+                        )
+                    }),
             )
             .child(
                 Button::new(SharedString::from(format!("copy-code-{ix}")))
@@ -707,6 +763,58 @@ impl Render for LobbiesView {
             )
             .children(self.render_launch_dialog(&theme, cx))
     }
+}
+
+/// A small icon + label for one of a lobby's required mods, correlated
+/// against the shared Starlight catalog cache by id when possible. Falls
+/// back to the bare mod id with a default icon when the catalog has no match
+/// (or the lookup hasn't resolved yet).
+fn render_mod_chip(lobby_mod: &LobbyMod, theme: &Theme) -> AnyElement {
+    let id = lobby_mod.id.clone().unwrap_or_default();
+    let resolved = mod_catalog_cache::get(&id).flatten();
+
+    let label = match (&resolved, &lobby_mod.version) {
+        (Some(info), Some(version)) => format!("{} {version}", info.name),
+        (Some(info), None) => info.name.clone(),
+        (None, Some(version)) => format!("{id} {version}"),
+        (None, None) => id.clone(),
+    };
+
+    let icon: AnyElement = if resolved.is_some() {
+        img(api::mod_thumbnail_url(&id))
+            .w(px(14.0))
+            .h(px(14.0))
+            .flex_none()
+            .rounded_sm()
+            .object_fit(ObjectFit::Contain)
+            .into_any_element()
+    } else {
+        Icon::new(IconName::File)
+            .size(px(12.0))
+            .text_color(theme.text_muted)
+            .into_any_element()
+    };
+
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .px_2()
+        .py_1()
+        .rounded_md()
+        .bg(theme.background)
+        .border_1()
+        .border_color(theme.border)
+        .child(icon)
+        .child(
+            div()
+                .max_w(px(160.0))
+                .truncate()
+                .text_xs()
+                .text_color(theme.text_muted)
+                .child(label),
+        )
+        .into_any_element()
 }
 
 /// Map id → Among Us map name (see `MapNames.cs`).
