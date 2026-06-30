@@ -184,23 +184,8 @@ pub fn fetch_mod(id: &str) -> AppResult<ModResponse> {
     get_json(&format!("{}/api/v3/mods/{}", DEFAULT_API_BASE_URL, id))
 }
 
-/// Outcome of looking up a single catalog mod, distinguishing a confirmed
-/// absence (HTTP 404 — safe to cache indefinitely) from any other failure
-/// (network/timeout/5xx — transient, callers shouldn't cache it as "missing").
-pub enum ModLookup {
-    Found(Box<ModResponse>),
-    NotFound,
-}
-
-pub fn lookup_mod(id: &str) -> AppResult<ModLookup> {
-    let url = format!("{}/api/v3/mods/{}", DEFAULT_API_BASE_URL, id);
-    let response = reqwest::blocking::get(&url)?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(ModLookup::NotFound);
-    }
-    Ok(ModLookup::Found(Box::new(
-        response.error_for_status()?.json::<ModResponse>()?,
-    )))
+pub fn mod_url(id: &str) -> String {
+    format!("{}/api/v3/mods/{}", DEFAULT_API_BASE_URL, id)
 }
 
 pub fn fetch_mod_versions(id: &str) -> AppResult<Vec<ModVersion>> {

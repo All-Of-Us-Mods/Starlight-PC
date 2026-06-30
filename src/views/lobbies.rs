@@ -33,7 +33,6 @@ pub struct LobbiesView {
     profiles: Vec<ProfileEntry>,
     launch_dialog: Option<LaunchDialog>,
     notice: Option<String>,
-    error: Option<String>,
     /// True while a poll is in flight (drives the header spinner without
     /// flashing the list back to skeletons).
     refreshing: bool,
@@ -232,7 +231,6 @@ impl LobbiesView {
             profiles: Vec::new(),
             launch_dialog: None,
             notice: None,
-            error: None,
             refreshing: false,
             temp_cleanup: HashMap::new(),
             mod_lookup_pending: HashSet::new(),
@@ -349,7 +347,6 @@ impl LobbiesView {
             error: None,
         });
         self.notice = None;
-        self.error = None;
         cx.notify();
     }
 
@@ -581,17 +578,7 @@ impl LobbiesView {
                             .text_color(theme.text_muted)
                             .child(meta_line),
                     )
-                    .when(!game.mods.is_empty(), |s| {
-                        s.child(
-                            div()
-                                .flex()
-                                .flex_wrap()
-                                .gap_1p5()
-                                .children(
-                                    game.mods.iter().map(|m| render_mod_chip(m, theme)),
-                                ),
-                        )
-                    }),
+                    .when(!game.mods.is_empty(), |s| s.child(mod_chip_row(&game.mods, theme))),
             )
             .child(
                 Button::new(SharedString::from(format!("copy-code-{ix}")))
@@ -699,14 +686,7 @@ impl LobbiesView {
             );
         } else {
             items.push(section_label("Required mods", theme).into_any_element());
-            items.push(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_1p5()
-                    .children(required_mods.iter().map(|m| render_mod_chip(m, theme)))
-                    .into_any_element(),
-            );
+            items.push(mod_chip_row(required_mods, theme));
         }
         if let Some(err) = &dialog.error {
             items.push(
@@ -865,14 +845,6 @@ impl Render for LobbiesView {
                             .child("Open games on your enabled regions that publish a public lobby list. Launch in, then paste the copied code in-game."),
                     ),
             )
-            .children(self.error.clone().map(|message| {
-                div()
-                    .rounded_md()
-                    .bg(rgb(0x7f1d1d))
-                    .p_3()
-                    .text_color(theme.text)
-                    .child(message)
-            }))
             .children(
                 self.notice
                     .clone()
@@ -888,6 +860,16 @@ impl Render for LobbiesView {
             )
             .children(self.render_launch_dialog(&theme, cx))
     }
+}
+
+/// A wrapped row of [`render_mod_chip`]s for a lobby's required mods.
+fn mod_chip_row(mods: &[LobbyMod], theme: &Theme) -> AnyElement {
+    div()
+        .flex()
+        .flex_wrap()
+        .gap_1p5()
+        .children(mods.iter().map(|m| render_mod_chip(m, theme)))
+        .into_any_element()
 }
 
 /// A small icon + label for one of a lobby's required mods, correlated
