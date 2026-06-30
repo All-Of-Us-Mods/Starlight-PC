@@ -60,6 +60,66 @@ pub fn region_has_server(region: &Value, address: &str, port: u16) -> bool {
         })
 }
 
+/// Host + port of a region's primary server, suitable for querying optional
+/// endpoints like the public lobby list. Scheme-agnostic — `build_region`
+/// only guesses a scheme from the port number, which doesn't reliably
+/// indicate whether an arbitrary custom server actually speaks TLS, so
+/// callers that need to make an HTTP request should try both schemes rather
+/// than trust `Ip`'s prefix. `None` if the region has no usable server entry.
+pub fn region_server_host_port(region: &Value) -> Option<(String, u16)> {
+    let server = region
+        .get("Servers")
+        .and_then(Value::as_array)
+        .and_then(|servers| servers.first())?;
+    let ip = server.get("Ip").and_then(Value::as_str)?;
+    let port = server.get("Port").and_then(Value::as_u64).unwrap_or(443) as u16;
+    Some((host_of(ip).to_string(), port))
+}
+
+/// A region the user has enabled (present in `regionInfo.json`) paired with its
+/// server's host+port — the set of servers to poll for public lobby lists.
+#[derive(Debug, Clone)]
+pub struct LobbyServer {
+    pub region_name: String,
+    pub host: String,
+    pub port: u16,
+}
+
+/// The enabled regions to query for lobbies: every region in `regionInfo.json`
+/// that exposes a usable server host+port.
+pub fn lobby_servers() -> AppResult<Vec<LobbyServer>> {
+    let info = read_region_info()?;
+    Ok(info
+        .regions
+        .iter()
+        .filter_map(|region| {
+            region_server_host_port(region).map(|(host, port)| LobbyServer {
+                region_name: region_name(region).to_string(),
+                host,
+                port,
+            })
+        })
+        .collect())
+}
+
+/// Point Among Us' in-game region selector at the region whose primary server
+/// matches `host`:`port` — the same host+port comparison `region_has_server`
+/// uses, so this can't drift from "is this the same server" out of sync with
+/// the rest of region matching. Returns whether a matching region was found.
+pub fn select_region_by_host_port(host: &str, port: u16) -> AppResult<bool> {
+    let mut info = read_region_info()?;
+    let Some(idx) = info
+        .regions
+        .iter()
+        .position(|region| region_has_server(region, host, port))
+    else {
+        return Ok(false);
+    };
+    info.current_region_idx = idx as i32;
+    write_region_info(&info)?;
+    Ok(true)
+}
+
 /// The host portion of a server URL — strips an `http(s)://` scheme and any path.
 fn host_of(url: &str) -> &str {
     let without_scheme = url

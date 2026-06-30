@@ -123,6 +123,59 @@ fn walk_dep(dep: &ModDependency, visited: &mut HashSet<String>, out: &mut Vec<Re
     });
 }
 
+/// Expand the mods a lobby requires into a concrete install list, including
+/// transitive dependencies and ordered deepest-first so dependencies install
+/// before dependents. Mods (or dependencies) that can't be resolved against the
+/// catalog are skipped and returned as the second value, so a single unknown
+/// mod doesn't block installing the rest. Does not filter already-installed
+/// versions — that's the caller's job, since it needs the target profile.
+///
+/// A mod's lobby-pinned version always wins over whatever version a *different*
+/// required mod's dependency walk resolves for it — versions are seeded from
+/// `required` up front, before any dependency is walked, so a diamond
+/// dependency can't silently override an exact lobby-pinned version.
+pub fn plan_lobby_mods(required: &[InstallModInput]) -> (Vec<InstallModInput>, Vec<String>) {
+    let mut versions: HashMap<String, String> = required
+        .iter()
+        .map(|req| (req.mod_id.clone(), req.version.clone()))
+        .collect();
+    let mut order: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut unresolved: Vec<String> = Vec::new();
+
+    for req in required {
+        // Confirm the exact mod+version exists and pull its dependency tree.
+        let Ok(info) = api::fetch_mod_version_info(&req.mod_id, &req.version) else {
+            unresolved.push(req.mod_id.clone());
+            continue;
+        };
+        if let Ok(deps) = resolve_dependencies(&info.dependencies) {
+            for dep in deps {
+                // `or_insert` never overwrites a lobby-pinned version already
+                // seeded above; first resolution wins for pure transitive deps.
+                versions
+                    .entry(dep.mod_id.clone())
+                    .or_insert(dep.resolved_version);
+                if seen.insert(dep.mod_id.clone()) {
+                    order.push(dep.mod_id);
+                }
+            }
+        }
+        if seen.insert(req.mod_id.clone()) {
+            order.push(req.mod_id.clone());
+        }
+    }
+
+    let out = order
+        .into_iter()
+        .filter_map(|mod_id| {
+            let version = versions.get(&mod_id)?.clone();
+            Some(InstallModInput { mod_id, version })
+        })
+        .collect();
+    (out, unresolved)
+}
+
 fn absolute_url(path_or_url: &str) -> String {
     if path_or_url.starts_with("http://") || path_or_url.starts_with("https://") {
         return path_or_url.to_string();

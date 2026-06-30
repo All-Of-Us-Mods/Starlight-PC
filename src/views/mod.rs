@@ -2,6 +2,7 @@ pub mod explore;
 pub mod home;
 pub mod library;
 pub mod library_detail;
+pub mod lobbies;
 pub mod mod_detail;
 pub mod news_detail;
 pub mod servers;
@@ -55,6 +56,11 @@ pub fn modal_overlay(
         .flex()
         .items_center()
         .justify_center()
+        // GPUI's scroll handling never stops propagation on its own, so a
+        // wheel event over a scrollable area inside the modal would also
+        // reach (and scroll) the page behind it. Trap it here once it's
+        // bubbled past anything scrollable inside the modal itself.
+        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
         .child(
             div()
                 .flex()
