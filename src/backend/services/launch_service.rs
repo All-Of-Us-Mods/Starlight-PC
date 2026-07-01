@@ -1,5 +1,8 @@
 use crate::backend::error::{AppError, AppResult};
+use crate::backend::services::core_service;
 use crate::backend::services::profile_service::ProfileEntry;
+#[cfg(windows)]
+use crate::backend::services::xbox_service;
 use crate::backend::state::game_runtime;
 use log::{debug, info};
 use serde::Deserialize;
@@ -203,14 +206,66 @@ fn cleanup_linux_doorstop_files(game_dir: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn attach_epic_launch_token(_cmd: &mut Command, platform: &str) -> AppResult<()> {
-    // TODO: Re-implement Epic launch token attachment once the new
-    // (link + paste-code) auth flow lands and we can persist EpicSessions
-    // again. For now, Epic launches happen without `-AUTH_PASSWORD`.
-    if platform == "epic" {
-        debug!("Epic launch: skipping AUTH_PASSWORD (auth flow not yet implemented)");
+fn attach_epic_launch_token(cmd: &mut Command, platform: &str) -> AppResult<()> {
+    use crate::backend::services::epic_auth_service::{
+        EpicAuthService, load_session, save_session,
+    };
+    use log::warn;
+
+    if platform != "epic" {
+        return Ok(());
     }
+
+    let Some(session) = load_session() else {
+        debug!("Epic launch: no session, skipping AUTH_PASSWORD (log in via Settings)");
+        return Ok(());
+    };
+
+    let api = EpicAuthService::new()?;
+
+    // Refresh first so a long-idle access token doesn't fail the exchange below.
+    let session = match api.refresh_session(&session.refresh_token) {
+        Ok(refreshed) => {
+            let _ = save_session(&refreshed);
+            refreshed
+        }
+        Err(e) => {
+            warn!("Epic session refresh failed, trying existing token: {e}");
+            session
+        }
+    };
+
+    info!("Epic session found, requesting game token");
+    match api.get_game_token(&session) {
+        Ok(launch_token) => {
+            debug!("Epic game token obtained successfully");
+            cmd.arg(format!("-AUTH_PASSWORD={launch_token}"));
+        }
+        Err(e) => warn!("Failed to get Epic game token: {e}"),
+    }
+
     Ok(())
+}
+
+/// Resolve the Xbox app id, caching it in settings so the PowerShell lookup
+/// only runs once.
+#[cfg(windows)]
+fn ensure_xbox_app_id(settings: &core_service::AppSettings) -> AppResult<String> {
+    if let Some(app_id) = settings
+        .xbox_app_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(app_id.to_string());
+    }
+
+    let app_id = xbox_service::get_xbox_app_id()?;
+    core_service::update_settings(core_service::AppSettingsPatch {
+        xbox_app_id: Some(Some(app_id.clone())),
+        ..Default::default()
+    })?;
+    Ok(app_id)
 }
 
 fn launch_process(mut cmd: Command, profile_id: Option<String>) -> AppResult<()> {
@@ -428,8 +483,6 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
 /// path and platform, builds the Linux runner if needed, and dispatches
 /// [`launch_vanilla`]. Vanilla launches are profile-less by design.
 pub fn launch_vanilla_from_settings() -> AppResult<()> {
-    use crate::backend::services::core_service;
-
     let settings = core_service::get_settings()?;
     let game_path = settings.among_us_path.trim();
     if game_path.is_empty() {
@@ -444,6 +497,13 @@ pub fn launch_vanilla_from_settings() -> AppResult<()> {
             "{GAME_EXE_NAME} not found at {}",
             game_exe.display()
         )));
+    }
+
+    #[cfg(windows)]
+    if matches!(settings.game_platform, core_service::GamePlatform::Xbox) {
+        let app_id = ensure_xbox_app_id(&settings)?;
+        xbox_service::cleanup_xbox_files(game_exe.parent().expect("game_exe has a parent"))?;
+        return xbox_service::launch_xbox(&app_id);
     }
 
     let platform = match settings.game_platform {
@@ -507,8 +567,6 @@ const CORECLR_FILE: &str = "libcoreclr.dylib";
 /// validates the game executable, BepInEx DLL, and dotnet runtime, then
 /// dispatches [`launch_modded`].
 pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
-    use crate::backend::services::core_service;
-
     let settings = core_service::get_settings()?;
     let game_path = settings.among_us_path.trim();
     if game_path.is_empty() {
@@ -542,6 +600,23 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
             "dotnet runtime not found at {}",
             coreclr_path.display()
         )));
+    }
+
+    #[cfg(windows)]
+    if matches!(settings.game_platform, core_service::GamePlatform::Xbox) {
+        let app_id = ensure_xbox_app_id(&settings)?;
+        let game_dir = game_exe.parent().expect("game_exe has a parent");
+        xbox_service::prepare_xbox_launch(&profile_path, game_dir)?;
+        xbox_service::launch_xbox(&app_id)?;
+        if let Err(e) = crate::backend::services::profile_service::update_last_launched(&profile.id)
+        {
+            debug!("update_last_launched failed for Xbox launch: {e}");
+        } else {
+            crate::backend::events::publish(
+                crate::backend::events::BackendEvent::ProfileStatsUpdated(profile.id.clone()),
+            );
+        }
+        return Ok(());
     }
 
     let platform = match settings.game_platform {

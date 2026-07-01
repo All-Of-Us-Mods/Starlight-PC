@@ -9,4 +9,7 @@ pub mod mod_install_service;
 pub mod profile_service;
 pub mod profile_zip_service;
 pub mod region_service;
+pub mod storage_service;
 pub mod update_service;
+#[cfg(windows)]
+pub mod xbox_service;

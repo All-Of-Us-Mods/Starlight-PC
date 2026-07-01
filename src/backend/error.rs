@@ -89,6 +89,12 @@ impl From<serde_json::Error> for AppError {
     }
 }
 
+impl From<keyring::Error> for AppError {
+    fn from(value: keyring::Error) -> Self {
+        Self::State(value.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::AppError;

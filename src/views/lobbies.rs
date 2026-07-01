@@ -103,7 +103,9 @@ impl LobbiesView {
                     continue;
                 };
                 if this
-                    .update(cx, |this, cx| this.reap_finished_temp_profiles(&payload, cx))
+                    .update(cx, |this, cx| {
+                        this.reap_finished_temp_profiles(&payload, cx)
+                    })
                     .is_err()
                 {
                     break;
@@ -374,7 +376,10 @@ impl LobbiesView {
         for m in &lobby.game.mods {
             let Some(id) = m.id.clone() else { continue };
             match m.version.clone() {
-                Some(version) => required.push(InstallModInput { mod_id: id, version }),
+                Some(version) => required.push(InstallModInput {
+                    mod_id: id,
+                    version,
+                }),
                 None => versionless += 1,
             }
         }
@@ -521,12 +526,20 @@ impl LobbiesView {
             game.player_count.unwrap_or(0),
             game.max_players.unwrap_or(0)
         );
-        let meta_line = [players, map_name(game.map_id).to_string(), row.region_label.clone()]
-            .join(" · ");
+        let meta_line = [
+            players,
+            map_name(game.map_id).to_string(),
+            row.region_label.clone(),
+        ]
+        .join(" · ");
 
         let is_open = game.status.as_deref() == Some("Lobby");
         let status_text = game.status.clone().unwrap_or_else(|| "Unknown".to_string());
-        let status_color = if is_open { theme.success } else { theme.warning };
+        let status_color = if is_open {
+            theme.success
+        } else {
+            theme.warning
+        };
 
         let copy_code = code.clone();
         let row_for_launch = row.clone();
@@ -563,13 +576,14 @@ impl LobbiesView {
                                         code.clone()
                                     }),
                             )
+                            .child(div().text_xs().text_color(status_color).child(status_text))
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(status_color)
-                                    .child(status_text),
-                            )
-                            .child(div().min_w_0().truncate().text_color(theme.text_muted).child(host)),
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_color(theme.text_muted)
+                                    .child(host),
+                            ),
                     )
                     .child(
                         div()
@@ -578,7 +592,9 @@ impl LobbiesView {
                             .text_color(theme.text_muted)
                             .child(meta_line),
                     )
-                    .when(!game.mods.is_empty(), |s| s.child(mod_chip_row(&game.mods, theme))),
+                    .when(!game.mods.is_empty(), |s| {
+                        s.child(mod_chip_row(&game.mods, theme))
+                    }),
             )
             .child(
                 Button::new(SharedString::from(format!("copy-code-{ix}")))
@@ -779,7 +795,11 @@ impl LobbiesView {
                     .size(px(14.0))
                     .rounded_full()
                     .border_1()
-                    .border_color(if is_selected { theme.primary } else { theme.text_muted })
+                    .border_color(if is_selected {
+                        theme.primary
+                    } else {
+                        theme.text_muted
+                    })
                     .when(is_selected, |s| s.bg(theme.primary)),
             )
             .child(
@@ -788,7 +808,12 @@ impl LobbiesView {
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child(div().truncate().font_weight(FontWeight::MEDIUM).child(title.to_string()))
+                    .child(
+                        div()
+                            .truncate()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(title.to_string()),
+                    )
                     .child(
                         div()
                             .truncate()
@@ -1116,7 +1141,9 @@ fn launch_into_lobby_for_profile(
         ));
     }
     if failed > 0 {
-        summary.push_str(&format!(" {failed} mod(s) failed to install and were skipped."));
+        summary.push_str(&format!(
+            " {failed} mod(s) failed to install and were skipped."
+        ));
     }
     Ok(summary)
 }

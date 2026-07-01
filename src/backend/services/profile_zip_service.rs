@@ -53,7 +53,13 @@ pub fn export_profile_zip(
         emit: &mut on_progress,
     };
 
-    add_directory_to_zip(&mut zip, profile_dir, &ctx, &mut metadata_written, &mut progress)?;
+    add_directory_to_zip(
+        &mut zip,
+        profile_dir,
+        &ctx,
+        &mut metadata_written,
+        &mut progress,
+    )?;
 
     if !metadata_written {
         zip.start_file("profile.json", options)?;
