@@ -237,9 +237,9 @@ fn mark_launched(profile_id: Option<&str>) {
     if let Err(e) = profile_service::update_last_launched(id) {
         warn!("update_last_launched failed for profile {id}: {e}");
     } else {
-        crate::backend::events::publish(
-            crate::backend::events::BackendEvent::ProfileStatsUpdated(id.to_string()),
-        );
+        crate::backend::events::publish(crate::backend::events::BackendEvent::ProfileStatsUpdated(
+            id.to_string(),
+        ));
     }
 }
 

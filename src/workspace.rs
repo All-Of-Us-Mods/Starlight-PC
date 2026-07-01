@@ -575,9 +575,7 @@ impl Render for Workspace {
 /// downloads the new exe, swaps it in, relaunches it, and quits the current
 /// process.
 #[cfg(windows)]
-fn update_notification(
-    info: crate::backend::services::update_service::UpdateInfo,
-) -> Notification {
+fn update_notification(info: crate::backend::services::update_service::UpdateInfo) -> Notification {
     Notification::info(format!("Starlight {} is available.", info.version))
         .title("Update available")
         .action(move |_, _, _| {
@@ -612,7 +610,8 @@ fn install_update(
             Err(e) => {
                 warn!("update install failed: {e}");
                 let _ = window_handle.update(cx, |_, window, cx| {
-                    window.push_notification(Notification::error(format!("Update failed: {e}")), cx);
+                    window
+                        .push_notification(Notification::error(format!("Update failed: {e}")), cx);
                 });
             }
         }
