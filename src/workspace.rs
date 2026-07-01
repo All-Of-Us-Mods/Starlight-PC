@@ -148,6 +148,9 @@ impl Workspace {
         .detach();
         Self::reload_last_launched(cx);
 
+        #[cfg(windows)]
+        Self::check_for_update(window, cx);
+
         Self {
             history: vec![Page::Library],
             cursor: 0,
@@ -177,6 +180,35 @@ impl Workspace {
                 this.last_launched = last;
                 cx.notify();
             });
+        })
+        .detach();
+    }
+
+    /// Check GitHub Releases for a newer build a few seconds after startup
+    /// (so it doesn't compete with the initial UI render) and, if found,
+    /// surface a notification offering to install it.
+    #[cfg(windows)]
+    fn check_for_update(window: &mut Window, cx: &mut Context<Self>) {
+        use crate::backend::services::update_service;
+
+        let window_handle = window.window_handle();
+        cx.spawn(async move |_, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(3))
+                .await;
+            let update = cx
+                .background_executor()
+                .spawn(async { update_service::check_for_update() })
+                .await;
+            match update {
+                Ok(Some(info)) => {
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        window.push_notification(update_notification(info), cx);
+                    });
+                }
+                Ok(None) => {}
+                Err(e) => warn!("update check failed: {e}"),
+            }
         })
         .detach();
     }
@@ -537,4 +569,53 @@ impl Render for Workspace {
             .children(dialog_layer)
             .children(notification_layer)
     }
+}
+
+/// Build the "update available" notification, with an action button that
+/// downloads the new exe, swaps it in, relaunches it, and quits the current
+/// process.
+#[cfg(windows)]
+fn update_notification(
+    info: crate::backend::services::update_service::UpdateInfo,
+) -> Notification {
+    Notification::info(format!("Starlight {} is available.", info.version))
+        .title("Update available")
+        .action(move |_, _, _| {
+            let info = info.clone();
+            Button::new("install-update")
+                .label("Restart & Update")
+                .primary()
+                .on_click(move |_, window, cx| {
+                    install_update(info.clone(), window, cx);
+                })
+        })
+}
+
+#[cfg(windows)]
+fn install_update(
+    info: crate::backend::services::update_service::UpdateInfo,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    use crate::backend::services::update_service;
+
+    let window_handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { update_service::apply_update_and_relaunch(&info) })
+            .await;
+        match result {
+            Ok(()) => {
+                cx.update(|cx| cx.quit());
+            }
+            Err(e) => {
+                warn!("update install failed: {e}");
+                let _ = window_handle.update(cx, |_, window, cx| {
+                    window.push_notification(Notification::error(format!("Update failed: {e}")), cx);
+                });
+            }
+        }
+    })
+    .detach();
 }

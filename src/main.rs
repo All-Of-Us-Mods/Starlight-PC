@@ -14,6 +14,9 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     log::info!("starlight starting");
 
+    #[cfg(windows)]
+    backend::services::update_service::cleanup_leftover_old_exe();
+
     let http = std::sync::Arc::new(
         reqwest_client::ReqwestClient::user_agent("Starlight").expect("http client"),
     );
