@@ -96,6 +96,16 @@ impl LibraryDetailView {
 
         view.spawn_load(cx);
 
+        // Reload when the window regains focus, so a DLL dropped into
+        // BepInEx/plugins via the file manager shows up without leaving and
+        // reopening the page.
+        cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.spawn_load(cx);
+            }
+        })
+        .detach();
+
         // Subscribe to backend events for *this* profile.
         let id_for_events = profile_id.clone();
         let mut rx = events::subscribe();
@@ -197,6 +207,8 @@ impl LibraryDetailView {
         let pending: Vec<String> = profile
             .mods
             .iter()
+            // Custom mods aren't in the catalog — don't look them up.
+            .filter(|m| !m.is_custom())
             .map(|m| m.mod_id.clone())
             .filter(|id| !cached.contains_key(id) && !self.mod_names.contains_key(id))
             .collect();
@@ -419,6 +431,55 @@ impl LibraryDetailView {
         .detach();
     }
 
+    /// Open the native file picker and copy the chosen plugin .dll(s) into
+    /// this profile's `BepInEx/plugins`. The reload afterwards surfaces them
+    /// as custom mod entries.
+    fn add_custom_mods(&mut self, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Add BepInEx plugin (.dll)".into()),
+        });
+        let profile_id = self.profile_id.clone();
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            if paths.is_empty() {
+                return;
+            }
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut added = Vec::new();
+                    for path in paths {
+                        added.push(profile_service::import_mod_to_profile(
+                            &profile_id,
+                            &path.to_string_lossy(),
+                        )?);
+                    }
+                    Ok::<_, crate::backend::error::AppError>(added)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(added) => {
+                        this.notice = Some(format!("Added {}", added.join(", ")));
+                        this.launch_error = None;
+                    }
+                    Err(e) => {
+                        this.launch_error = Some(format!("Add mod failed: {e}"));
+                        this.notice = None;
+                    }
+                }
+                cx.notify();
+                this.spawn_load(cx);
+            });
+        })
+        .detach();
+    }
+
     /// Open the native save dialog and export this profile to the chosen .zip.
     fn export_profile(&mut self, cx: &mut Context<Self>) {
         let LoadState::Loaded(profile) = &self.state else {
@@ -589,7 +650,7 @@ impl Render for LibraryDetailView {
                 });
 
                 let mod_names = self.mod_names.clone();
-                let mods_section = (!profile.mods.is_empty()).then(|| {
+                let mods_section = {
                     let entries: Vec<AnyElement> = profile
                         .mods
                         .iter()
@@ -605,61 +666,107 @@ impl Render for LibraryDetailView {
                             let mod_id = m.mod_id.clone();
                             let enabled = m.enabled;
                             let has_file = m.file.is_some();
-                            let mut row = div().flex().items_center().gap_3().px_3().py_2();
-                            if !is_last {
-                                row = row.border_b_1().border_color(theme.border);
-                            }
-                            row.child(
+                            // Custom mods have no catalog entry, so no thumbnail to fetch.
+                            let thumbnail: AnyElement = if m.is_custom() {
+                                div()
+                                    .w(px(32.0))
+                                    .h(px(32.0))
+                                    .flex_none()
+                                    .rounded_md()
+                                    .bg(theme.hover)
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_color(theme.text_muted)
+                                    .child(Icon::new(IconName::File))
+                                    .into_any_element()
+                            } else {
                                 img(api::mod_thumbnail_url(&m.mod_id))
                                     .w(px(32.0))
                                     .h(px(32.0))
                                     .flex_none()
                                     .rounded_md()
                                     .object_fit(ObjectFit::Cover)
-                                    .bg(theme.hover),
-                            )
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .flex_1()
-                                    .truncate()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(name_color)
-                                    .child(display),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.text_muted)
-                                    .child(m.version.clone()),
-                            )
-                            // Mods imported without a known filename can't be toggled on disk.
-                            .children(has_file.then(|| {
-                                Switch::new(SharedString::from(format!("mod-toggle-{ix}")))
-                                    .checked(enabled)
-                                    .on_click(cx.listener(
-                                        move |this, checked: &bool, _window, cx| {
-                                            this.toggle_mod(mod_id.clone(), *checked, cx)
-                                        },
-                                    ))
-                            }))
-                            .into_any_element()
+                                    .bg(theme.hover)
+                                    .into_any_element()
+                            };
+                            let version_label = if m.is_custom() {
+                                "Custom".to_string()
+                            } else {
+                                m.version.clone()
+                            };
+                            let mut row = div().flex().items_center().gap_3().px_3().py_2();
+                            if !is_last {
+                                row = row.border_b_1().border_color(theme.border);
+                            }
+                            row.child(thumbnail)
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .flex_1()
+                                        .truncate()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(name_color)
+                                        .child(display),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(theme.text_muted)
+                                        .child(version_label),
+                                )
+                                // Mods imported without a known filename can't be toggled on disk.
+                                .children(has_file.then(|| {
+                                    Switch::new(SharedString::from(format!("mod-toggle-{ix}")))
+                                        .checked(enabled)
+                                        .on_click(cx.listener(
+                                            move |this, checked: &bool, _window, cx| {
+                                                this.toggle_mod(mod_id.clone(), *checked, cx)
+                                            },
+                                        ))
+                                }))
+                                .into_any_element()
                         })
                         .collect();
+                    let list: AnyElement = if entries.is_empty() {
+                        div()
+                            .px_3()
+                            .py_2()
+                            .text_sm()
+                            .text_color(theme.text_muted)
+                            .child("No mods installed. Install from Explore, or add a BepInEx plugin .dll.")
+                            .into_any_element()
+                    } else {
+                        div().children(entries).into_any_element()
+                    };
                     div()
                         .flex()
                         .flex_col()
                         .gap_2()
-                        .child(section_heading(&format!("Mods · {}", profile.mods.len())))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .child(section_heading(&format!("Mods · {}", profile.mods.len())))
+                                .child(
+                                    Button::new("add-custom-mod")
+                                        .icon(Icon::new(IconName::Plus))
+                                        .label("Add DLL")
+                                        .on_click(cx.listener(|this, _, _window, cx| {
+                                            this.add_custom_mods(cx)
+                                        })),
+                                ),
+                        )
                         .child(
                             div()
                                 .rounded_lg()
                                 .bg(theme.sidebar_background)
                                 .border_1()
                                 .border_color(theme.border)
-                                .children(entries),
+                                .child(list),
                         )
-                });
+                };
 
                 let delete_row =
                     if self.confirming_delete {
@@ -821,7 +928,7 @@ impl Render for LibraryDetailView {
                     .gap_4()
                     .child(hero)
                     .child(stats)
-                    .children(mods_section)
+                    .child(mods_section)
                     .children(has_log.then(|| self.log_panel.clone().into_any_element()))
                     .child(danger_zone)
                     .into_any_element()

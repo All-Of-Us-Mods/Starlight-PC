@@ -34,10 +34,14 @@ impl LibraryDetailView {
             Some("mod") => IconDialogMode::Mod,
             _ => IconDialogMode::Default,
         };
-        let selected_mod_id = profile
-            .icon_mod_id
-            .clone()
-            .or_else(|| profile.mods.first().map(|m| m.mod_id.clone()));
+        // Custom mods have no catalog thumbnail, so they can't be an icon.
+        let selected_mod_id = profile.icon_mod_id.clone().or_else(|| {
+            profile
+                .mods
+                .iter()
+                .find(|m| !m.is_custom())
+                .map(|m| m.mod_id.clone())
+        });
         self.icon_dialog = Some(IconDialogState {
             mode,
             selected_mod_id,
@@ -55,7 +59,11 @@ impl LibraryDetailView {
                 && state.selected_mod_id.is_none()
                 && let LoadState::Loaded(profile) = &self.state
             {
-                state.selected_mod_id = profile.mods.first().map(|m| m.mod_id.clone());
+                state.selected_mod_id = profile
+                    .mods
+                    .iter()
+                    .find(|m| !m.is_custom())
+                    .map(|m| m.mod_id.clone());
             }
             cx.notify();
         }
@@ -251,6 +259,8 @@ pub(super) fn render_icon_dialog(
             let mods: Vec<String> = profile
                 .mods
                 .iter()
+                // Custom mods have no catalog thumbnail to offer as an icon.
+                .filter(|m| !m.is_custom())
                 .map(|m| m.mod_id.clone())
                 .collect::<std::collections::BTreeSet<_>>()
                 .into_iter()
