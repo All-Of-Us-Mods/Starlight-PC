@@ -1,0 +1,38 @@
+# Flatpak manifest. Packages the release binary built by CI (no in-sandbox
+# cargo build — gpui's dependency tree makes vendored offline builds
+# impractical in flatpak-builder). Build from the repo root after
+# `cargo build --release`:
+#
+#   flatpak-builder --user --force-clean --repo=flatpak-repo \
+#     flatpak-build packaging/linux/dev.allofus.Starlight.yml
+#   flatpak build-bundle flatpak-repo Starlight-linux-x86_64.flatpak dev.allofus.Starlight
+app-id: dev.allofus.Starlight
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: starlight
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --share=network
+  # The launcher reads/writes the Among Us install, Steam libraries and Wine
+  # prefixes wherever they live, and spawns Steam/Proton/Wine on the host.
+  - --filesystem=host
+  - --talk-name=org.freedesktop.Flatpak
+modules:
+  - name: starlight
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 Starlight /app/bin/starlight
+      - install -Dm644 dev.allofus.Starlight.desktop /app/share/applications/dev.allofus.Starlight.desktop
+      - install -Dm644 starlight.png /app/share/icons/hicolor/256x256/apps/dev.allofus.Starlight.png
+    sources:
+      - type: file
+        path: ../../target/release/Starlight
+      - type: file
+        path: dev.allofus.Starlight.desktop
+      - type: file
+        path: ../../assets/icons/starlight.png
+        dest-filename: starlight.png

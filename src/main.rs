@@ -157,7 +157,10 @@ fn main() {
                     size(px(1024.), px(768.)),
                     cx,
                 ))),
-                titlebar: Some(gpui_component::TitleBar::title_bar_options()),
+                titlebar: Some(gpui::TitlebarOptions {
+                    title: Some("Starlight".into()),
+                    ..gpui_component::TitleBar::title_bar_options()
+                }),
                 // Keep the window from shrinking small enough that the nav +
                 // settings sidebars crowd the content off-screen.
                 window_min_size: Some(size(px(820.0), px(600.0))),

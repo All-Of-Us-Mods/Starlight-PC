@@ -46,6 +46,21 @@ jobs:
       - name: cargo build --release
         run: cargo build --release
 
+      # Compile the installer on every push so a broken script is caught
+      # here instead of during a tagged release.
+      - name: Build installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /O"." packaging\windows\starlight.iss
+
+      # Same idea for the AppImage — it's cheap to validate per push.
+      # (The Flatpak bundle needs a ~1 GB runtime download, so that one is
+      # only built at release time.)
+      - name: Build AppImage
+        if: runner.os == 'Linux'
+        run: bash packaging/linux/build-appimage.sh
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}

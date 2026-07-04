@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Starlight
+Comment=Among Us mod manager
+Exec=starlight %u
+Icon=dev.allofus.Starlight
+Terminal=false
+Type=Application
+Categories=Game;Utility;
+MimeType=x-scheme-handler/starlight;
+StartupWMClass=starlight

@@ -6,6 +6,8 @@ fn main() {
         println!("cargo:rerun-if-changed=assets/icons/starlight.ico");
         winresource::WindowsResource::new()
             .set_icon("assets/icons/starlight.ico")
+            .set("ProductName", "Starlight")
+            .set("FileDescription", "Starlight")
             .compile()
             .expect("embed windows icon resource");
     }
