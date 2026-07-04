@@ -9,7 +9,7 @@ use crate::backend::state::game_runtime;
 use crate::settings as app_settings;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
-use crate::ui::stars_background::stars_background;
+use crate::ui::stars_background::StarsBackground;
 use crate::views::explore::ExploreView;
 use crate::views::home::HomeView;
 use crate::views::library::{LibraryEvent, LibraryView};
@@ -95,6 +95,9 @@ pub struct Workspace {
     stoppable_count: usize,
     /// Icon-only sidebar (labels hidden). Session-only, not persisted.
     sidebar_collapsed: bool,
+    /// Own entity so the drift animation only re-renders the starfield,
+    /// not the whole workspace every frame.
+    stars: Entity<StarsBackground>,
 }
 
 impl Workspace {
@@ -171,6 +174,7 @@ impl Workspace {
             running_count: initial.running_count,
             stoppable_count: initial.stoppable_running_count,
             sidebar_collapsed: false,
+            stars: cx.new(StarsBackground::new),
         }
     }
 
@@ -578,8 +582,10 @@ impl Render for Workspace {
             .bg(theme.background)
             // Behind everything else. The sidebar and title bar are
             // transparent (see theme::apply), so the stars show through the
-            // whole window; only cards and panels paint over them.
-            .when(show_stars, |el| el.child(stars_background()))
+            // chrome; the content area paints over them.
+            .when(show_stars, |el| {
+                el.child(div().absolute().inset_0().child(self.stars.clone()))
+            })
             // Draggable custom title bar: window move + min/max/close controls,
             // app-wide back/forward navigation, the current page title, and a
             // quick-launch button for the last launched profile.

@@ -1,24 +1,39 @@
 //! Decorative drifting starfield, modeled on upstream's StarBackground:
 //! stars distributed by Poisson-disc-style sampling (minimum spacing, so
-//! they never overlap or clump), duplicated 2×2 into a 200%-sized field that
-//! slowly translates by exactly one tile and loops seamlessly. Star color is
-//! fixed amber (upstream's `#fbbf24`) regardless of theme; toggled by the
-//! "Floating stars background" setting.
+//! they never overlap or clump), tiled 2×2 and translated by exactly one
+//! tile per cycle so the drift loops seamlessly. Star color is fixed amber
+//! (upstream's `#fbbf24`) regardless of theme; toggled by the "Floating
+//! stars background" setting.
+//!
+//! Perf notes: the whole field is ONE `canvas` element that paints every
+//! star directly via `paint_svg` — no per-star elements, so the per-frame
+//! layout cost is a single node and the paint cost is a few hundred quads
+//! reusing cached SVG rasters (sizes are quantized to a few buckets so the
+//! rasterizer cache is shared). The dominant per-frame cost turns out to be
+//! the window redraw itself, so motion is stepped by a 30fps timer instead
+//! of per-vsync animation — at ~11px/s drift that's sub-pixel per step
+//! (indistinguishable from 60fps) for half the redraws. The offset derives
+//! from wall-clock elapsed time, so tick jitter never accumulates drift
+//! error.
 
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::*;
-use gpui_component::Icon;
 
 use crate::ui::icon::AppIcon;
+use gpui_component::IconNamed;
 
 /// Upstream's star color (Tailwind amber-400).
 const STAR_COLOR: u32 = 0xfbbf24;
 /// Minimum spacing between star centers, as a fraction of the window.
-const MIN_DIST: f32 = 0.075;
-const MAX_STARS: usize = 120;
-const DRIFT_SECS: u64 = 90;
+const MIN_DIST: f32 = 0.09;
+const MAX_STARS: usize = 60;
+/// Seconds for the field to drift one full tile.
+const DRIFT_SECS: f32 = 90.0;
+/// Drift update interval (~30fps). The drift is slow enough that steps are
+/// sub-pixel at this rate; going faster only doubles redraw cost.
+const TICK: Duration = Duration::from_millis(33);
 
 struct Star {
     x: f32,
@@ -58,10 +73,12 @@ fn tile_stars() -> &'static [Star] {
             if too_close {
                 continue;
             }
+            // Quantized sizes: a handful of buckets, not a continuum.
+            let size = 6.0 + (next() * 5.0).floor() * 2.0;
             stars.push(Star {
                 x,
                 y,
-                size: 6.0 + next() * 8.0,
+                size,
                 opacity: 0.06 + next() * 0.14,
             });
         }
@@ -69,50 +86,71 @@ fn tile_stars() -> &'static [Star] {
     })
 }
 
-pub fn stars_background() -> AnyElement {
-    let amber = rgb(STAR_COLOR);
+pub struct StarsBackground {
+    start: Instant,
+}
 
-    let mut elements: Vec<AnyElement> = Vec::with_capacity(tile_stars().len() * 4);
-    for star in tile_stars() {
-        // Repeat the tile 2×2 so a one-tile translation wraps seamlessly.
-        for (tile_x, tile_y) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
-            let color = Rgba {
-                a: star.opacity,
-                ..amber
-            };
-            elements.push(
-                div()
-                    // The field is two tiles wide/high, so a tile-local
-                    // fraction is half a field fraction.
-                    .absolute()
-                    .left(relative((star.x + tile_x) / 2.0))
-                    .top(relative((star.y + tile_y) / 2.0))
-                    .child(
-                        Icon::new(AppIcon::Starlight)
-                            .size(px(star.size))
-                            .text_color(color),
-                    )
-                    .into_any_element(),
-            );
+impl StarsBackground {
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(TICK).await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+        Self {
+            start: Instant::now(),
         }
     }
+}
 
-    let field = div()
-        .absolute()
-        .w(relative(2.0))
-        .h(relative(2.0))
-        .children(elements);
+impl Render for StarsBackground {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        // Drift offset in tile fractions; one full tile per cycle, after
+        // which the repeated tiles line up exactly with the start.
+        let offset = (self.start.elapsed().as_secs_f32() / DRIFT_SECS).fract();
 
-    div()
+        let amber: Hsla = rgb(STAR_COLOR).into();
+
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, window, cx| {
+                let path = AppIcon::Starlight.path();
+                for star in tile_stars() {
+                    for (tile_x, tile_y) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+                        let star_size = px(star.size);
+                        let x = bounds.size.width * (star.x + tile_x - offset);
+                        let y = bounds.size.height * (star.y + tile_y - offset);
+                        // Cull stars outside the visible tile window.
+                        if x < -star_size
+                            || x > bounds.size.width
+                            || y < -star_size
+                            || y > bounds.size.height
+                        {
+                            continue;
+                        }
+                        let star_bounds =
+                            Bounds::new(bounds.origin + point(x, y), size(star_size, star_size));
+                        let color = Hsla {
+                            a: star.opacity,
+                            ..amber
+                        };
+                        let _ = window.paint_svg(
+                            star_bounds,
+                            path.clone(),
+                            None,
+                            TransformationMatrix::default(),
+                            color,
+                            cx,
+                        );
+                    }
+                }
+            },
+        )
         .absolute()
-        .inset_0()
-        .overflow_hidden()
-        .child(field.with_animation(
-            "stars-drift",
-            Animation::new(Duration::from_secs(DRIFT_SECS)).repeat(),
-            // Drift diagonally by one full tile (100% of the container),
-            // after which the repeated tile lines up exactly with the start.
-            |field, delta| field.left(relative(-delta)).top(relative(-delta)),
-        ))
-        .into_any_element()
+        .size_full()
+    }
 }
