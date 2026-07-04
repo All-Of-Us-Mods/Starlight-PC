@@ -25,11 +25,16 @@ pub fn parse_profile_deep_link(arg: &str) -> Option<String> {
 #[cfg(windows)]
 mod windows_impl {
     use super::{DEEP_LINK_SCHEME, PROFILE_LINK_HOST};
+    use crate::backend::api;
     use crate::backend::error::{AppError, AppResult};
-    use crate::backend::services::profile_service;
+    use crate::backend::services::profile_service::{self, ProfileEntry};
+    use log::warn;
     use std::fs;
+    use std::path::PathBuf;
 
     const SHORTCUT_PREFIX: &str = "Starlight - ";
+    const SHORTCUT_ICON_DIR: &str = "shortcut-icons";
+    const SHORTCUT_ICON_SIZE: u32 = 256;
 
     /// Register (or refresh) the `starlight://` scheme for the current user so
     /// deep links open this executable. Cheap enough to run on every startup,
@@ -70,15 +75,84 @@ mod windows_impl {
             "{DEEP_LINK_SCHEME}://{PROFILE_LINK_HOST}/{}",
             urlencoding::encode(&profile.id)
         );
-        // .url icons must be .ico/.exe/.dll — point at the app executable.
-        let exe = std::env::current_exe()?;
+        let icon_path = resolve_icon_path(&profile)?;
         let contents = format!(
             "[InternetShortcut]\r\nURL={shortcut_url}\r\nIconFile={}\r\nIconIndex=0\r\n",
-            exe.display()
+            icon_path.display()
         );
         fs::write(&shortcut_path, contents)?;
 
         Ok(shortcut_path.to_string_lossy().to_string())
+    }
+
+    /// The icon to point the shortcut at. Profiles with a custom or mod icon
+    /// get it rendered to a `.ico` under the app data dir (`.url` icons must
+    /// be .ico/.exe/.dll); anything else — including render/download failures
+    /// — falls back to the app executable's embedded icon.
+    fn resolve_icon_path(profile: &ProfileEntry) -> AppResult<PathBuf> {
+        match write_shortcut_icon(profile) {
+            Ok(Some(path)) => Ok(path),
+            Ok(None) => Ok(std::env::current_exe()?),
+            Err(e) => {
+                warn!(
+                    "shortcut icon for profile '{}' failed, using app icon: {e}",
+                    profile.id
+                );
+                Ok(std::env::current_exe()?)
+            }
+        }
+    }
+
+    /// Source image bytes for the profile's icon, mirroring how the UI picks
+    /// it: the `icon{ext}` file in the profile dir for `custom`, the catalog
+    /// thumbnail for `mod`, nothing for `default`.
+    fn profile_icon_bytes(profile: &ProfileEntry) -> AppResult<Option<Vec<u8>>> {
+        match profile.icon_mode.as_deref() {
+            Some("custom") => {
+                let Some(ext) = profile
+                    .custom_icon_extension
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                else {
+                    return Ok(None);
+                };
+                let path = PathBuf::from(&profile.path).join(format!("icon{ext}"));
+                Ok(Some(fs::read(path)?))
+            }
+            Some("mod") => {
+                let Some(mod_id) = profile.icon_mod_id.as_deref().filter(|s| !s.is_empty()) else {
+                    return Ok(None);
+                };
+                let response = reqwest::blocking::get(api::mod_thumbnail_url(mod_id))?;
+                if !response.status().is_success() {
+                    return Ok(None);
+                }
+                Ok(Some(response.bytes()?.to_vec()))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Render the profile's icon to `{app_data}/shortcut-icons/{profile_id}.ico`.
+    /// Returns `None` when the profile uses the default icon.
+    fn write_shortcut_icon(profile: &ProfileEntry) -> AppResult<Option<PathBuf>> {
+        let Some(bytes) = profile_icon_bytes(profile)? else {
+            return Ok(None);
+        };
+        let img = image::load_from_memory(&bytes)
+            .map_err(|e| AppError::other(format!("decode profile icon: {e}")))?;
+        let resized = img.resize(
+            SHORTCUT_ICON_SIZE,
+            SHORTCUT_ICON_SIZE,
+            image::imageops::FilterType::Lanczos3,
+        );
+        let dir = crate::backend::directories::app_data_dir()?.join(SHORTCUT_ICON_DIR);
+        fs::create_dir_all(&dir)?;
+        let path = dir.join(format!("{}.ico", profile.id));
+        resized
+            .save_with_format(&path, image::ImageFormat::Ico)
+            .map_err(|e| AppError::other(format!("write shortcut icon: {e}")))?;
+        Ok(Some(path))
     }
 
     /// Strip characters Windows forbids in file names, so the profile name can
