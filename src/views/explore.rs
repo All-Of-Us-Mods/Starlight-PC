@@ -12,7 +12,8 @@ use gpui_component::{Icon, IconName};
 const MIN_CARD_WIDTH: f32 = 360.0;
 const MAX_GRID_COLUMNS: u32 = 4;
 const GRID_GAP: f32 = 16.0;
-const SIDEBAR_WIDTH: f32 = 220.0;
+/// Keep in sync with the sidebar width set in `workspace.rs`.
+const SIDEBAR_WIDTH: f32 = 175.0;
 const PAGE_HORIZONTAL_PADDING: f32 = 64.0;
 const PAGE_FIXED_HEIGHT: f32 = 292.0;
 /// The API can't filter by mod type, so a type filter fetches (up to) this

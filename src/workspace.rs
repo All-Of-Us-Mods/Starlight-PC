@@ -365,6 +365,9 @@ impl Workspace {
         };
 
         Sidebar::new("starlight-sidebar")
+            // Slimmer than the library's 255px default; keep in sync with
+            // `SIDEBAR_WIDTH` in views/explore.rs (grid layout math).
+            .w(px(175.0))
             .collapsible(SidebarCollapsible::Icon)
             .collapsed(collapsed)
             .header(header)
