@@ -21,7 +21,9 @@ use crate::views::servers::ServersView;
 use crate::views::settings::SettingsView;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::notification::Notification;
-use gpui_component::sidebar::{Sidebar, SidebarHeader, SidebarMenu, SidebarMenuItem};
+use gpui_component::sidebar::{
+    Sidebar, SidebarCollapsible, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarToggleButton,
+};
 use gpui_component::{Disableable, Icon, IconName, Sizable, TitleBar, WindowExt};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -91,6 +93,8 @@ pub struct Workspace {
     /// is non-zero the title-bar button becomes a red "Stop".
     running_count: usize,
     stoppable_count: usize,
+    /// Icon-only sidebar (labels hidden). Session-only, not persisted.
+    sidebar_collapsed: bool,
 }
 
 impl Workspace {
@@ -166,6 +170,7 @@ impl Workspace {
             last_launched: None,
             running_count: initial.running_count,
             stoppable_count: initial.stoppable_running_count,
+            sidebar_collapsed: false,
         }
     }
 
@@ -334,22 +339,35 @@ impl Workspace {
     }
 
     fn render_sidenav(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        Sidebar::new("starlight-sidebar")
-            .collapsible(false)
-            .header(
-                SidebarHeader::new()
-                    .child(
-                        Icon::new(AppIcon::Starlight)
-                            .size(px(28.0))
-                            .text_color(rgb(0xffc107)),
-                    )
-                    .child(
-                        div()
-                            .text_xl()
-                            .font_weight(FontWeight::BOLD)
-                            .child("Starlight"),
-                    ),
+        let collapsed = self.sidebar_collapsed;
+
+        // Collapsed: the 48px rail leaves ~32px inside the paddings, so use a
+        // smaller icon and center it instead of the default space-between.
+        let header = if collapsed {
+            SidebarHeader::new().p_0().justify_center().child(
+                Icon::new(AppIcon::Starlight)
+                    .size(px(22.0))
+                    .text_color(rgb(0xffc107)),
             )
+        } else {
+            SidebarHeader::new()
+                .child(
+                    Icon::new(AppIcon::Starlight)
+                        .size(px(28.0))
+                        .text_color(rgb(0xffc107)),
+                )
+                .child(
+                    div()
+                        .text_xl()
+                        .font_weight(FontWeight::BOLD)
+                        .child("Starlight"),
+                )
+        };
+
+        Sidebar::new("starlight-sidebar")
+            .collapsible(SidebarCollapsible::Icon)
+            .collapsed(collapsed)
+            .header(header)
             .child(
                 SidebarMenu::new()
                     .child(self.menu_item(Tab::Home, cx))
@@ -358,6 +376,14 @@ impl Workspace {
                     .child(self.menu_item(Tab::Servers, cx))
                     .child(self.menu_item(Tab::Lobbies, cx))
                     .child(self.menu_item(Tab::Settings, cx)),
+            )
+            .footer(
+                SidebarToggleButton::new()
+                    .collapsed(collapsed)
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.sidebar_collapsed = !this.sidebar_collapsed;
+                        cx.notify();
+                    })),
             )
     }
 
