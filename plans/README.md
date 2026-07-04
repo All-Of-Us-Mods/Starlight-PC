@@ -18,7 +18,7 @@ cargo test
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| [001](001-ci-test-gate.md) | Run the test suite in CI, document local verification | P1 | S | — | TODO |
+| [001](001-ci-test-gate.md) | Run the test suite in CI, document local verification | P1 | S | — | DONE |
 | [002](002-pin-gpui-component.md) | Pin gpui-component git deps to an explicit rev | P2 | S | — | TODO |
 | [003](003-atomic-settings-write.md) | Write the settings file atomically (temp + rename) | P1 | S | 001 | TODO |
 | [004](004-stream-mod-downloads.md) | Stream mod downloads to a temp file, rename after checksum | P1 | S | — | TODO |

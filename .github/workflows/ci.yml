@@ -23,6 +23,9 @@ jobs:
       - name: cargo clippy
         run: nix develop --command cargo clippy --all-targets -- -D warnings
 
+      - name: cargo test
+        run: nix develop --command cargo test
+
   check-windows:
     runs-on: windows-latest
     steps:
@@ -39,3 +42,6 @@ jobs:
 
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test

@@ -30,6 +30,7 @@ https://github.com/All-Of-Us-Mods/Starlight-PC/releases/latest
 ```bash
 cargo run            # Start in development mode
 cargo build --release # Build for production
+cargo check --all-targets && cargo clippy --all-targets -- -D warnings && cargo test  # What CI runs
 ```
 
 ## Tech Stack
