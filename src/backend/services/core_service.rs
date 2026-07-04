@@ -160,7 +160,9 @@ fn write_settings_to_file(path: &Path, settings: &AppSettings) -> AppResult<()> 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(path, serde_json::to_vec_pretty(settings)?)?;
+    let temporary_path = path.with_extension("json.tmp");
+    fs::write(&temporary_path, serde_json::to_vec_pretty(settings)?)?;
+    fs::rename(&temporary_path, path)?;
     Ok(())
 }
 
@@ -348,4 +350,25 @@ pub fn get_bepinex_cache_path(architecture: &str) -> AppResult<String> {
         .join(format!("bepinex-{architecture}.zip"))
         .to_string_lossy()
         .to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_settings_to_file_round_trips_and_leaves_no_temp_file() {
+        let path = std::env::temp_dir().join(format!(
+            "starlight-settings-test-{}.json",
+            std::process::id()
+        ));
+
+        write_settings_to_file(&path, &AppSettings::default()).unwrap();
+
+        let raw = fs::read_to_string(&path).unwrap();
+        serde_json::from_str::<AppSettings>(&raw).unwrap();
+        assert!(!path.with_extension("json.tmp").exists());
+
+        fs::remove_file(&path).unwrap();
+    }
 }
