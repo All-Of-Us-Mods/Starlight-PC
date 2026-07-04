@@ -52,7 +52,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /O"." installer\starlight.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /O"." packaging\windows\starlight.iss
 
       # Same idea for the AppImage — it's cheap to validate per push.
       # (The Flatpak bundle needs a ~1 GB runtime download, so that one is

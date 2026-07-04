@@ -1,7 +1,7 @@
 ; Inno Setup script for the Starlight installer. Built by the release
 ; workflow (ISCC is preinstalled on GitHub's Windows runners) alongside the
 ; portable exe:
-;   ISCC.exe /DMyAppVersion=<x.y.z> installer\starlight.iss
+;   ISCC.exe /DMyAppVersion=<x.y.z> packaging\windows\starlight.iss
 ;
 ; Installs per-user (no admin prompt) into {localappdata}\Programs\Starlight,
 ; which also keeps the in-app self-updater working — it swaps the exe next to
@@ -28,7 +28,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputBaseFilename=Starlight-Setup-x86_64
-SetupIconFile=..\assets\icons\starlight.ico
+SetupIconFile=..\..\assets\icons\starlight.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2
 SolidCompression=yes
@@ -40,7 +40,7 @@ CloseApplications=yes
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "..\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; Start Menu entry is always created; the desktop shortcut is the optional task.
