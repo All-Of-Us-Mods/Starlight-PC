@@ -1,0 +1,2 @@
+# Shell scripts run on Linux CI — never let Windows checkouts CRLF them.
+*.sh text eol=lf
