@@ -14,7 +14,10 @@ const MAX_GRID_COLUMNS: u32 = 4;
 const GRID_GAP: f32 = 16.0;
 const SIDEBAR_WIDTH: f32 = 220.0;
 const PAGE_HORIZONTAL_PADDING: f32 = 64.0;
-const PAGE_FIXED_HEIGHT: f32 = 248.0;
+const PAGE_FIXED_HEIGHT: f32 = 292.0;
+/// The API can't filter by mod type, so a type filter fetches (up to) this
+/// many mods in one request and filters + paginates client-side.
+const FILTER_FETCH_LIMIT: u32 = 500;
 
 #[derive(Clone, Debug)]
 pub enum ExploreEvent {
@@ -48,6 +51,45 @@ impl SortBy {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TypeFilter {
+    All,
+    AllClients,
+    ClientOnly,
+    HostOnly,
+}
+
+impl TypeFilter {
+    fn label(self) -> &'static str {
+        match self {
+            TypeFilter::All => "All",
+            TypeFilter::AllClients => "All Clients",
+            TypeFilter::ClientOnly => "Client Only",
+            TypeFilter::HostOnly => "Host Only",
+        }
+    }
+
+    /// The `mod_type` value in the API's mod responses, `None` for no filter.
+    fn api_value(self) -> Option<&'static str> {
+        match self {
+            TypeFilter::All => None,
+            TypeFilter::AllClients => Some("All Clients"),
+            TypeFilter::ClientOnly => Some("Client Only"),
+            TypeFilter::HostOnly => Some("Host Only"),
+        }
+    }
+
+    fn matches(self, m: &ModResponse) -> bool {
+        match self.api_value() {
+            None => true,
+            Some(value) => m
+                .mod_type
+                .as_deref()
+                .is_some_and(|t| t.eq_ignore_ascii_case(value)),
+        }
+    }
+}
+
 pub struct ExploreView {
     state: LoadState,
     query: String,
@@ -59,6 +101,10 @@ pub struct ExploreView {
     /// available).
     total: Option<u32>,
     sort: SortBy,
+    /// When not [`TypeFilter::All`], `state` holds the *entire* filtered
+    /// result set and pagination happens client-side (the API has no type
+    /// filter parameter).
+    type_filter: TypeFilter,
     search_input: Entity<InputState>,
 }
 
@@ -89,6 +135,7 @@ impl ExploreView {
             page_size: 12,
             total: None,
             sort: SortBy::Downloads,
+            type_filter: TypeFilter::All,
             search_input,
         };
         view.fetch(cx);
@@ -99,11 +146,24 @@ impl ExploreView {
         let query = self.query.clone();
         let page_size = self.page_size;
         let offset = self.page * page_size;
+        let filter = self.type_filter;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    if query.is_empty() {
+                    if filter != TypeFilter::All {
+                        // No server-side type filter — pull everything for the
+                        // query and filter here; pagination is client-side.
+                        let mods = if query.is_empty() {
+                            api::fetch_mods(FILTER_FETCH_LIMIT, 0)
+                        } else {
+                            api::search_mods(&query, FILTER_FETCH_LIMIT, 0)
+                        }?;
+                        let filtered: Vec<ModResponse> =
+                            mods.into_iter().filter(|m| filter.matches(m)).collect();
+                        let total = filtered.len() as u32;
+                        Ok((filtered, Some(total)))
+                    } else if query.is_empty() {
                         let total = api::fetch_mods_total().ok();
                         api::fetch_mods(page_size, offset).map(|mods| (mods, total))
                     } else {
@@ -135,9 +195,13 @@ impl ExploreView {
         let first_visible_index = self.page * self.page_size;
         self.page_size = page_size;
         self.page = first_visible_index / self.page_size;
-        self.state = LoadState::Loading;
+        // With a type filter active the full result set is already loaded —
+        // repaginating is purely local.
+        if self.type_filter == TypeFilter::All {
+            self.state = LoadState::Loading;
+            self.fetch(cx);
+        }
         cx.notify();
-        self.fetch(cx);
     }
 
     fn submit_search(&mut self, q: String, cx: &mut Context<Self>) {
@@ -153,15 +217,30 @@ impl ExploreView {
         cx.notify();
     }
 
+    fn set_type_filter(&mut self, filter: TypeFilter, cx: &mut Context<Self>) {
+        if filter == self.type_filter {
+            return;
+        }
+        self.type_filter = filter;
+        self.page = 0;
+        self.total = None;
+        self.state = LoadState::Loading;
+        cx.notify();
+        self.fetch(cx);
+    }
+
     fn goto_page(&mut self, one_based_page: usize, cx: &mut Context<Self>) {
         let new_page = (one_based_page.saturating_sub(1)) as u32;
         if new_page == self.page {
             return;
         }
         self.page = new_page;
-        self.state = LoadState::Loading;
+        // See update_page_size — filtered pagination is client-side.
+        if self.type_filter == TypeFilter::All {
+            self.state = LoadState::Loading;
+            self.fetch(cx);
+        }
         cx.notify();
-        self.fetch(cx);
     }
 
     fn sort_pill(
@@ -175,6 +254,19 @@ impl ExploreView {
             .selected(self.sort == sort)
             .label(sort.label())
             .on_click(cx.listener(move |this, _, _window, cx| this.set_sort(sort, cx)))
+    }
+
+    fn type_pill(
+        &self,
+        id: &'static str,
+        filter: TypeFilter,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        Button::new(id)
+            .ghost()
+            .selected(self.type_filter == filter)
+            .label(filter.label())
+            .on_click(cx.listener(move |this, _, _window, cx| this.set_type_filter(filter, cx)))
     }
 
     fn mod_card(
@@ -240,6 +332,14 @@ impl Render for ExploreView {
             LoadState::Loaded(mods) => {
                 let mut sorted: Vec<&ModResponse> = mods.iter().collect();
                 sorted.sort_by_key(|m| std::cmp::Reverse(self.sort.key(m)));
+                if self.type_filter != TypeFilter::All {
+                    // `mods` is the whole filtered set — show this page's slice.
+                    sorted = sorted
+                        .into_iter()
+                        .skip((self.page * self.page_size) as usize)
+                        .take(self.page_size as usize)
+                        .collect();
+                }
                 let cards: Vec<AnyElement> = sorted
                     .iter()
                     .map(|m| Self::mod_card(m, &theme, cx))
@@ -293,6 +393,17 @@ impl Render for ExploreView {
             .child(self.sort_pill("sort-updated", SortBy::Updated, cx))
             .child(self.sort_pill("sort-created", SortBy::Created, cx));
 
+        let type_row = div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .flex_none()
+            .child(div().text_sm().text_color(theme.text_muted).child("Type"))
+            .child(self.type_pill("type-all", TypeFilter::All, cx))
+            .child(self.type_pill("type-all-clients", TypeFilter::AllClients, cx))
+            .child(self.type_pill("type-client-only", TypeFilter::ClientOnly, cx))
+            .child(self.type_pill("type-host-only", TypeFilter::HostOnly, cx));
+
         crate::views::page_root("explore-page", &theme)
             .overflow_hidden()
             .gap_4()
@@ -304,6 +415,7 @@ impl Render for ExploreView {
                     .child("Explore"),
             )
             .child(controls)
+            .child(type_row)
             .child(div().flex_1().overflow_hidden().child(body))
             .children(pagination)
     }
