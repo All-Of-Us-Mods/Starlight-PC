@@ -611,6 +611,25 @@ pub fn remove_mod_from_profile(profile_id: &str, mod_id: &str) -> AppResult<()> 
     write_profile(&profile)
 }
 
+/// Remove a mod from the profile manifest *and* delete its plugin file (plus
+/// any `.disabled` twin) from `BepInEx/plugins`. Deleting the file first
+/// matters for custom mods: [`sync_custom_mods`] would otherwise resurrect the
+/// entry from the leftover DLL on the next profile read.
+pub fn uninstall_mod_from_profile(profile_id: &str, mod_id: &str) -> AppResult<()> {
+    let Some(profile) = get_profile_by_id(profile_id)? else {
+        return Err(AppError::validation(format!(
+            "Profile '{profile_id}' not found"
+        )));
+    };
+    let Some(entry) = profile.mods.iter().find(|m| m.mod_id == mod_id) else {
+        return Err(AppError::validation("Mod is not installed in this profile"));
+    };
+    if let Some(file) = entry.file.clone() {
+        delete_mod_file(&profile.path, &file)?;
+    }
+    remove_mod_from_profile(profile_id, mod_id)
+}
+
 /// Copy a local plugin .dll into the profile's `BepInEx/plugins`. No manifest
 /// entry is written — the next profile read surfaces it as a `custom:` mod via
 /// [`sync_custom_mods`]. Returns the plugin's file name.
@@ -663,13 +682,13 @@ pub fn delete_mod_file(profile_path: &str, file_name: &str) -> AppResult<()> {
         return Err(AppError::validation("Invalid mod file name"));
     }
 
-    let path = PathBuf::from(profile_path)
-        .join("BepInEx")
-        .join("plugins")
-        .join(base_name);
+    let plugins_dir = PathBuf::from(profile_path).join("BepInEx").join("plugins");
+    let path = plugins_dir.join(base_name);
     if path.exists() {
         fs::remove_file(path)?;
     }
+    // A disabled mod's file lives under a `.disabled` suffix — remove that too.
+    let _ = fs::remove_file(plugins_dir.join(format!("{base_name}.disabled")));
     Ok(())
 }
 

@@ -17,6 +17,8 @@ use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_service::{BepInExProgress, BepInExTargetType};
 use crate::backend::services::launch_service;
 use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry, ZipOp};
+#[cfg(windows)]
+use crate::backend::services::profile_shortcut_service;
 use crate::backend::state::game_runtime;
 use crate::backend::state::mod_catalog_cache;
 use crate::settings as app_settings;
@@ -47,6 +49,9 @@ pub struct LibraryDetailView {
     pub(super) state: LoadState,
     bep_progress: Option<BepInExProgress>,
     confirming_delete: bool,
+    /// Mod id awaiting delete confirmation, if any (two-step like the profile
+    /// delete, but per row).
+    confirming_delete_mod: Option<String>,
     launch_error: Option<String>,
     /// Success/info message (e.g. "Exported profile to …"); rendered non-red.
     notice: Option<String>,
@@ -82,6 +87,7 @@ impl LibraryDetailView {
             state: LoadState::Loading,
             bep_progress: None,
             confirming_delete: false,
+            confirming_delete_mod: None,
             launch_error: None,
             notice: None,
             rename_dialog: None,
@@ -302,6 +308,34 @@ impl LibraryDetailView {
         .detach();
     }
 
+    fn delete_mod(&mut self, mod_id: String, cx: &mut Context<Self>) {
+        self.confirming_delete_mod = None;
+        // Optimistically drop the row; the reload afterwards confirms it (or
+        // brings it back if the on-disk op failed).
+        if let LoadState::Loaded(profile) = &mut self.state {
+            profile.mods.retain(|m| m.mod_id != mod_id);
+        }
+        cx.notify();
+
+        let profile_id = self.profile_id.clone();
+        cx.spawn(async move |this, cx| {
+            let result =
+                cx.background_executor()
+                    .spawn(async move {
+                        profile_service::uninstall_mod_from_profile(&profile_id, &mod_id)
+                    })
+                    .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    warn!("delete mod failed: {e}");
+                    this.launch_error = Some(format!("Remove mod failed: {e}"));
+                }
+                this.spawn_load(cx);
+            });
+        })
+        .detach();
+    }
+
     fn open_profile_folder(&self) {
         let LoadState::Loaded(profile) = &self.state else {
             return;
@@ -475,6 +509,33 @@ impl LibraryDetailView {
                 }
                 cx.notify();
                 this.spawn_load(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Write a `.url` shortcut for this profile onto the desktop. It opens the
+    /// app via the `starlight://` scheme, which auto-launches the profile.
+    #[cfg(windows)]
+    fn create_desktop_shortcut(&mut self, cx: &mut Context<Self>) {
+        let id = self.profile_id.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { profile_shortcut_service::create_desktop_shortcut(&id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(path) => {
+                        this.notice = Some(format!("Created shortcut at {path}"));
+                        this.launch_error = None;
+                    }
+                    Err(e) => {
+                        this.launch_error = Some(format!("Shortcut failed: {e}"));
+                        this.notice = None;
+                    }
+                }
+                cx.notify();
             });
         })
         .detach();
@@ -666,6 +727,10 @@ impl Render for LibraryDetailView {
                             let mod_id = m.mod_id.clone();
                             let enabled = m.enabled;
                             let has_file = m.file.is_some();
+                            let confirming_mod_delete = self
+                                .confirming_delete_mod
+                                .as_deref()
+                                .is_some_and(|id| id == m.mod_id);
                             // Custom mods have no catalog entry, so no thumbnail to fetch.
                             let thumbnail: AnyElement = if m.is_custom() {
                                 div()
@@ -717,6 +782,7 @@ impl Render for LibraryDetailView {
                                 )
                                 // Mods imported without a known filename can't be toggled on disk.
                                 .children(has_file.then(|| {
+                                    let mod_id = mod_id.clone();
                                     Switch::new(SharedString::from(format!("mod-toggle-{ix}")))
                                         .checked(enabled)
                                         .on_click(cx.listener(
@@ -725,6 +791,43 @@ impl Render for LibraryDetailView {
                                             },
                                         ))
                                 }))
+                                .child(if confirming_mod_delete {
+                                    let confirm_id = mod_id.clone();
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .child(
+                                            Button::new(SharedString::from(format!(
+                                                "mod-delete-confirm-{ix}"
+                                            )))
+                                            .danger()
+                                            .label("Remove")
+                                            .on_click(cx.listener(move |this, _, _window, cx| {
+                                                this.delete_mod(confirm_id.clone(), cx)
+                                            })),
+                                        )
+                                        .child(
+                                            Button::new(SharedString::from(format!(
+                                                "mod-delete-cancel-{ix}"
+                                            )))
+                                            .label("Cancel")
+                                            .on_click(cx.listener(|this, _, _window, cx| {
+                                                this.confirming_delete_mod = None;
+                                                cx.notify();
+                                            })),
+                                        )
+                                        .into_any_element()
+                                } else {
+                                    Button::new(SharedString::from(format!("mod-delete-{ix}")))
+                                        .ghost()
+                                        .icon(Icon::new(IconName::Delete))
+                                        .on_click(cx.listener(move |this, _, _window, cx| {
+                                            this.confirming_delete_mod = Some(mod_id.clone());
+                                            cx.notify();
+                                        }))
+                                        .into_any_element()
+                                })
                                 .into_any_element()
                         })
                         .collect();
@@ -840,6 +943,15 @@ impl Render for LibraryDetailView {
                                 this.export_profile(cx);
                             })),
                     );
+
+                #[cfg(windows)]
+                let manage_buttons = manage_buttons.child(
+                    Button::new("create-shortcut-action")
+                        .label("Desktop Shortcut")
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.create_desktop_shortcut(cx);
+                        })),
+                );
 
                 let hero = div()
                     .flex()
