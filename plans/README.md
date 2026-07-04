@@ -25,7 +25,7 @@ cargo test
 | [005](005-update-integrity-check.md) | Verify self-update binary against GitHub asset digest | P1 | S–M | 001 | DONE |
 | [006](006-keyring-save-preserve-session.md) | Non-destructive keyring session save | P2 | S | — | DONE |
 | [007](007-surface-skipped-dependencies.md) | Log and surface unresolved mod dependencies | P2 | S | — | DONE |
-| [008](008-concurrent-mod-name-fetches.md) | Concurrent mod-name fetches in profile detail | P3 | S | — | TODO |
+| [008](008-concurrent-mod-name-fetches.md) | Concurrent mod-name fetches in profile detail | P3 | S | — | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 

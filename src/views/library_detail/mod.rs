@@ -231,13 +231,18 @@ impl LibraryDetailView {
             return;
         }
         cx.spawn(async move |this, cx| {
-            for mod_id in pending {
-                let id_for_fetch = mod_id.clone();
-                let resolved = cx
-                    .background_executor()
-                    .spawn(async move { mod_catalog_cache::fetch(&id_for_fetch).map(|m| m.name) })
-                    .await;
-                if let Some(name) = resolved {
+            let tasks: Vec<_> = pending
+                .into_iter()
+                .map(|mod_id| {
+                    let id_for_fetch = mod_id.clone();
+                    let task = cx.background_executor().spawn(async move {
+                        mod_catalog_cache::fetch(&id_for_fetch).map(|m| m.name)
+                    });
+                    (mod_id, task)
+                })
+                .collect();
+            for (mod_id, task) in tasks {
+                if let Some(name) = task.await {
                     let _ = this.update(cx, |this, cx| {
                         this.mod_names.insert(mod_id, name);
                         cx.notify();
