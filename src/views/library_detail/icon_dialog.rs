@@ -175,6 +175,7 @@ impl LibraryDetailView {
 pub(super) fn render_icon_dialog(
     state: &IconDialogState,
     profile: &ProfileEntry,
+    mod_names: &std::collections::HashMap<String, String>,
     theme: crate::theme::Theme,
     cx: &mut Context<LibraryDetailView>,
 ) -> AnyElement {
@@ -279,6 +280,10 @@ pub(super) fn render_icon_dialog(
                     .map(|mod_id| {
                         let is_selected = selected.as_deref() == Some(mod_id.as_str());
                         let click_id = mod_id.clone();
+                        let display_name = mod_names
+                            .get(&mod_id)
+                            .cloned()
+                            .unwrap_or_else(|| mod_id.clone());
                         div()
                             .id(SharedString::from(format!("icon-mod-{mod_id}")))
                             .flex()
@@ -308,7 +313,7 @@ pub(super) fn render_icon_dialog(
                                     .rounded_md()
                                     .object_fit(ObjectFit::Cover),
                             )
-                            .child(div().text_sm().truncate().child(mod_id))
+                            .child(div().text_sm().truncate().child(display_name))
                             .into_any_element()
                     })
                     .collect();

@@ -1096,7 +1096,9 @@ impl Render for LibraryDetailView {
                         LoadState::Loaded(profile) => Some((s, profile.clone())),
                         _ => None,
                     })
-                    .map(|(state, profile)| render_icon_dialog(state, &profile, theme.clone(), cx)),
+                    .map(|(state, profile)| {
+                        render_icon_dialog(state, &profile, &self.mod_names, theme.clone(), cx)
+                    }),
             )
     }
 }
