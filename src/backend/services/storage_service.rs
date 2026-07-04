@@ -28,17 +28,27 @@ impl<T: Serialize + for<'de> Deserialize<'de>> KeyringStorage<T> {
         Entry::new(self.service, &format!("{}_{}", self.base_key, suffix)).map_err(AppError::from)
     }
 
+    fn stored_count(&self) -> usize {
+        self.entry("n")
+            .and_then(|entry| {
+                entry
+                    .get_password()
+                    .map_err(|e| AppError::state(format!("Failed to get count credential: {e}")))
+            })
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0)
+    }
+
+    /// The count entry is written last so a failed save never destroys the
+    /// previous session.
     pub fn save(&self, data: &T, chunk_size: usize) -> AppResult<()> {
         info!("Saving {} to keyring", self.base_key);
-        self.clear()?;
+        let old_count = self.stored_count();
 
         let json = serde_json::to_vec(data)?;
         let encoded = B64.encode(compress(&json)?);
         let chunks: Vec<_> = encoded.as_bytes().chunks(chunk_size).collect();
-
-        self.entry("n")?
-            .set_password(&chunks.len().to_string())
-            .map_err(AppError::from)?;
 
         for (i, chunk) in chunks.iter().enumerate() {
             let chunk_str = std::str::from_utf8(chunk)
@@ -46,6 +56,19 @@ impl<T: Serialize + for<'de> Deserialize<'de>> KeyringStorage<T> {
             self.entry(&i.to_string())?
                 .set_password(chunk_str)
                 .map_err(AppError::from)?;
+        }
+
+        self.entry("n")?
+            .set_password(&chunks.len().to_string())
+            .map_err(AppError::from)?;
+
+        for i in chunks.len()..old_count {
+            if let Err(e) = self
+                .entry(&i.to_string())
+                .map(|entry| entry.delete_credential())
+            {
+                error!("Failed to delete stale credential '{}': {}", i, e);
+            }
         }
 
         info!("{} saved ({} chunks)", self.base_key, chunks.len());
@@ -66,16 +89,7 @@ impl<T: Serialize + for<'de> Deserialize<'de>> KeyringStorage<T> {
     }
 
     pub fn clear(&self) -> AppResult<()> {
-        let count: usize = self
-            .entry("n")
-            .and_then(|entry| {
-                entry
-                    .get_password()
-                    .map_err(|e| AppError::state(format!("Failed to get count credential: {e}")))
-            })
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
+        let count = self.stored_count();
 
         if count == 0 {
             return Ok(());
