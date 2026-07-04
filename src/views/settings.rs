@@ -647,6 +647,21 @@ fn clear_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App) {
     }
 }
 
+/// Open the app's data directory (settings, profiles, logs) in the platform
+/// file manager — the folder support asks users to look in.
+fn open_data_folder() {
+    let Ok(dir) = crate::backend::directories::app_data_dir() else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer").arg(&dir).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(&dir).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+}
+
 // ---------- view ----------
 
 impl Render for SettingsView {
@@ -934,38 +949,78 @@ impl Render for SettingsView {
         };
 
         let about_page =
-            SettingPage::new("About").group(SettingGroup::new().title("Starlight").items(vec![
-                SettingItem::new(
-                    "Version",
-                    SettingField::render(|_, _, _| {
-                        div().child(concat!("Starlight ", env!("CARGO_PKG_VERSION")))
-                    }),
-                )
-                .description("Include this when reporting issues."),
-                SettingItem::new(
-                    "Source code",
-                    SettingField::render(|_, _, _| {
-                        Button::new("about-github")
-                            .icon(Icon::new(IconName::ExternalLink))
-                            .label("GitHub")
-                            .on_click(|_, _, cx| {
-                                cx.open_url("https://github.com/All-Of-Us-Mods/Starlight-PC")
-                            })
-                    }),
-                ),
-                SettingItem::new(
-                    "License",
-                    SettingField::render(|_, _, _| {
-                        Button::new("about-license")
-                            .icon(Icon::new(IconName::ExternalLink))
-                            .label("GPL-3.0")
-                            .on_click(|_, _, cx| {
-                                cx.open_url("https://www.gnu.org/licenses/gpl-3.0.html")
-                            })
-                    }),
-                )
-                .description("Free software under the GNU General Public License v3."),
-            ]));
+            SettingPage::new("About").group(SettingGroup::new().items(vec![SettingItem::render(
+                |_, _window, cx| {
+                    let theme = cx.global::<crate::theme::Theme>().clone();
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .text_lg()
+                                        .font_weight(FontWeight::BOLD)
+                                        .child("Starlight PC"),
+                                )
+                                .child(
+                                    div()
+                                        .px_2()
+                                        .py_0p5()
+                                        .rounded_full()
+                                        .bg(theme.hover)
+                                        .text_xs()
+                                        .text_color(theme.text_muted)
+                                        .child(concat!("v", env!("CARGO_PKG_VERSION"))),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .text_sm()
+                                .text_color(theme.text_muted)
+                                .child("♡ 2026 All Of Us Mods")
+                                .child("|")
+                                .child(
+                                    div()
+                                        .id("about-license-link")
+                                        .cursor_pointer()
+                                        .hover(|s| s.text_color(theme.text))
+                                        .child("GNU GPLv3 License")
+                                        .on_click(|_, _, cx| {
+                                            cx.open_url("https://www.gnu.org/licenses/gpl-3.0.html")
+                                        }),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("about-view-source")
+                                        .icon(Icon::new(IconName::ExternalLink))
+                                        .label("View Source")
+                                        .on_click(|_, _, cx| {
+                                            cx.open_url(
+                                                "https://github.com/All-Of-Us-Mods/Starlight-PC",
+                                            )
+                                        }),
+                                )
+                                .child(
+                                    Button::new("about-open-data")
+                                        .icon(Icon::new(IconName::FolderOpen))
+                                        .label("Open Data Folder")
+                                        .on_click(|_, _, _| open_data_folder()),
+                                ),
+                        )
+                },
+            )]));
 
         crate::views::page_root("settings-page", &theme)
             .overflow_y_scroll()
