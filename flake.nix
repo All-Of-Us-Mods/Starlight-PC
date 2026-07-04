@@ -2,179 +2,111 @@
   description = "Starlight PC";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { nixpkgs, flake-utils, ... }:
+    {
+      nixpkgs,
+      flake-utils,
+      fenix,
+      ...
+    }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = import nixpkgs { inherit system; };
-        lib = pkgs.lib;
+        toolchain = fenix.packages.${system}.stable.withComponents [
+          "cargo"
+          "rustc"
+          "rustfmt"
+          "clippy"
+          "rust-src"
+        ];
 
-        pname = "starlight";
-        version = "1.1.1";
-
-        src = lib.cleanSourceWith {
-          src = ./.;
-          filter =
-            path: type:
-            let
-              rel = lib.removePrefix (toString ./. + "/") (toString path);
-              base = baseNameOf path;
-            in
-            !(lib.hasPrefix ".git/" rel)
-            && !(lib.hasPrefix "build/" rel)
-            && !(lib.hasPrefix "node_modules/" rel)
-            && !(lib.hasPrefix "src-tauri/target/" rel)
-            && base != "result";
+        linuxLibs = with pkgs; [
+          fontconfig
+          freetype
+          vulkan-loader
+          wayland
+          libxkbcommon
+          libGL
+          xorg.libX11
+          xorg.libXcursor
+          xorg.libXi
+          xorg.libxcb
+        ];
+        rustPlatform = pkgs.makeRustPlatform {
+          cargo = toolchain;
+          rustc = toolchain;
         };
 
-        bunDeps = pkgs.stdenvNoCC.mkDerivation {
-          pname = "${pname}-bun-deps";
-          inherit version src;
+        starlight = rustPlatform.buildRustPackage {
+          pname = "starlight";
+          version = (fromTOML (builtins.readFile ./Cargo.toml)).package.version;
 
-          nativeBuildInputs = [ pkgs.bun ];
+          src = ./.;
 
-          dontConfigure = true;
-          dontBuild = true;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            outputHashes = {
+              "collections-0.1.0" = "sha256-+9t67JeCwlI01nuWp1jONiyl/4u1O7ruzPYEj1+Jp2Q=";
+              "gpui-component-0.5.2" = "sha256-gCXOFwEpiaZrJfNhO3yO37qr6qX5rs+9/8ff2TqZXAQ=";
+              "naga-29.0.3" = "sha256-jwPdrd2XLvK5ddEutR/39OLMh2JU3UXNWIcJKCndh+U=";
+              "zed-font-kit-0.14.1-zed" = "sha256-KXygi0olNQi5yM8eaJVykNDtbPMDjT+cWPBF8UrtXR4=";
+              "zed-reqwest-0.12.15-zed" = "sha256-p4SiUrOrbTlk/3bBrzN/mq/t+1Gzy2ot4nso6w6S+F8=";
+              "zed-scap-0.0.8-zed" = "sha256-BihiQHlal/eRsktyf0GI3aSWsUCW7WcICMsC2Xvb7kw=";
+              "zed-xim-0.4.0-zed" = "sha256-pRT4Sz1JU9ros47/7pmIW9kosWOGMOItcnNd+VrvnpE=";
+            };
+          };
 
-          installPhase = ''
-            runHook preInstall
+          nativeBuildInputs =
+            [ pkgs.makeWrapper ]
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
 
-            export HOME="$TMPDIR"
-            bun install --frozen-lockfile --ignore-scripts
+          buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxLibs;
 
-            mkdir -p "$out"
-            cp -R node_modules "$out/"
-
-            runHook postInstall
+          preBuild = ''
+            ln -sfn gpui-component-assets-0.5.1 "$NIX_BUILD_TOP/cargo-vendor-dir/assets"
           '';
 
-          outputHashAlgo = "sha256";
-          outputHashMode = "recursive";
-          outputHash = "sha256-81JoWZNK5PYYmsIOWb7KLZyw7P3Y2B3czuye2b5XxGM=";
+          doCheck = false;
+
+          postFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+            wrapProgram $out/bin/Starlight \
+              --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath linuxLibs}
+          '';
+
+          meta = with pkgs.lib; {
+            description = "Among Us mod manager";
+            license = licenses.gpl3Only;
+            platforms = platforms.unix;
+            mainProgram = "Starlight";
+          };
         };
       in
       {
-        packages.default = pkgs.stdenv.mkDerivation {
-          inherit pname version src;
+        packages = {
+          default = starlight;
+          starlight = starlight;
+        };
 
-          cargoDeps = pkgs.rustPlatform.importCargoLock {
-            lockFile = ./src-tauri/Cargo.lock;
-          };
-          cargoRoot = "src-tauri";
-
-          nativeBuildInputs = with pkgs; [
-            bun
-            cargo
-            cargo-tauri
-            nodejs
-            pkg-config
-            rustPlatform.cargoSetupHook
-            rustc
-            wrapGAppsHook4
-          ];
-
-          buildInputs = with pkgs; [
-            glib-networking
-            librsvg
-            openssl
-            webkitgtk_4_1
-          ];
-
-          env = {
-            OPENSSL_NO_VENDOR = "1";
-            PUBLIC_API_URL = "https://starlight.allofus.dev";
-          };
-
-          configurePhase = ''
-            runHook preConfigure
-
-            export HOME="$TMPDIR"
-
-            cp -R ${bunDeps}/node_modules ./node_modules
-            chmod -R u+w ./node_modules
-            patchShebangs ./node_modules
-
-            export PATH="$PWD/node_modules/.bin:$PATH"
-
-            runHook postConfigure
-          '';
-
-          buildPhase = ''
-            runHook preBuild
-
-            cargo tauri build --no-bundle
-
-            runHook postBuild
-          '';
-
-          installPhase = ''
-                runHook preInstall
-
-                bin="$(find src-tauri/target/release -maxdepth 1 \( -name 'Starlight' -o -name 'starlight' \) -type f -perm -0100 | head -n1)"
-
-                if [ -z "$bin" ]; then
-                  echo "could not find built starlight binary" >&2
-                  find src-tauri/target/release -maxdepth 2 -type f >&2
-                  exit 1
-                fi
-
-                install -Dm755 "$bin" "$out/bin/starlight"
-                install -Dm644 src-tauri/icons/128x128.png "$out/share/icons/hicolor/128x128/apps/starlight.png"
-                install -Dm644 static/starlight.png "$out/share/pixmaps/starlight.png"
-
-                install -Dm644 /dev/stdin "$out/share/applications/starlight.desktop" <<EOF
-            [Desktop Entry]
-            Type=Application
-            Name=Starlight
-            Comment=Among Us mod manager
-            Exec=starlight
-            Icon=starlight
-            Categories=Game;
-            Terminal=false
-            StartupWMClass=Starlight
-            EOF
-
-                runHook postInstall
-          '';
-
-          meta = {
-            description = "Among Us mod manager";
-            homepage = "https://github.com/All-Of-Us-Mods/Starlight-PC";
-            license = lib.licenses.gpl3Only;
-            mainProgram = "starlight";
-            platforms = lib.platforms.linux;
-          };
+        apps.default = {
+          type = "app";
+          program = "${starlight}/bin/Starlight";
         };
 
         devShells.default = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [
-            pkg-config
-            openssl
-            wrapGAppsHook4
-            cargo
-            nodejs
-            bun
-            rustc # Needed for dev server (npm tauri dev)
-            rustfmt
-            clippy
-          ];
+          nativeBuildInputs = [ toolchain ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
 
-          buildInputs = with pkgs; [
-            librsvg
-            webkitgtk_4_1
-          ];
+          buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxLibs;
 
-          shellHook = ''
-            export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig:$PKG_CONFIG_PATH"
-            export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH" # Needed on Wayland to report the correct display scale
-            export SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-            export NIX_SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-          '';
+          LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.isLinux (pkgs.lib.makeLibraryPath linuxLibs);
         };
       }
     );

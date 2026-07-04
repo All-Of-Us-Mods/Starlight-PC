@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The updater compares the running binary's CARGO_PKG_VERSION against
+      # the release tag — a mismatch ships an updater that never settles.
+      - name: Check tag matches Cargo.toml version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $manifest = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ($tag -ne $manifest) {
+            Write-Error "Tag v$tag does not match Cargo.toml version $manifest. Bump Cargo.toml before tagging."
+            exit 1
+          }
+
+      - name: cargo build --release
+        run: cargo build --release
+
+      - name: Rename binary
+        run: Copy-Item target/release/Starlight.exe Starlight-windows-x86_64.exe
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: Starlight-windows-x86_64.exe
+          generate_release_notes: true
