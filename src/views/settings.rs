@@ -15,7 +15,7 @@ use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::core_service::LinuxRunnerKind;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
-    core_service::{self, AppSettingsPatch, GamePlatform},
+    core_service::{self, AccentColor, AppSettingsPatch, AppTint, GamePlatform},
     epic_auth_service::{self, EpicAuthService},
     finder_service,
 };
@@ -169,6 +169,60 @@ fn patch_platform(value: SharedString, cx: &mut App) {
             ..Default::default()
         },
     );
+}
+
+/// Re-apply the palette from the (just-updated) settings global.
+fn reapply_theme(cx: &mut App) {
+    let settings = app_settings::get(cx);
+    crate::theme::apply(cx, settings.app_tint, settings.accent_color);
+}
+
+fn patch_app_tint(value: SharedString, cx: &mut App) {
+    let tint = match value.as_ref() {
+        "warm" => AppTint::Warm,
+        "zinc" => AppTint::Zinc,
+        "crimson" => AppTint::Crimson,
+        "violet" => AppTint::Violet,
+        _ => AppTint::Black,
+    };
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            app_tint: Some(tint),
+            ..Default::default()
+        },
+    );
+    reapply_theme(cx);
+}
+
+fn patch_accent_color(value: SharedString, cx: &mut App) {
+    let accent = match value.as_ref() {
+        "blue" => AccentColor::Blue,
+        "red" => AccentColor::Red,
+        "purple" => AccentColor::Purple,
+        "green" => AccentColor::Green,
+        _ => AccentColor::Starlight,
+    };
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            accent_color: Some(accent),
+            ..Default::default()
+        },
+    );
+    reapply_theme(cx);
+}
+
+fn patch_show_stars_background(value: bool, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            show_stars_background: Some(value),
+            ..Default::default()
+        },
+    );
+    // The stars layer lives in the workspace, which doesn't observe settings.
+    cx.refresh_windows();
 }
 
 fn patch_bepinex_url_x64(value: SharedString, cx: &mut App) {
@@ -690,6 +744,60 @@ impl Render for SettingsView {
         let launch_page = SettingPage::new("Launch")
             .group(SettingGroup::new().title("Behavior").items(launch_items));
 
+        let appearance_page =
+            SettingPage::new("Appearance").group(SettingGroup::new().title("Theme").items(vec![
+                SettingItem::new(
+                    "Background tint",
+                    SettingField::dropdown(
+                        vec![
+                            ("black".into(), "Pure Black".into()),
+                            ("warm".into(), "Warm".into()),
+                            ("zinc".into(), "Zinc".into()),
+                            ("crimson".into(), "Crimson".into()),
+                            ("violet".into(), "Violet".into()),
+                        ],
+                        |cx| match app_settings::get(cx).app_tint {
+                            AppTint::Black => "black".into(),
+                            AppTint::Warm => "warm".into(),
+                            AppTint::Zinc => "zinc".into(),
+                            AppTint::Crimson => "crimson".into(),
+                            AppTint::Violet => "violet".into(),
+                        },
+                        patch_app_tint,
+                    ),
+                )
+                .description("Tint family for backgrounds, cards and borders."),
+                SettingItem::new(
+                    "Accent color",
+                    SettingField::dropdown(
+                        vec![
+                            ("starlight".into(), "Starlight (Gold)".into()),
+                            ("blue".into(), "Blue".into()),
+                            ("red".into(), "Red".into()),
+                            ("purple".into(), "Purple".into()),
+                            ("green".into(), "Green".into()),
+                        ],
+                        |cx| match app_settings::get(cx).accent_color {
+                            AccentColor::Starlight => "starlight".into(),
+                            AccentColor::Blue => "blue".into(),
+                            AccentColor::Red => "red".into(),
+                            AccentColor::Purple => "purple".into(),
+                            AccentColor::Green => "green".into(),
+                        },
+                        patch_accent_color,
+                    ),
+                )
+                .description("Color of primary buttons, highlights and focus rings."),
+                SettingItem::new(
+                    "Floating stars background",
+                    SettingField::switch(
+                        |cx| app_settings::get(cx).show_stars_background,
+                        patch_show_stars_background,
+                    ),
+                )
+                .description("Show the slowly drifting starfield behind pages."),
+            ]));
+
         let bepinex_page = SettingPage::new("BepInEx").groups(vec![
             SettingGroup::new().title("Cache").items(vec![
                 SettingItem::new(
@@ -839,7 +947,7 @@ impl Render for SettingsView {
                     .sidebar_width(px(190.0))
                     .pages({
                         #[cfg_attr(not(unix), allow(unused_mut))]
-                        let mut pages = vec![game_page, launch_page, bepinex_page];
+                        let mut pages = vec![game_page, launch_page, appearance_page, bepinex_page];
                         #[cfg(unix)]
                         pages.push(linux_page);
                         pages

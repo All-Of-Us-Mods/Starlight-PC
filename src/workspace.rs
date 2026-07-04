@@ -1,3 +1,4 @@
+use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use log::warn;
 
@@ -5,8 +6,10 @@ use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::launch_service;
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::backend::state::game_runtime;
+use crate::settings as app_settings;
 use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
+use crate::ui::stars_background::stars_background;
 use crate::views::explore::ExploreView;
 use crate::views::home::HomeView;
 use crate::views::library::{LibraryEvent, LibraryView};
@@ -533,14 +536,21 @@ impl Render for Workspace {
         let dialog_layer = gpui_component::Root::render_dialog_layer(window, cx);
         let notification_layer = gpui_component::Root::render_notification_layer(window, cx);
 
+        let show_stars = app_settings::get(cx).show_stars_background;
+
         div()
             .flex()
             .flex_col()
             .size_full()
+            .relative()
             .font_family(theme::FONT_FAMILY)
             .text_color(theme.text)
             .text_size(px(14.0))
             .bg(theme.background)
+            // Behind everything else. The sidebar and title bar are
+            // transparent (see theme::apply), so the stars show through the
+            // whole window; only cards and panels paint over them.
+            .when(show_stars, |el| el.child(stars_background()))
             // Draggable custom title bar: window move + min/max/close controls,
             // app-wide back/forward navigation, the current page title, and a
             // quick-launch button for the last launched profile.
@@ -562,6 +572,10 @@ impl Render for Workspace {
                             .flex_1()
                             .h_full()
                             .overflow_hidden()
+                            // Opaque: hides the starfield behind the page
+                            // content, leaving stars visible only in the
+                            // title bar and sidebar chrome (like upstream).
+                            .bg(theme.background)
                             .child(self.render_content()),
                     ),
             )

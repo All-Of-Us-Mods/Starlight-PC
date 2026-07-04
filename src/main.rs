@@ -39,8 +39,9 @@ fn main() {
             gpui_component::init(cx);
             gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
             ui::log_language::register();
-            theme::init(cx);
+            // Settings first — the theme preset comes from them.
             settings::init(cx);
+            theme::init(cx);
             backend::init(cx);
 
             cx.on_action(|_: &Quit, cx| cx.quit());
