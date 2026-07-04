@@ -87,7 +87,10 @@ pub fn check_for_update() -> AppResult<Option<UpdateInfo>> {
         return Ok(None);
     };
 
-    if !asset.browser_download_url.starts_with(RELEASE_DOWNLOAD_PREFIX) {
+    if !asset
+        .browser_download_url
+        .starts_with(RELEASE_DOWNLOAD_PREFIX)
+    {
         return Err(AppError::validation(format!(
             "Unexpected update download URL: {}",
             asset.browser_download_url
@@ -206,17 +209,26 @@ mod tests {
 
     #[test]
     fn parse_sha256_digest_rejects_wrong_algorithm_prefix() {
-        assert_eq!(parse_sha256_digest(&format!("sha512:{}", "a".repeat(64))), None);
+        assert_eq!(
+            parse_sha256_digest(&format!("sha512:{}", "a".repeat(64))),
+            None
+        );
     }
 
     #[test]
     fn parse_sha256_digest_rejects_wrong_length() {
-        assert_eq!(parse_sha256_digest(&format!("sha256:{}", "a".repeat(63))), None);
+        assert_eq!(
+            parse_sha256_digest(&format!("sha256:{}", "a".repeat(63))),
+            None
+        );
     }
 
     #[test]
     fn parse_sha256_digest_rejects_non_hex_chars() {
-        assert_eq!(parse_sha256_digest(&format!("sha256:{}", "z".repeat(64))), None);
+        assert_eq!(
+            parse_sha256_digest(&format!("sha256:{}", "z".repeat(64))),
+            None
+        );
     }
 
     #[test]

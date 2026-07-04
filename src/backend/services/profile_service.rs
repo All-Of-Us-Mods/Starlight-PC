@@ -160,12 +160,22 @@ fn sync_custom_mods(profile: &mut ProfileEntry) {
         }
     }
 
+    // A custom entry survives only while its file is still on disk AND no
+    // catalog entry claims that same file — the latter happens when a mod is
+    // installed through the app after its DLL was (briefly) seen as loose,
+    // which used to leave a duplicate "custom" row behind.
+    let claimed: HashSet<String> = profile
+        .mods
+        .iter()
+        .filter(|mod_entry| !mod_entry.is_custom())
+        .filter_map(|mod_entry| mod_entry.file.clone())
+        .collect();
     profile.mods.retain(|mod_entry| {
         !mod_entry.is_custom()
             || mod_entry
                 .file
                 .as_deref()
-                .is_some_and(|file| on_disk.contains_key(file))
+                .is_some_and(|file| on_disk.contains_key(file) && !claimed.contains(file))
     });
 
     let mut tracked: HashSet<String> = HashSet::new();
@@ -548,6 +558,15 @@ pub fn add_mod_to_profile(
             enabled: true,
         });
     }
+    // The plugin file is downloaded before this manifest update, so the
+    // profile read above may have synthesized a `custom:` entry for it (see
+    // `sync_custom_mods`) — the catalog entry claims the file now, so drop
+    // the twin instead of persisting a duplicate.
+    profile.mods.retain(|mod_entry| {
+        !(mod_entry.is_custom()
+            && mod_entry.mod_id != mod_id
+            && mod_entry.file.as_deref() == Some(base_name))
+    });
     write_profile(&profile)
 }
 
@@ -1012,6 +1031,31 @@ mod tests {
 
         let off = profile.mods.iter().find(|m| m.mod_id == "custom:Off.dll");
         assert!(off.is_some_and(|m| !m.enabled && m.file.as_deref() == Some("Off.dll")));
+    }
+
+    #[test]
+    fn sync_drops_custom_twin_when_catalog_entry_claims_the_same_file() {
+        let dir = TempProfileDir::new("claimed-twin");
+        fs::write(dir.plugins().join("Reactor.dll"), b"x").unwrap();
+
+        // Duplicate state as persisted by the old install flow: the DLL both
+        // as a catalog entry and as a stale custom entry.
+        let mut profile = profile_at(
+            &dir,
+            vec![
+                ProfileModEntry {
+                    mod_id: format!("{CUSTOM_MOD_PREFIX}Reactor.dll"),
+                    version: String::new(),
+                    file: Some("Reactor.dll".into()),
+                    enabled: true,
+                },
+                tracked("reactor", "Reactor.dll"),
+            ],
+        );
+        sync_custom_mods(&mut profile);
+
+        assert_eq!(profile.mods.len(), 1);
+        assert_eq!(profile.mods[0].mod_id, "reactor");
     }
 
     #[test]

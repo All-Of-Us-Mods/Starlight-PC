@@ -897,13 +897,11 @@ fn render_install_panel(
         .children(if panel.unresolved.is_empty() {
             None
         } else {
-            Some(
-                div().text_xs().text_color(theme.text_muted).child(format!(
-                    "{} dependencies could not be resolved and will be skipped: {}",
-                    panel.unresolved.len(),
-                    panel.unresolved.join(", ")
-                )),
-            )
+            Some(div().text_xs().text_color(theme.text_muted).child(format!(
+                "{} dependencies could not be resolved and will be skipped: {}",
+                panel.unresolved.len(),
+                panel.unresolved.join(", ")
+            )))
         })
         .children(status_row)
         .child(
