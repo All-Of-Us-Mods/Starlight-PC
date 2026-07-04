@@ -169,6 +169,7 @@ impl Workspace {
         Self::check_for_update(window, cx);
 
         Self::first_run_detect_game(window, cx);
+        Self::offer_legacy_migration(library.clone(), window, cx);
 
         Self {
             history: vec![Page::Library],
@@ -237,6 +238,91 @@ impl Workspace {
                             "Couldn't find Among Us automatically — set its folder in \
                              Settings → Game before launching.",
                         ),
+                        cx,
+                    );
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// If this install has no profiles yet but the previous (Tauri) Starlight
+    /// left some under `dev.allofus.starlight`, offer to migrate them. The
+    /// offer repeats on later launches until the user migrates or creates a
+    /// profile of their own — it disappears on its own either way.
+    fn offer_legacy_migration(
+        library: Entity<LibraryView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::backend::services::migration_service;
+
+        let window_handle = window.window_handle();
+        cx.spawn(async move |_, cx| {
+            let pending = cx
+                .background_executor()
+                .spawn(async {
+                    let has_own_profiles = profile_service::get_profiles()
+                        .map(|profiles| !profiles.is_empty())
+                        .unwrap_or(false);
+                    if has_own_profiles {
+                        0
+                    } else {
+                        migration_service::detect_legacy_profiles().len()
+                    }
+                })
+                .await;
+            if pending == 0 {
+                return;
+            }
+            let _ = window_handle.update(cx, |_, window, cx| {
+                let plural = if pending == 1 { "" } else { "s" };
+                let notification = Notification::info(format!(
+                    "Found {pending} profile{plural} from the previous Starlight version. \
+                     Migrate them to this installation?"
+                ))
+                .title("Migrate profiles")
+                .autohide(false)
+                .action(move |_, _window, cx| {
+                    let library = library.clone();
+                    Button::new("migrate-profiles")
+                        .primary()
+                        .label("Migrate")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            Self::run_legacy_migration(library.clone(), window, cx);
+                            this.dismiss(window, cx);
+                        }))
+                });
+                window.push_notification(notification, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Run the migration on the background executor, then report the result
+    /// and refresh the library list.
+    fn run_legacy_migration(library: Entity<LibraryView>, window: &mut Window, cx: &mut App) {
+        use crate::backend::services::migration_service;
+
+        let window_handle = window.window_handle();
+        cx.spawn(async move |cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async { migration_service::migrate_legacy_profiles() })
+                .await;
+            let _ = window_handle.update(cx, |_, window, cx| match result {
+                Ok(count) => {
+                    let plural = if count == 1 { "" } else { "s" };
+                    window.push_notification(
+                        Notification::success(format!("Migrated {count} profile{plural}")),
+                        cx,
+                    );
+                    library.update(cx, |library, cx| library.refresh(cx));
+                }
+                Err(e) => {
+                    warn!("legacy profile migration failed: {e}");
+                    window.push_notification(
+                        Notification::error(format!("Migration failed: {e}")),
                         cx,
                     );
                 }
