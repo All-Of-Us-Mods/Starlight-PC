@@ -34,7 +34,17 @@ jobs:
       - name: Rename binary
         run: Copy-Item target/release/Starlight.exe Starlight-windows-x86_64.exe
 
+      # The updater matches release assets by exact name — keep the portable
+      # exe named Starlight-windows-x86_64.exe.
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=$version /O"." installer\starlight.iss
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: Starlight-windows-x86_64.exe
+          files: |
+            Starlight-windows-x86_64.exe
+            Starlight-Setup-x86_64.exe
           generate_release_notes: true
