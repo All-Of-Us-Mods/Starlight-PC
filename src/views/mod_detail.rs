@@ -164,6 +164,24 @@ impl ModDetailView {
         self.resolve_for_selected_version(mod_id, latest_version, cx);
     }
 
+    /// Restart dependency resolution after a failed install, clearing the
+    /// half-updated panel state the failure may have left behind.
+    fn retry_install_resolve(&mut self, cx: &mut Context<Self>) {
+        let LoadState::Loaded(data) = &self.state else {
+            return;
+        };
+        let mod_id = data.mod_info.id.clone();
+        let Some(panel) = self.install.as_mut() else {
+            return;
+        };
+        let version = panel.selected_version.clone();
+        panel.status = InstallStatus::Resolving;
+        panel.deps.clear();
+        panel.unresolved.clear();
+        cx.notify();
+        self.resolve_for_selected_version(mod_id, version, cx);
+    }
+
     fn resolve_for_selected_version(
         &mut self,
         mod_id: String,
@@ -686,9 +704,22 @@ fn render_install_panel(
         ),
         InstallStatus::Failed(e) => Some(
             div()
-                .text_xs()
-                .text_color(theme.danger)
-                .child(format!("Failed: {e}"))
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.danger)
+                        .child(format!("Failed: {e}")),
+                )
+                .child(
+                    // Re-resolve from scratch — a failed install can leave the
+                    // panel's dependency state half-updated.
+                    Button::new("install-retry").label("Retry").on_click(
+                        cx.listener(|this, _, _window, cx| this.retry_install_resolve(cx)),
+                    ),
+                )
                 .into_any_element(),
         ),
         InstallStatus::Ready => None,

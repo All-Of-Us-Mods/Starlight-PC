@@ -5,6 +5,7 @@ use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::launch_service;
 use crate::backend::services::profile_service::{self, ProfileEntry, ZipOp};
 use crate::backend::state::game_runtime;
+use crate::settings as app_settings;
 use crate::theme::ThemeExt;
 use crate::ui::format;
 use crate::ui::icon::AppIcon;
@@ -18,6 +19,8 @@ use gpui_component::{Disableable, Icon, IconName};
 #[derive(Clone, Debug)]
 pub enum LibraryEvent {
     Open(String),
+    /// The "game path not configured" banner asks to open the Settings tab.
+    OpenSettings,
 }
 
 impl EventEmitter<LibraryEvent> for LibraryView {}
@@ -50,6 +53,11 @@ impl LibraryView {
             import_progress: None,
         };
         view.load_profiles(cx);
+
+        // The setup banner reads the settings global — re-render when the
+        // path gets configured (auto-detect or manually in Settings).
+        cx.observe_global::<crate::settings::SettingsGlobal>(|_, cx| cx.notify())
+            .detach();
 
         let mut rx = events::subscribe();
         cx.spawn(async move |this, cx| {
@@ -429,10 +437,44 @@ impl Render for LibraryView {
                     ],
                 )
             });
+        // First-run nudge: launching can't work until the game path is set
+        // (startup auto-detect may have already filled it in).
+        let setup_banner = app_settings::get(cx)
+            .among_us_path
+            .trim()
+            .is_empty()
+            .then(|| {
+                div()
+                    .mb_4()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.warning)
+                    .bg(theme.sidebar_background)
+                    .p_3()
+                    .child(
+                        div()
+                            .text_color(theme.text)
+                            .child("Among Us path isn't configured — profiles can't launch yet."),
+                    )
+                    .child(
+                        Button::new("open-settings-banner")
+                            .primary()
+                            .label("Open Settings")
+                            .on_click(cx.listener(|_, _, _window, cx| {
+                                cx.emit(LibraryEvent::OpenSettings);
+                            })),
+                    )
+            });
+
         crate::views::page_root("library-page", &theme)
             .relative()
             .overflow_y_scroll()
             .child(self.render_header(cx))
+            .children(setup_banner)
             .children(self.error.clone().map(|message| {
                 div()
                     .mb_4()

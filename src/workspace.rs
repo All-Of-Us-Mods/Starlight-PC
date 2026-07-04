@@ -131,12 +131,14 @@ impl Workspace {
             window,
             |this, _, event: &LibraryEvent, window, cx| match event {
                 LibraryEvent::Open(profile_id) => this.open_profile(profile_id.clone(), window, cx),
+                LibraryEvent::OpenSettings => this.switch_tab(Tab::Settings, cx),
             },
         )
         .detach();
 
         // Refresh the title-bar quick-launch target whenever a profile's launch
         // stats change (fired after every launch).
+        let window_handle = window.window_handle();
         let mut rx = events::subscribe();
         cx.spawn(async move |this, cx| {
             while let Ok(event) = rx.recv().await {
@@ -151,6 +153,11 @@ impl Workspace {
                             cx.notify();
                         });
                     }
+                    // A second instance was started (e.g. via a desktop
+                    // shortcut) and forwarded here — raise our window.
+                    BackendEvent::ActivateWindow => {
+                        let _ = window_handle.update(cx, |_, window, _| window.activate_window());
+                    }
                     _ => {}
                 }
             }
@@ -160,6 +167,8 @@ impl Workspace {
 
         #[cfg(windows)]
         Self::check_for_update(window, cx);
+
+        Self::first_run_detect_game(window, cx);
 
         Self {
             history: vec![Page::Library],
@@ -176,6 +185,64 @@ impl Workspace {
             sidebar_collapsed: false,
             stars: cx.new(StarsBackground::new),
         }
+    }
+
+    /// First-run helper: when no Among Us path is configured yet, try to
+    /// auto-detect the installation in the background so launching works out
+    /// of the box, and tell the user either way.
+    fn first_run_detect_game(window: &mut Window, cx: &mut Context<Self>) {
+        use crate::backend::services::core_service::{AppSettingsPatch, GamePlatform};
+        use crate::backend::services::finder_service;
+
+        if !app_settings::get(cx).among_us_path.trim().is_empty() {
+            return;
+        }
+        let window_handle = window.window_handle();
+        cx.spawn(async move |_, cx| {
+            let detection = cx
+                .background_executor()
+                .spawn(async {
+                    finder_service::detect_among_us_installation()
+                        .ok()
+                        .flatten()
+                        .map(|path| {
+                            let store = finder_service::detect_game_store(&path).ok();
+                            (path, store)
+                        })
+                })
+                .await;
+            let _ = window_handle.update(cx, |_, window, cx| match detection {
+                Some((path, store)) => {
+                    let platform = store.as_deref().map(|p| match p {
+                        "epic" => GamePlatform::Epic,
+                        "xbox" => GamePlatform::Xbox,
+                        _ => GamePlatform::Steam,
+                    });
+                    app_settings::update(
+                        cx,
+                        AppSettingsPatch {
+                            among_us_path: Some(path.clone()),
+                            game_platform: platform,
+                            ..Default::default()
+                        },
+                    );
+                    window.push_notification(
+                        Notification::success(format!("Among Us detected at {path}")),
+                        cx,
+                    );
+                }
+                None => {
+                    window.push_notification(
+                        Notification::warning(
+                            "Couldn't find Among Us automatically — set its folder in \
+                             Settings → Game before launching.",
+                        ),
+                        cx,
+                    );
+                }
+            });
+        })
+        .detach();
     }
 
     /// Reload the most-recently-launched profile (for the title-bar launch

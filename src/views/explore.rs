@@ -317,10 +317,24 @@ impl Render for ExploreView {
             LoadState::Failed(e) => div()
                 .flex_1()
                 .flex()
+                .flex_col()
                 .items_center()
                 .justify_center()
-                .text_color(theme.danger)
-                .child(format!("Failed to load mods: {e}"))
+                .gap_3()
+                .child(
+                    div()
+                        .text_color(theme.danger)
+                        .child(format!("Failed to load mods: {e}")),
+                )
+                .child(
+                    Button::new("explore-retry")
+                        .label("Retry")
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.state = LoadState::Loading;
+                            cx.notify();
+                            this.fetch(cx);
+                        })),
+                )
                 .into_any_element(),
             LoadState::Loaded(mods) if mods.is_empty() => div()
                 .flex_1()

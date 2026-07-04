@@ -3,6 +3,7 @@ pub mod directories;
 pub mod error;
 pub mod events;
 pub mod services;
+pub mod single_instance;
 pub mod state;
 
 use gpui::App;

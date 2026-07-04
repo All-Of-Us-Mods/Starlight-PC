@@ -16,6 +16,18 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The updater compares the running binary's CARGO_PKG_VERSION against
+      # the release tag — a mismatch ships an updater that never settles.
+      - name: Check tag matches Cargo.toml version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $manifest = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ($tag -ne $manifest) {
+            Write-Error "Tag v$tag does not match Cargo.toml version $manifest. Bump Cargo.toml before tagging."
+            exit 1
+          }
+
       - name: cargo build --release
         run: cargo build --release
 

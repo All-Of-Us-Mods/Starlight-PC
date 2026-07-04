@@ -81,6 +81,43 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - Consolidating triplicated download/progress plumbing + checksumming the
   cached BepInEx zip — M effort; do after 004 lands the pattern.
 
+## Release-readiness audit round 2 (2026-07-04, commit `ed19a38`)
+
+Findings from the second audit were fixed directly in-session rather than
+planned (user's choice):
+
+- **Console window on double-click** — added `windows_subsystem = "windows"`
+  (release builds only) plus file logging to `{app_data}/logs/starlight.log`
+  (tee to stderr, 2 MiB rotation) and a panic hook that logs panics with
+  backtraces. `main.rs`.
+- **First-run guidance** — startup auto-detect of the Among Us install when
+  the path is unset (notification either way), and a Library banner with an
+  "Open Settings" button while it remains unset. `workspace.rs`, `library.rs`.
+- **Tag ↔ Cargo.toml version gate** — release workflow fails if the pushed
+  tag doesn't match the manifest version. `release.yml`.
+- **About page** — Settings → About shows version, GitHub link, GPL-3.0.
+- **Retry affordances** — Retry buttons on failed loads in Home, Explore,
+  Servers; failed mod installs get a Retry that re-resolves from scratch.
+- **Single instance** — loopback-socket guard; second instances forward
+  their deep link (or an activate request) and exit. `single_instance.rs`.
+- **Dead `.env` / `.env.example` removed** (nothing read them).
+
+Audited, still open (deliberately not done this round):
+
+- Deep-link launch confirmation prompt (SEC: any site can trigger
+  `starlight://profile/{id}` → silent game launch).
+- Release workflow test/clippy gate before publishing.
+- Size cap on thumbnail download/decode for shortcut icons (image bomb).
+- Self-update failure UX when the exe dir isn't writable; stale `.url`
+  IconFile paths after the exe moves.
+- Distribution: unsigned exe (SmartScreen) — winget/installer/signing.
+- Dismissible error banners; Lobbies "Windows only" action button.
+
+Rejected in round 2 (do not re-audit): icon filename reserved-name edge
+cases (profile ids are slugified `[a-z0-9-]` + timestamp); JSON response
+size caps (TLS to first-party API, accepted trust anchor); deep-link launch
+race vs profile deletion (launch validation covers it).
+
 ## Direction options recorded (maintainer's call)
 
 - **Mod-pack sharing**: lightweight export/import of mod-id+version lists,

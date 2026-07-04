@@ -933,6 +933,40 @@ impl Render for SettingsView {
             )
         };
 
+        let about_page =
+            SettingPage::new("About").group(SettingGroup::new().title("Starlight").items(vec![
+                SettingItem::new(
+                    "Version",
+                    SettingField::render(|_, _, _| {
+                        div().child(concat!("Starlight ", env!("CARGO_PKG_VERSION")))
+                    }),
+                )
+                .description("Include this when reporting issues."),
+                SettingItem::new(
+                    "Source code",
+                    SettingField::render(|_, _, _| {
+                        Button::new("about-github")
+                            .icon(Icon::new(IconName::ExternalLink))
+                            .label("GitHub")
+                            .on_click(|_, _, cx| {
+                                cx.open_url("https://github.com/All-Of-Us-Mods/Starlight-PC")
+                            })
+                    }),
+                ),
+                SettingItem::new(
+                    "License",
+                    SettingField::render(|_, _, _| {
+                        Button::new("about-license")
+                            .icon(Icon::new(IconName::ExternalLink))
+                            .label("GPL-3.0")
+                            .on_click(|_, _, cx| {
+                                cx.open_url("https://www.gnu.org/licenses/gpl-3.0.html")
+                            })
+                    }),
+                )
+                .description("Free software under the GNU General Public License v3."),
+            ]));
+
         crate::views::page_root("settings-page", &theme)
             .overflow_y_scroll()
             .gap_4()
@@ -950,6 +984,7 @@ impl Render for SettingsView {
                         let mut pages = vec![game_page, launch_page, appearance_page, bepinex_page];
                         #[cfg(unix)]
                         pages.push(linux_page);
+                        pages.push(about_page);
                         pages
                     }),
             )

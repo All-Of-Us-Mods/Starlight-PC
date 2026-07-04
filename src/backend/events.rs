@@ -22,6 +22,9 @@ pub enum BackendEvent {
     /// A profile's persisted stats (last_launched / total_play_time) just
     /// changed. Views can use this to reload the profile entry.
     ProfileStatsUpdated(String),
+    /// A second app instance forwarded its startup to us (single-instance
+    /// guard) — bring the main window to the front.
+    ActivateWindow,
 }
 
 const CHANNEL_CAPACITY: usize = 256;

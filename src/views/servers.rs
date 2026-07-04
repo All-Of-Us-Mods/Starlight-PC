@@ -354,8 +354,23 @@ impl ServersView {
                 }))
                 .into_any_element(),
             LoadState::Failed(e) => div()
-                .text_color(theme.danger)
-                .child(format!("Failed to load servers: {e}"))
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(
+                    div()
+                        .text_color(theme.danger)
+                        .child(format!("Failed to load servers: {e}")),
+                )
+                .child(
+                    Button::new("servers-retry")
+                        .label("Retry")
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.state = LoadState::Loading;
+                            cx.notify();
+                            Self::load(cx);
+                        })),
+                )
                 .into_any_element(),
             LoadState::Loaded(servers) if servers.is_empty() => div()
                 .text_color(theme.text_muted)

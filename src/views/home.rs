@@ -3,6 +3,7 @@ use gpui::*;
 use crate::backend::api::{self, ModResponse, Post};
 use crate::theme::ThemeExt;
 use crate::ui::mod_card;
+use gpui_component::button::Button;
 use gpui_component::skeleton::Skeleton;
 
 #[derive(Clone, Debug)]
@@ -29,10 +30,18 @@ const NEWS_CARD_WIDTH: f32 = 320.0;
 
 impl HomeView {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let view = Self {
+        let mut view = Self {
             news: Loading::Pending,
             trending: Loading::Pending,
         };
+        view.fetch(cx);
+        view
+    }
+
+    fn fetch(&mut self, cx: &mut Context<Self>) {
+        self.news = Loading::Pending;
+        self.trending = Loading::Pending;
+        cx.notify();
         cx.spawn(async move |this, cx| {
             let news = cx
                 .background_executor()
@@ -58,8 +67,28 @@ impl HomeView {
             });
         })
         .detach();
-        view
     }
+}
+
+/// Error text plus a Retry button, shared by both sections (retrying reloads
+/// the whole page — news and trending come from the same fetch pass).
+fn failed_row(
+    id: &'static str,
+    message: &str,
+    theme: &crate::theme::Theme,
+    cx: &mut Context<HomeView>,
+) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap_3()
+        .child(div().text_color(theme.danger).child(message.to_string()))
+        .child(
+            Button::new(id)
+                .label("Retry")
+                .on_click(cx.listener(|this, _, _window, cx| this.fetch(cx))),
+        )
+        .into_any_element()
 }
 
 fn section_title(text: &'static str) -> impl IntoElement {
@@ -165,10 +194,7 @@ impl Render for HomeView {
                 .pb_2()
                 .children((0..4).map(|_| news_card_skeleton(&theme).into_any_element()))
                 .into_any_element(),
-            Loading::Failed(e) => div()
-                .text_color(theme.danger)
-                .child(e.clone())
-                .into_any_element(),
+            Loading::Failed(e) => failed_row("news-retry", &e.clone(), &theme, cx),
             Loading::Ready(items) => carousel(
                 "news-carousel",
                 items.iter().map(|p| news_card(p, &theme, cx)).collect(),
@@ -185,10 +211,7 @@ impl Render for HomeView {
                     mod_card::mod_card_skeleton(Some(px(CARD_WIDTH)), &theme).into_any_element()
                 }))
                 .into_any_element(),
-            Loading::Failed(e) => div()
-                .text_color(theme.danger)
-                .child(e.clone())
-                .into_any_element(),
+            Loading::Failed(e) => failed_row("trending-retry", &e.clone(), &theme, cx),
             Loading::Ready(items) => carousel(
                 "trending-carousel",
                 items

@@ -1,3 +1,7 @@
+// No console window on release builds; debug builds keep it for `cargo run`
+// log output. Diagnostics survive via the log file (see `init_logging`).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use gpui::*;
 
 mod app;
@@ -8,11 +12,83 @@ mod ui;
 mod views;
 mod workspace;
 
+use backend::single_instance;
+
 actions!(starlight, [Quit]);
 
+/// Writes every log line to stderr (visible under `cargo run`) and to the
+/// on-disk log file (the only place logs go once the console is hidden).
+struct TeeWriter(std::fs::File);
+
+impl std::io::Write for TeeWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let _ = std::io::stderr().write_all(buf);
+        self.0.write_all(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let _ = std::io::stderr().flush();
+        self.0.flush()
+    }
+}
+
+/// Set up logging to stderr + `{app_data}/logs/starlight.log`, and a panic
+/// hook that records the panic (with backtrace) in the same file so users
+/// have something to attach to a bug report.
+fn init_logging() {
+    let log_path = backend::directories::app_data_dir()
+        .ok()
+        .map(|dir| dir.join("logs").join("starlight.log"));
+
+    let mut builder =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    if let Some(path) = &log_path {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        // Cheap rotation: keep one previous generation.
+        if let Ok(meta) = std::fs::metadata(path)
+            && meta.len() > 2 * 1024 * 1024
+        {
+            let _ = std::fs::rename(path, path.with_extension("log.old"));
+        }
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            builder.target(env_logger::Target::Pipe(Box::new(TeeWriter(file))));
+        }
+    }
+    builder.init();
+
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        log::error!("panic: {info}\n{backtrace}");
+        default_hook(info);
+    }));
+}
+
+/// Launch a profile by id in the background (deep links / forwarded opens).
+fn launch_profile_by_id(profile_id: String) {
+    use backend::services::{launch_service, profile_service};
+    let result = profile_service::get_profile_by_id(&profile_id)
+        .and_then(|profile| {
+            profile.ok_or_else(|| {
+                backend::error::AppError::validation(format!("Profile '{profile_id}' not found"))
+            })
+        })
+        .and_then(launch_service::launch_modded_for_profile);
+    if let Err(e) = result {
+        log::warn!("deep-link profile launch failed: {e}");
+    }
+}
+
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    log::info!("starlight starting");
+    init_logging();
+    log::info!("starlight {} starting", env!("CARGO_PKG_VERSION"));
 
     #[cfg(windows)]
     backend::services::update_service::cleanup_leftover_old_exe();
@@ -27,6 +103,16 @@ fn main() {
     let deep_link_profile = std::env::args()
         .skip(1)
         .find_map(|arg| backend::services::profile_shortcut_service::parse_profile_deep_link(&arg));
+
+    // If an instance is already running, hand it our deep link (or just ask
+    // it to come to the front) and exit instead of opening a second window.
+    let listener = match single_instance::acquire(deep_link_profile.as_deref()) {
+        single_instance::Instance::Forwarded => {
+            log::info!("forwarded to the running instance; exiting");
+            return;
+        }
+        single_instance::Instance::Primary(listener) => listener,
+    };
 
     let http = std::sync::Arc::new(
         reqwest_client::ReqwestClient::user_agent("Starlight").expect("http client"),
@@ -43,6 +129,19 @@ fn main() {
             settings::init(cx);
             theme::init(cx);
             backend::init(cx);
+
+            // Serve open/activate requests forwarded by later instances.
+            // Launching is thread-safe backend work; window raising goes
+            // through the event bus to the workspace.
+            if let Some(listener) = listener {
+                single_instance::serve(listener, |message| {
+                    match message {
+                        single_instance::Message::OpenProfile(id) => launch_profile_by_id(id),
+                        single_instance::Message::Activate => {}
+                    }
+                    backend::events::publish(backend::events::BackendEvent::ActivateWindow);
+                });
+            }
 
             cx.on_action(|_: &Quit, cx| cx.quit());
             cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
@@ -75,21 +174,7 @@ fn main() {
 
             if let Some(profile_id) = deep_link_profile {
                 cx.background_executor()
-                    .spawn(async move {
-                        use backend::services::{launch_service, profile_service};
-                        let result = profile_service::get_profile_by_id(&profile_id)
-                            .and_then(|profile| {
-                                profile.ok_or_else(|| {
-                                    backend::error::AppError::validation(format!(
-                                        "Profile '{profile_id}' not found"
-                                    ))
-                                })
-                            })
-                            .and_then(launch_service::launch_modded_for_profile);
-                        if let Err(e) = result {
-                            log::warn!("deep-link profile launch failed: {e}");
-                        }
-                    })
+                    .spawn(async move { launch_profile_by_id(profile_id) })
                     .detach();
             }
         });
