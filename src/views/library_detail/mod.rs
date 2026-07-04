@@ -997,9 +997,11 @@ impl Render for LibraryDetailView {
                                             .text_color(theme.warning)
                                             .child("⚠ BepInEx not installed")
                                     })),
-                            )
-                            .child(manage_buttons),
+                            ),
                     )
+                    // On its own row so a narrow window wraps the buttons
+                    // instead of squeezing the info column above to nothing.
+                    .child(manage_buttons)
                     .children(progress_row)
                     .children(install_btn)
                     .children(launch_row)
