@@ -28,7 +28,6 @@ modules:
       - install -Dm755 Starlight /app/bin/starlight
       - install -Dm644 dev.allofus.Starlight.desktop /app/share/applications/dev.allofus.Starlight.desktop
       - install -Dm644 starlight.png /app/share/icons/hicolor/256x256/apps/dev.allofus.Starlight.png
-      - install -Dm644 dev.allofus.Starlight.metainfo.xml /app/share/metainfo/dev.allofus.Starlight.metainfo.xml
     sources:
       - type: file
         path: ../../target/release/Starlight
@@ -37,5 +36,3 @@ modules:
       - type: file
         path: ../../assets/icons/starlight.png
         dest-filename: starlight.png
-      - type: file
-        path: dev.allofus.Starlight.metainfo.xml

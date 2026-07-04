@@ -66,17 +66,3 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.path }}
           if-no-files-found: error
-
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Windows'
-        with:
-          name: Starlight-Setup-x86_64
-          path: Starlight-Setup-x86_64.exe
-          if-no-files-found: error
-
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Linux'
-        with:
-          name: Starlight-linux-x86_64-AppImage
-          path: Starlight-linux-x86_64.AppImage
-          if-no-files-found: error

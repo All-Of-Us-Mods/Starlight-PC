@@ -35,7 +35,6 @@ SolidCompression=yes
 WizardStyle=modern
 ; Close a running Starlight before replacing the exe.
 CloseApplications=yes
-LicenseFile=..\LICENSE
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -48,14 +47,6 @@ Source: "..\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignorevers
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
-[Registry]
-; starlight:// deep-link scheme (profile desktop shortcuts use it). The app
-; re-registers this on every startup too; creating it here as well means the
-; uninstaller cleans it up.
-Root: HKCU; Subkey: "Software\Classes\starlight"; ValueType: string; ValueData: "URL:starlight Protocol"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\starlight"; ValueName: "URL Protocol"; ValueType: string; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\starlight\DefaultIcon"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"",0"
-Root: HKCU; Subkey: "Software\Classes\starlight\shell\open\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
