@@ -76,41 +76,65 @@ pub fn resolve_version(
 /// already in `skip` (e.g. the root mod the user clicked Install on) is not
 /// emitted but its sub-tree is still walked. First resolution of a mod_id
 /// wins on cycles or diamond dependencies.
-pub fn resolve_dependencies(dependencies: &[ModDependency]) -> AppResult<Vec<ResolvedDependency>> {
+pub fn resolve_dependencies(
+    dependencies: &[ModDependency],
+) -> AppResult<(Vec<ResolvedDependency>, Vec<String>)> {
     resolve_dependencies_excluding(dependencies, &HashSet::new())
 }
 
 pub fn resolve_dependencies_excluding(
     dependencies: &[ModDependency],
     skip: &HashSet<String>,
-) -> AppResult<Vec<ResolvedDependency>> {
+) -> AppResult<(Vec<ResolvedDependency>, Vec<String>)> {
     let mut out = Vec::new();
+    let mut unresolved = Vec::new();
     let mut visited: HashSet<String> = skip.clone();
     for dep in dependencies {
-        walk_dep(dep, &mut visited, &mut out);
+        walk_dep(dep, &mut visited, &mut out, &mut unresolved);
     }
-    Ok(out)
+    Ok((out, unresolved))
 }
 
-fn walk_dep(dep: &ModDependency, visited: &mut HashSet<String>, out: &mut Vec<ResolvedDependency>) {
+fn walk_dep(
+    dep: &ModDependency,
+    visited: &mut HashSet<String>,
+    out: &mut Vec<ResolvedDependency>,
+    unresolved: &mut Vec<String>,
+) {
     if !visited.insert(dep.mod_id.clone()) {
         return;
     }
-    let Ok(mod_item) = api::fetch_mod(&dep.mod_id) else {
-        return;
+    let mod_item = match api::fetch_mod(&dep.mod_id) {
+        Ok(mod_item) => mod_item,
+        Err(e) => {
+            log::warn!("Failed to fetch mod '{}': {e}", dep.mod_id);
+            unresolved.push(dep.mod_id.clone());
+            return;
+        }
     };
-    let Ok(mut versions) = api::fetch_mod_versions(&dep.mod_id) else {
-        return;
+    let mut versions = match api::fetch_mod_versions(&dep.mod_id) {
+        Ok(versions) => versions,
+        Err(e) => {
+            log::warn!("Failed to fetch versions for '{}': {e}", dep.mod_id);
+            unresolved.push(dep.mod_id.clone());
+            return;
+        }
     };
     versions.sort_by_key(|version| std::cmp::Reverse(version.created_at));
     let Some(version) = resolve_version(&dep.version_constraint, &versions) else {
+        log::warn!(
+            "No version of '{}' satisfies constraint '{}'",
+            dep.mod_id,
+            dep.version_constraint
+        );
+        unresolved.push(dep.mod_id.clone());
         return;
     };
 
     // Recurse into this dep's own dependencies first so they install before it.
     if let Ok(info) = api::fetch_mod_version_info(&dep.mod_id, &version) {
         for sub in &info.dependencies {
-            walk_dep(sub, visited, out);
+            walk_dep(sub, visited, out, unresolved);
         }
     }
 
@@ -149,7 +173,7 @@ pub fn plan_lobby_mods(required: &[InstallModInput]) -> (Vec<InstallModInput>, V
             unresolved.push(req.mod_id.clone());
             continue;
         };
-        if let Ok(deps) = resolve_dependencies(&info.dependencies) {
+        if let Ok((deps, nested_unresolved)) = resolve_dependencies(&info.dependencies) {
             for dep in deps {
                 // `or_insert` never overwrites a lobby-pinned version already
                 // seeded above; first resolution wins for pure transitive deps.
@@ -158,6 +182,11 @@ pub fn plan_lobby_mods(required: &[InstallModInput]) -> (Vec<InstallModInput>, V
                     .or_insert(dep.resolved_version);
                 if seen.insert(dep.mod_id.clone()) {
                     order.push(dep.mod_id);
+                }
+            }
+            for mod_id in nested_unresolved {
+                if !unresolved.contains(&mod_id) {
+                    unresolved.push(mod_id);
                 }
             }
         }

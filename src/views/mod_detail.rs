@@ -47,6 +47,7 @@ struct InstallPanel {
     selected_profile_id: Option<String>,
     selected_version: String,
     deps: Vec<DepRow>,
+    unresolved: Vec<String>,
     status: InstallStatus,
     new_profile: Option<NewProfileInput>,
 }
@@ -155,6 +156,7 @@ impl ModDetailView {
             selected_profile_id: default_profile,
             selected_version: latest_version.clone(),
             deps: Vec::new(),
+            unresolved: Vec::new(),
             status: InstallStatus::Resolving,
             new_profile: None,
         });
@@ -170,7 +172,7 @@ impl ModDetailView {
     ) {
         let version_for_task = version.clone();
         cx.spawn(async move |this, cx| {
-            let resolved = cx
+            let (resolved, unresolved) = cx
                 .background_executor()
                 .spawn(async move {
                     let info = api::fetch_mod_version_info(&mod_id, &version_for_task).ok();
@@ -202,6 +204,7 @@ impl ModDetailView {
                     .collect::<Vec<_>>();
                 if let Some(panel) = this.install.as_mut() {
                     panel.deps = rows;
+                    panel.unresolved = unresolved;
                     panel.status = InstallStatus::Ready;
                 }
                 cx.notify();
@@ -243,6 +246,7 @@ impl ModDetailView {
         }
         panel.selected_version = version.clone();
         panel.deps.clear();
+        panel.unresolved.clear();
         panel.status = InstallStatus::Resolving;
         cx.notify();
         self.resolve_for_selected_version(mod_id, version, cx);
@@ -888,6 +892,17 @@ fn render_install_panel(
                     .gap_2()
                     .child(section_label("Dependencies", theme))
                     .children(dep_rows),
+            )
+        })
+        .children(if panel.unresolved.is_empty() {
+            None
+        } else {
+            Some(
+                div().text_xs().text_color(theme.text_muted).child(format!(
+                    "{} dependencies could not be resolved and will be skipped: {}",
+                    panel.unresolved.len(),
+                    panel.unresolved.join(", ")
+                )),
             )
         })
         .children(status_row)
