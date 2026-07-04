@@ -22,7 +22,7 @@ cargo test
 | [002](002-pin-gpui-component.md) | Pin gpui-component git deps to an explicit rev | P2 | S | — | DONE |
 | [003](003-atomic-settings-write.md) | Write the settings file atomically (temp + rename) | P1 | S | 001 | DONE |
 | [004](004-stream-mod-downloads.md) | Stream mod downloads to a temp file, rename after checksum | P1 | S | — | DONE |
-| [005](005-update-integrity-check.md) | Verify self-update binary against GitHub asset digest | P1 | S–M | 001 | TODO |
+| [005](005-update-integrity-check.md) | Verify self-update binary against GitHub asset digest | P1 | S–M | 001 | DONE |
 | [006](006-keyring-save-preserve-session.md) | Non-destructive keyring session save | P2 | S | — | TODO |
 | [007](007-surface-skipped-dependencies.md) | Log and surface unresolved mod dependencies | P2 | S | — | TODO |
 | [008](008-concurrent-mod-name-fetches.md) | Concurrent mod-name fetches in profile detail | P3 | S | — | TODO |

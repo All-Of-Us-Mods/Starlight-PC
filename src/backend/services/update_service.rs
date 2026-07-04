@@ -13,23 +13,41 @@ use std::time::Duration;
 const RELEASES_API_URL: &str =
     "https://api.github.com/repos/All-Of-Us-Mods/Starlight-PC/releases/latest";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const RELEASE_DOWNLOAD_PREFIX: &str =
+    "https://github.com/All-Of-Us-Mods/Starlight-PC/releases/download/";
 
 #[derive(Debug, Clone)]
 pub struct UpdateInfo {
     pub version: String,
     pub download_url: String,
+    pub expected_sha256: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct GithubAsset {
     name: String,
     browser_download_url: String,
+    digest: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct GithubRelease {
     tag_name: String,
     assets: Vec<GithubAsset>,
+}
+
+/// Parse a GitHub asset digest of the form "sha256:<64 hex chars>" into
+/// the lowercase hex hash. Returns None for any other shape.
+fn parse_sha256_digest(digest: &str) -> Option<String> {
+    if digest.len() < 7 || !digest[..7].eq_ignore_ascii_case("sha256:") {
+        return None;
+    }
+    let hex = &digest[7..];
+    if hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Some(hex.to_lowercase())
+    } else {
+        None
+    }
 }
 
 /// Check the latest GitHub release against the running version. Returns
@@ -69,11 +87,19 @@ pub fn check_for_update() -> AppResult<Option<UpdateInfo>> {
         return Ok(None);
     };
 
+    if !asset.browser_download_url.starts_with(RELEASE_DOWNLOAD_PREFIX) {
+        return Err(AppError::validation(format!(
+            "Unexpected update download URL: {}",
+            asset.browser_download_url
+        )));
+    }
+
     info!("update available: {current} -> {latest}");
 
     Ok(Some(UpdateInfo {
         version: latest.to_string(),
         download_url: asset.browser_download_url.clone(),
+        expected_sha256: asset.digest.as_deref().and_then(parse_sha256_digest),
     }))
 }
 
@@ -97,6 +123,21 @@ pub fn apply_update_and_relaunch(info: &UpdateInfo) -> AppResult<()> {
         info.version, info.download_url
     );
     http_download::download_file(&info.download_url, &download_path, |_, _| {})?;
+
+    let Some(expected) = info.expected_sha256.as_deref() else {
+        let _ = fs::remove_file(&download_path);
+        return Err(AppError::validation(
+            "Release asset has no sha256 digest; refusing to install update",
+        ));
+    };
+
+    let computed = hash_file_sha256(&download_path)?;
+    if computed != expected {
+        let _ = fs::remove_file(&download_path);
+        return Err(AppError::validation(format!(
+            "Update checksum mismatch: expected {expected}, got {computed}"
+        )));
+    }
 
     let _ = fs::remove_file(&old_path);
     fs::rename(&current_exe, &old_path)?;
@@ -122,5 +163,64 @@ pub fn cleanup_leftover_old_exe() {
         if std::fs::remove_file(&old_path).is_ok() {
             info!("removed leftover {}", old_path.display());
         }
+    }
+}
+
+#[cfg(windows)]
+fn hash_file_sha256(path: &std::path::Path) -> AppResult<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&chunk[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_sha256_digest_accepts_valid_digest() {
+        let hex = "a".repeat(64);
+        assert_eq!(
+            parse_sha256_digest(&format!("sha256:{hex}")),
+            Some(hex.clone())
+        );
+    }
+
+    #[test]
+    fn parse_sha256_digest_lowercases_uppercase_hex() {
+        let upper = "A".repeat(64);
+        let lower = "a".repeat(64);
+        assert_eq!(parse_sha256_digest(&format!("sha256:{upper}")), Some(lower));
+    }
+
+    #[test]
+    fn parse_sha256_digest_rejects_wrong_algorithm_prefix() {
+        assert_eq!(parse_sha256_digest(&format!("sha512:{}", "a".repeat(64))), None);
+    }
+
+    #[test]
+    fn parse_sha256_digest_rejects_wrong_length() {
+        assert_eq!(parse_sha256_digest(&format!("sha256:{}", "a".repeat(63))), None);
+    }
+
+    #[test]
+    fn parse_sha256_digest_rejects_non_hex_chars() {
+        assert_eq!(parse_sha256_digest(&format!("sha256:{}", "z".repeat(64))), None);
+    }
+
+    #[test]
+    fn parse_sha256_digest_rejects_empty_string() {
+        assert_eq!(parse_sha256_digest(""), None);
     }
 }
