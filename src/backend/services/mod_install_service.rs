@@ -325,6 +325,10 @@ pub fn install_mods_for_profile(
 
     let mut downloaded: Vec<InstalledModResult> = Vec::new();
     let mut persisted: Vec<InstalledModResult> = Vec::new();
+    // Old files replaced by upgrades. Deleted only after every mod has
+    // installed — deleting inside the loop would leave a later rollback
+    // restoring a manifest entry whose DLL is already gone.
+    let mut replaced_files: Vec<String> = Vec::new();
 
     for item in mods {
         let info = api::fetch_mod_version_info(&item.mod_id, &item.version)?;
@@ -385,12 +389,18 @@ pub fn install_mods_for_profile(
             file_name: target.file_name.clone(),
         });
 
-        // If the file name changed (e.g. upgrading versions), remove the old file.
+        // If the file name changed (e.g. upgrading versions), the old file is
+        // now orphaned — but keep it until the whole batch succeeds.
         if let Some(Some((_v, Some(old_file)))) = previous.get(&item.mod_id)
             && old_file != &target.file_name
         {
-            let _ = profile_service::delete_mod_file(&profile_path, old_file);
+            replaced_files.push(old_file.clone());
         }
+    }
+
+    // Every mod installed; the old files can no longer be needed by a rollback.
+    for old_file in replaced_files {
+        let _ = profile_service::delete_mod_file(&profile_path, &old_file);
     }
 
     Ok(downloaded)
