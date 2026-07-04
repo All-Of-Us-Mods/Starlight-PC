@@ -63,13 +63,46 @@ pub fn download_mod(
     let total_size: Option<u64> = response.content_length();
     debug!("Download size: {:?}", total_size);
 
+    let part_path = dest_path.with_extension("part");
+    let downloaded = match stream_and_verify(
+        &mod_id,
+        &mut response,
+        &part_path,
+        total_size,
+        expected_checksum,
+    ) {
+        Ok(downloaded) => downloaded,
+        Err(e) => {
+            let _ = fs::remove_file(&part_path);
+            return Err(e);
+        }
+    };
+
+    emit_progress(&mod_id, downloaded, total_size, "writing");
+    fs::rename(&part_path, dest_path)?;
+
+    emit_progress(&mod_id, downloaded, total_size, "complete");
+    info!("Mod download completed: {} -> {:?}", mod_id, dest_path);
+    Ok(())
+}
+
+/// Streams the response body into `part_path`, hashing as it goes, and
+/// verifies the checksum once the body is exhausted. Returns the total bytes
+/// downloaded. The caller is responsible for removing `part_path` on error.
+fn stream_and_verify(
+    mod_id: &str,
+    response: &mut reqwest::blocking::Response,
+    part_path: &Path,
+    total_size: Option<u64>,
+    expected_checksum: Option<String>,
+) -> AppResult<u64> {
+    let mut file = File::create(part_path)?;
     let mut hasher = Sha256::new();
     let mut downloaded: u64 = 0;
-    let mut buffer = Vec::new();
     let mut chunk = vec![0u8; 64 * 1024];
     let mut last_pct: i64 = -1;
 
-    emit_progress(&mod_id, 0, total_size, "downloading");
+    emit_progress(mod_id, 0, total_size, "downloading");
 
     loop {
         let n = response.read(&mut chunk)?;
@@ -77,7 +110,7 @@ pub fn download_mod(
             break;
         }
         hasher.update(&chunk[..n]);
-        buffer.extend_from_slice(&chunk[..n]);
+        file.write_all(&chunk[..n])?;
         downloaded += n as u64;
         // Throttle to whole-percent changes (or a single emit when the size is
         // unknown/zero) so a large download doesn't flood the event bus.
@@ -86,11 +119,12 @@ pub fn download_mod(
             .unwrap_or(0) as i64;
         if pct != last_pct {
             last_pct = pct;
-            emit_progress(&mod_id, downloaded, total_size, "downloading");
+            emit_progress(mod_id, downloaded, total_size, "downloading");
         }
     }
+    drop(file);
 
-    emit_progress(&mod_id, downloaded, total_size, "verifying");
+    emit_progress(mod_id, downloaded, total_size, "verifying");
     let computed_checksum = format!("{:x}", hasher.finalize());
     if let Some(expected_checksum) = expected_checksum.filter(|checksum| !checksum.is_empty())
         && computed_checksum != expected_checksum.to_lowercase()
@@ -101,13 +135,7 @@ pub fn download_mod(
         )));
     }
 
-    emit_progress(&mod_id, downloaded, total_size, "writing");
-    let mut file = File::create(dest_path)?;
-    file.write_all(&buffer)?;
-
-    emit_progress(&mod_id, downloaded, total_size, "complete");
-    info!("Mod download completed: {} -> {:?}", mod_id, dest_path);
-    Ok(())
+    Ok(downloaded)
 }
 
 fn get_tracking_id() -> AppResult<String> {
