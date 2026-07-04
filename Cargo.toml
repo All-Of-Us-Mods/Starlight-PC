@@ -19,10 +19,12 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee3
   "wayland",
 ] }
 reqwest_client = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", features = [
+# Pin gpui-component to the rev the lockfile was tested at. Bump this together
+# with the gpui rev above (they must agree on a single gpui).
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "063e55bbc4fb13907a988111e3581595cbcaefde", features = [
   "tree-sitter-markdown",
 ] }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "063e55bbc4fb13907a988111e3581595cbcaefde" }
 tree-sitter = "0.26"
 tree-sitter-md = "0.5"
 log = "0.4"
