@@ -33,7 +33,7 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::progress::Progress;
 use gpui_component::skeleton::Skeleton;
 use gpui_component::switch::Switch;
-use gpui_component::{Disableable, Icon, IconName};
+use gpui_component::{Disableable, Icon, IconName, Sizable};
 
 use icon_dialog::{IconDialogState, render_icon_dialog};
 
@@ -627,418 +627,14 @@ impl Render for LibraryDetailView {
                 .child(format!("Failed: {e}"))
                 .into_any_element(),
             LoadState::Loaded(profile) => {
-                let bep_installed = profile.bepinex_installed == Some(true);
-                let installing = self.bep_progress.is_some();
-
-                let install_btn = (!bep_installed && !installing).then(|| {
-                    Button::new("install-bepinex")
-                        .primary()
-                        .icon(Icon::new(AppIcon::Download))
-                        .label("Install BepInEx")
-                        .on_click(cx.listener(|this, _, _window, cx| this.install_bepinex(cx)))
-                });
-
-                let running = self.running_count + self.pending_launches;
-                // Pending launches can be cancelled by Stop, so count them as
-                // stoppable too.
-                let stoppable = self.stoppable_count + self.pending_launches;
-                let allow_multi = app_settings::get(cx).allow_multi_instance_launch;
-
-                let launch_row = bep_installed.then(|| {
-                    let mut row = div().flex().gap_2().items_center().flex_wrap();
-                    if running == 0 {
-                        row = row.child(
-                            Button::new("launch")
-                                .success()
-                                .icon(Icon::new(IconName::Play))
-                                .label("Launch")
-                                .on_click(cx.listener(|this, _, _window, cx| this.launch(cx))),
-                        );
-                    } else {
-                        let stop_label = if stoppable > 1 {
-                            format!("Stop ({stoppable})")
-                        } else {
-                            "Stop".to_string()
-                        };
-                        let mut stop_btn = Button::new("stop")
-                            .danger()
-                            .icon(Icon::new(IconName::Close))
-                            .label(stop_label);
-                        if stoppable == 0 {
-                            // Only UWP instances — can't stop those.
-                            stop_btn = stop_btn.disabled(true);
-                        } else {
-                            stop_btn = stop_btn
-                                .on_click(cx.listener(|this, _, _window, cx| this.stop(cx)));
-                        }
-                        row = row.child(stop_btn);
-                        if allow_multi {
-                            row = row.child(
-                                Button::new("launch-another")
-                                    .success()
-                                    .icon(Icon::new(IconName::Play))
-                                    .label("Launch another")
-                                    .on_click(cx.listener(|this, _, _window, cx| this.launch(cx))),
-                            );
-                            row = row.child(div().text_sm().text_color(theme.text_muted).child(
-                                format!(
-                                    "{running} instance{} running",
-                                    if running == 1 { "" } else { "s" }
-                                ),
-                            ));
-                        }
-                    }
-                    row
-                });
-
-                let launch_err = self
-                    .launch_error
-                    .clone()
-                    .map(|msg| div().text_sm().text_color(theme.danger).child(msg));
-
-                let notice = self
-                    .notice
-                    .clone()
-                    .map(|msg| div().text_sm().text_color(theme.success).child(msg));
-
-                let progress_row = self.bep_progress.as_ref().map(|p| {
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(theme.text_muted)
-                                .child(format!("{} — {:.0}%", p.message, p.progress)),
-                        )
-                        .child(Progress::new("bep-progress").value(p.progress as f32))
-                });
-
-                let mod_names = self.mod_names.clone();
-                let mods_section = {
-                    let entries: Vec<AnyElement> = profile
-                        .mods
-                        .iter()
-                        .enumerate()
-                        .map(|(ix, m)| {
-                            let display = mod_display_name(m, &mod_names);
-                            let is_last = ix + 1 == profile.mods.len();
-                            let name_color = if m.enabled {
-                                theme.text
-                            } else {
-                                theme.text_muted
-                            };
-                            let mod_id = m.mod_id.clone();
-                            let enabled = m.enabled;
-                            let has_file = m.file.is_some();
-                            let confirming_mod_delete = self
-                                .confirming_delete_mod
-                                .as_deref()
-                                .is_some_and(|id| id == m.mod_id);
-                            // Custom mods have no catalog entry, so no thumbnail to fetch.
-                            let thumbnail: AnyElement = if m.is_custom() {
-                                div()
-                                    .w(px(32.0))
-                                    .h(px(32.0))
-                                    .flex_none()
-                                    .rounded_md()
-                                    .bg(theme.hover)
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(theme.text_muted)
-                                    .child(Icon::new(IconName::File))
-                                    .into_any_element()
-                            } else {
-                                img(api::mod_thumbnail_url(&m.mod_id))
-                                    .w(px(32.0))
-                                    .h(px(32.0))
-                                    .flex_none()
-                                    .rounded_md()
-                                    .object_fit(ObjectFit::Cover)
-                                    .bg(theme.hover)
-                                    .into_any_element()
-                            };
-                            let version_label = if m.is_custom() {
-                                "Custom".to_string()
-                            } else {
-                                m.version.clone()
-                            };
-                            let mut row = div().flex().items_center().gap_3().px_3().py_2();
-                            if !is_last {
-                                row = row.border_b_1().border_color(theme.border);
-                            }
-                            row.child(thumbnail)
-                                .child(
-                                    div()
-                                        .min_w_0()
-                                        .flex_1()
-                                        .truncate()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(name_color)
-                                        .child(display),
-                                )
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(theme.text_muted)
-                                        .child(version_label),
-                                )
-                                // Mods imported without a known filename can't be toggled on disk.
-                                .children(has_file.then(|| {
-                                    let mod_id = mod_id.clone();
-                                    Switch::new(SharedString::from(format!("mod-toggle-{ix}")))
-                                        .checked(enabled)
-                                        .on_click(cx.listener(
-                                            move |this, checked: &bool, _window, cx| {
-                                                this.toggle_mod(mod_id.clone(), *checked, cx)
-                                            },
-                                        ))
-                                }))
-                                .child(if confirming_mod_delete {
-                                    let confirm_id = mod_id.clone();
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .gap_1()
-                                        .child(
-                                            Button::new(SharedString::from(format!(
-                                                "mod-delete-confirm-{ix}"
-                                            )))
-                                            .danger()
-                                            .label("Remove")
-                                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                                this.delete_mod(confirm_id.clone(), cx)
-                                            })),
-                                        )
-                                        .child(
-                                            Button::new(SharedString::from(format!(
-                                                "mod-delete-cancel-{ix}"
-                                            )))
-                                            .label("Cancel")
-                                            .on_click(cx.listener(|this, _, _window, cx| {
-                                                this.confirming_delete_mod = None;
-                                                cx.notify();
-                                            })),
-                                        )
-                                        .into_any_element()
-                                } else {
-                                    Button::new(SharedString::from(format!("mod-delete-{ix}")))
-                                        .ghost()
-                                        .icon(Icon::new(IconName::Delete))
-                                        .on_click(cx.listener(move |this, _, _window, cx| {
-                                            this.confirming_delete_mod = Some(mod_id.clone());
-                                            cx.notify();
-                                        }))
-                                        .into_any_element()
-                                })
-                                .into_any_element()
-                        })
-                        .collect();
-                    let list: AnyElement = if entries.is_empty() {
-                        div()
-                            .px_3()
-                            .py_2()
-                            .text_sm()
-                            .text_color(theme.text_muted)
-                            .child("No mods installed. Install from Explore, or add a BepInEx plugin .dll.")
-                            .into_any_element()
-                    } else {
-                        div().children(entries).into_any_element()
-                    };
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .child(section_heading(&format!("Mods · {}", profile.mods.len())))
-                                .child(
-                                    Button::new("add-custom-mod")
-                                        .icon(Icon::new(IconName::Plus))
-                                        .label("Add DLL")
-                                        .on_click(cx.listener(|this, _, _window, cx| {
-                                            this.add_custom_mods(cx)
-                                        })),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .rounded_lg()
-                                .bg(theme.sidebar_background)
-                                .border_1()
-                                .border_color(theme.border)
-                                .child(list),
-                        )
-                };
-
-                let delete_row =
-                    if self.confirming_delete {
-                        div()
-                            .flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .px_2()
-                                    .py_1()
-                                    .text_color(theme.text_muted)
-                                    .child("Delete this profile?"),
-                            )
-                            .child(
-                                Button::new("confirm-delete")
-                                    .danger()
-                                    .icon(Icon::new(IconName::Delete))
-                                    .label("Delete")
-                                    .on_click(
-                                        cx.listener(|this, _, _window, cx| this.delete_profile(cx)),
-                                    ),
-                            )
-                            .child(Button::new("cancel-delete").label("Cancel").on_click(
-                                cx.listener(|this, _, _window, cx| {
-                                    this.confirming_delete = false;
-                                    cx.notify();
-                                }),
-                            ))
-                    } else {
-                        div().child(
-                            Button::new("delete-profile")
-                                .danger()
-                                .icon(Icon::new(IconName::Delete))
-                                .label("Delete Profile")
-                                .on_click(cx.listener(|this, _, _window, cx| {
-                                    this.confirming_delete = true;
-                                    cx.notify();
-                                })),
-                        )
-                    };
-
-                let manage_buttons = div()
-                    .flex()
-                    .gap_2()
-                    .flex_wrap()
-                    .child(
-                        Button::new("rename-profile-action")
-                            .label("Rename")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_rename_dialog(window, cx);
-                            })),
-                    )
-                    .child(Button::new("edit-icon-action").label("Edit Icon").on_click(
-                        cx.listener(|this, _, _window, cx| {
-                            this.open_icon_dialog(cx);
-                        }),
-                    ))
-                    .child(
-                        Button::new("open-profile-folder-action")
-                            .icon(Icon::new(IconName::FolderOpen))
-                            .label("Open Folder")
-                            .on_click(cx.listener(|this, _, _window, _cx| {
-                                this.open_profile_folder();
-                            })),
-                    )
-                    .child(
-                        Button::new("export-profile-action")
-                            .label("Export ZIP")
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.export_profile(cx);
-                            })),
-                    );
-
-                #[cfg(windows)]
-                let manage_buttons = manage_buttons.child(
-                    Button::new("create-shortcut-action")
-                        .label("Desktop Shortcut")
-                        .on_click(cx.listener(|this, _, _window, cx| {
-                            this.create_desktop_shortcut(cx);
-                        })),
-                );
-
-                let hero = div()
-                    .flex()
-                    .flex_col()
-                    .gap_4()
-                    .p_5()
-                    .rounded_lg()
-                    .bg(theme.sidebar_background)
-                    .border_1()
-                    .border_color(theme.border)
-                    .child(
-                        div()
-                            .flex()
-                            .items_start()
-                            .gap_4()
-                            .child(profile_icon(profile, 80.0, &theme))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(
-                                        div()
-                                            .text_2xl()
-                                            .font_weight(FontWeight::BOLD)
-                                            .truncate()
-                                            .child(profile.name.clone()),
-                                    )
-                                    .child(div().text_sm().text_color(theme.text_muted).child(
-                                        format!(
-                                            "{} mods · {} played · Last launched {}",
-                                            profile.mods.len(),
-                                            format::play_time(profile.total_play_time),
-                                            format::last_launched(profile.last_launched_at),
-                                        ),
-                                    ))
-                                    .children((!bep_installed).then(|| {
-                                        div()
-                                            .mt_1()
-                                            .text_xs()
-                                            .text_color(theme.warning)
-                                            .child("⚠ BepInEx not installed")
-                                    })),
-                            ),
-                    )
-                    // On its own row so a narrow window wraps the buttons
-                    // instead of squeezing the info column above to nothing.
-                    .child(manage_buttons)
-                    .children(progress_row)
-                    .children(install_btn)
-                    .children(launch_row)
-                    .children(launch_err)
-                    .children(notice);
-
-                let stats = div()
-                    .grid()
-                    .grid_cols(3)
-                    .gap_3()
-                    .child(stat_card(
-                        "Created",
-                        format::date_ms(profile.created_at),
-                        &theme,
-                    ))
-                    .child(stat_card(
-                        "Last launched",
-                        format::last_launched(profile.last_launched_at),
-                        &theme,
-                    ))
-                    .child(stat_card(
-                        "Play time",
-                        format::play_time(profile.total_play_time),
-                        &theme,
-                    ));
-
-                let danger_zone = div()
-                    .pt_2()
-                    .border_t_1()
-                    .border_color(theme.border)
-                    .child(delete_row);
-
+                // Each section is built by a helper so its (large) element
+                // temporaries live in that helper's stack frame, not all in
+                // render()'s — one flat frame overflows the stack in debug
+                // builds on Windows.
+                let profile = profile.clone();
+                let hero = self.render_hero(&profile, &theme, cx);
+                let mods_section = self.render_mods_section(&profile, &theme, cx);
+                let danger_zone = self.render_danger_zone(&theme, cx);
                 let has_log = self.log_panel.read(cx).has_content();
 
                 div()
@@ -1046,7 +642,6 @@ impl Render for LibraryDetailView {
                     .flex_col()
                     .gap_4()
                     .child(hero)
-                    .child(stats)
                     .child(mods_section)
                     .children(has_log.then(|| self.log_panel.clone().into_any_element()))
                     .child(danger_zone)
@@ -1103,22 +698,507 @@ impl Render for LibraryDetailView {
     }
 }
 
+impl LibraryDetailView {
+    /// Top-right hero action: Install BepInEx until it's present, then
+    /// Launch / Stop. `None` while an install is in flight (the progress row
+    /// covers that state).
+    fn render_primary_controls(
+        &self,
+        bep_installed: bool,
+        installing: bool,
+        theme: &crate::theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let running = self.running_count + self.pending_launches;
+        // Pending launches can be cancelled by Stop, so count them as
+        // stoppable too.
+        let stoppable = self.stoppable_count + self.pending_launches;
+        let allow_multi = app_settings::get(cx).allow_multi_instance_launch;
+
+        if installing {
+            None
+        } else if !bep_installed {
+            Some(
+                Button::new("install-bepinex")
+                    .primary()
+                    .large()
+                    .icon(Icon::new(AppIcon::Download))
+                    .label("Install BepInEx")
+                    .on_click(cx.listener(|this, _, _window, cx| this.install_bepinex(cx)))
+                    .into_any_element(),
+            )
+        } else {
+            let mut row = div()
+                .flex()
+                .gap_2()
+                .items_center()
+                .justify_end()
+                .flex_wrap();
+            if running == 0 {
+                row = row.child(
+                    Button::new("launch")
+                        .success()
+                        .large()
+                        .icon(Icon::new(IconName::Play))
+                        .label("Launch")
+                        .on_click(cx.listener(|this, _, _window, cx| this.launch(cx))),
+                );
+            } else {
+                let stop_label = if stoppable > 1 {
+                    format!("Stop ({stoppable})")
+                } else {
+                    "Stop".to_string()
+                };
+                let mut stop_btn = Button::new("stop")
+                    .danger()
+                    .large()
+                    .icon(Icon::new(IconName::Close))
+                    .label(stop_label);
+                if stoppable == 0 {
+                    // Only UWP instances — can't stop those.
+                    stop_btn = stop_btn.disabled(true);
+                } else {
+                    stop_btn = stop_btn.on_click(cx.listener(|this, _, _window, cx| this.stop(cx)));
+                }
+                if allow_multi {
+                    row = row.child(div().text_sm().text_color(theme.text_muted).child(format!(
+                        "{running} instance{} running",
+                        if running == 1 { "" } else { "s" }
+                    )));
+                    row = row.child(
+                        Button::new("launch-another")
+                            .success()
+                            .large()
+                            .icon(Icon::new(IconName::Play))
+                            .label("Launch another")
+                            .on_click(cx.listener(|this, _, _window, cx| this.launch(cx))),
+                    );
+                }
+                row = row.child(stop_btn);
+            }
+            Some(row.into_any_element())
+        }
+    }
+
+    /// Quiet toolbar of secondary profile actions shown at the bottom of the
+    /// hero card.
+    fn render_manage_buttons(&self, cx: &mut Context<Self>) -> AnyElement {
+        let manage_buttons = div()
+            .flex()
+            .gap_1()
+            .flex_wrap()
+            .child(
+                Button::new("rename-profile-action")
+                    .ghost()
+                    .small()
+                    .icon(Icon::new(IconName::Replace))
+                    .label("Rename")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_rename_dialog(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("edit-icon-action")
+                    .ghost()
+                    .small()
+                    .icon(Icon::new(IconName::Palette))
+                    .label("Edit Icon")
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.open_icon_dialog(cx);
+                    })),
+            )
+            .child(
+                Button::new("open-profile-folder-action")
+                    .ghost()
+                    .small()
+                    .icon(Icon::new(IconName::FolderOpen))
+                    .label("Open Folder")
+                    .on_click(cx.listener(|this, _, _window, _cx| {
+                        this.open_profile_folder();
+                    })),
+            )
+            .child(
+                Button::new("export-profile-action")
+                    .ghost()
+                    .small()
+                    .icon(Icon::new(IconName::HardDrive))
+                    .label("Export ZIP")
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.export_profile(cx);
+                    })),
+            );
+
+        #[cfg(windows)]
+        let manage_buttons = manage_buttons.child(
+            Button::new("create-shortcut-action")
+                .ghost()
+                .small()
+                .icon(Icon::new(IconName::ExternalLink))
+                .label("Desktop Shortcut")
+                .on_click(cx.listener(|this, _, _window, cx| {
+                    this.create_desktop_shortcut(cx);
+                })),
+        );
+
+        manage_buttons.into_any_element()
+    }
+
+    fn render_hero(
+        &self,
+        profile: &ProfileEntry,
+        theme: &crate::theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let bep_installed = profile.bepinex_installed == Some(true);
+        let installing = self.bep_progress.is_some();
+        let primary_controls = self.render_primary_controls(bep_installed, installing, theme, cx);
+        let manage_buttons = self.render_manage_buttons(cx);
+
+        let launch_err = self
+            .launch_error
+            .clone()
+            .map(|msg| div().text_sm().text_color(theme.danger).child(msg));
+
+        let notice = self
+            .notice
+            .clone()
+            .map(|msg| div().text_sm().text_color(theme.success).child(msg));
+
+        let progress_row = self.bep_progress.as_ref().map(|p| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(theme.text_muted)
+                        .child(format!("{} — {:.0}%", p.message, p.progress)),
+                )
+                .child(Progress::new("bep-progress").value(p.progress as f32))
+        });
+
+        let title_col = div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .flex_1()
+            .min_w_0()
+            .child(
+                div()
+                    .text_2xl()
+                    .font_weight(FontWeight::BOLD)
+                    .truncate()
+                    .child(profile.name.clone()),
+            )
+            .child(div().text_sm().text_color(theme.text_muted).child(format!(
+                "{} played",
+                format::play_time(profile.total_play_time),
+            )))
+            .children((!bep_installed).then(|| {
+                div()
+                    .mt_1()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .text_xs()
+                    .text_color(theme.warning)
+                    .child(Icon::new(IconName::TriangleAlert).xsmall())
+                    .child("BepInEx not installed")
+            }));
+
+        div()
+            .flex()
+            .flex_col()
+            .gap_4()
+            .p_5()
+            .rounded_lg()
+            .bg(theme.sidebar_background)
+            .border_1()
+            .border_color(theme.border)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_4()
+                    .flex_wrap()
+                    .child(profile_icon(profile, 80.0, theme))
+                    .child(title_col)
+                    .children(primary_controls.map(|c| div().flex_none().child(c))),
+            )
+            .children(progress_row)
+            .children(launch_err)
+            .children(notice)
+            // Secondary profile actions live in a quiet toolbar under a
+            // divider so the launch action above stays the focal point.
+            .child(
+                div()
+                    .pt_3()
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .child(manage_buttons),
+            )
+            .into_any_element()
+    }
+
+    fn render_mods_section(
+        &self,
+        profile: &ProfileEntry,
+        theme: &crate::theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mod_names = self.mod_names.clone();
+        {
+            let entries: Vec<AnyElement> = profile
+                .mods
+                .iter()
+                .enumerate()
+                .map(|(ix, m)| {
+                    let display = mod_display_name(m, &mod_names);
+                    let is_last = ix + 1 == profile.mods.len();
+                    let name_color = if m.enabled {
+                        theme.text
+                    } else {
+                        theme.text_muted
+                    };
+                    let mod_id = m.mod_id.clone();
+                    let enabled = m.enabled;
+                    let has_file = m.file.is_some();
+                    let confirming_mod_delete = self
+                        .confirming_delete_mod
+                        .as_deref()
+                        .is_some_and(|id| id == m.mod_id);
+                    // Custom mods have no catalog entry, so no thumbnail to fetch.
+                    let thumbnail: AnyElement = if m.is_custom() {
+                        div()
+                            .w(px(32.0))
+                            .h(px(32.0))
+                            .flex_none()
+                            .rounded_md()
+                            .bg(theme.hover)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(theme.text_muted)
+                            .child(Icon::new(IconName::File))
+                            .into_any_element()
+                    } else {
+                        img(api::mod_thumbnail_url(&m.mod_id))
+                            .w(px(32.0))
+                            .h(px(32.0))
+                            .flex_none()
+                            .rounded_md()
+                            .object_fit(ObjectFit::Cover)
+                            .bg(theme.hover)
+                            .into_any_element()
+                    };
+                    let version_label = if m.is_custom() {
+                        "Custom".to_string()
+                    } else {
+                        m.version.clone()
+                    };
+                    let mut row = div().flex().items_center().gap_3().px_3().py_2().hover({
+                        let hover_bg = theme.hover;
+                        move |s| s.bg(hover_bg)
+                    });
+                    if !is_last {
+                        row = row.border_b_1().border_color(theme.border);
+                    }
+                    row.child(thumbnail)
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .truncate()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(name_color)
+                                .child(display),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(theme.text_muted)
+                                .child(version_label),
+                        )
+                        // Mods imported without a known filename can't be toggled on disk.
+                        .children(has_file.then(|| {
+                            let mod_id = mod_id.clone();
+                            Switch::new(SharedString::from(format!("mod-toggle-{ix}")))
+                                .checked(enabled)
+                                .on_click(cx.listener(move |this, checked: &bool, _window, cx| {
+                                    this.toggle_mod(mod_id.clone(), *checked, cx)
+                                }))
+                        }))
+                        .child(if confirming_mod_delete {
+                            let confirm_id = mod_id.clone();
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .child(
+                                    Button::new(SharedString::from(format!(
+                                        "mod-delete-confirm-{ix}"
+                                    )))
+                                    .danger()
+                                    .label("Remove")
+                                    .on_click(cx.listener(move |this, _, _window, cx| {
+                                        this.delete_mod(confirm_id.clone(), cx)
+                                    })),
+                                )
+                                .child(
+                                    Button::new(SharedString::from(format!(
+                                        "mod-delete-cancel-{ix}"
+                                    )))
+                                    .label("Cancel")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.confirming_delete_mod = None;
+                                        cx.notify();
+                                    })),
+                                )
+                                .into_any_element()
+                        } else {
+                            Button::new(SharedString::from(format!("mod-delete-{ix}")))
+                                .ghost()
+                                .icon(Icon::new(IconName::Delete))
+                                .on_click(cx.listener(move |this, _, _window, cx| {
+                                    this.confirming_delete_mod = Some(mod_id.clone());
+                                    cx.notify();
+                                }))
+                                .into_any_element()
+                        })
+                        .into_any_element()
+                })
+                .collect();
+            let list: AnyElement = if entries.is_empty() {
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_sm()
+                    .text_color(theme.text_muted)
+                    .child("No mods installed. Install from Explore, or add a BepInEx plugin .dll.")
+                    .into_any_element()
+            } else {
+                div().children(entries).into_any_element()
+            };
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(section_heading(&format!("Mods · {}", profile.mods.len())))
+                        .child(
+                            Button::new("add-custom-mod")
+                                .icon(Icon::new(IconName::Plus))
+                                .label("Add DLL")
+                                .on_click(
+                                    cx.listener(|this, _, _window, cx| this.add_custom_mods(cx)),
+                                ),
+                        ),
+                )
+                .child(
+                    div()
+                        .rounded_lg()
+                        .bg(theme.sidebar_background)
+                        .border_1()
+                        .border_color(theme.border)
+                        // Clip row hover backgrounds to the rounded corners.
+                        .overflow_hidden()
+                        .child(list),
+                )
+                .into_any_element()
+        }
+    }
+
+    fn render_danger_zone(
+        &self,
+        theme: &crate::theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let delete_controls: AnyElement = if self.confirming_delete {
+            div()
+                .flex()
+                .gap_2()
+                .items_center()
+                .child(
+                    Button::new("confirm-delete")
+                        .danger()
+                        .icon(Icon::new(IconName::Delete))
+                        .label("Delete")
+                        .on_click(cx.listener(|this, _, _window, cx| this.delete_profile(cx))),
+                )
+                .child(
+                    Button::new("cancel-delete")
+                        .label("Cancel")
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.confirming_delete = false;
+                            cx.notify();
+                        })),
+                )
+                .into_any_element()
+        } else {
+            Button::new("delete-profile")
+                .danger()
+                .outline()
+                .icon(Icon::new(IconName::Delete))
+                .label("Delete Profile")
+                .on_click(cx.listener(|this, _, _window, cx| {
+                    this.confirming_delete = true;
+                    cx.notify();
+                }))
+                .into_any_element()
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(section_heading("Danger zone"))
+            .child(
+                div()
+                    .rounded_lg()
+                    .bg(theme.sidebar_background)
+                    .border_1()
+                    .border_color(Rgba {
+                        a: 0.45,
+                        ..theme.danger
+                    })
+                    .px_4()
+                    .py_3()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .flex_wrap()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Delete this profile"),
+                            )
+                            .child(div().text_sm().text_color(theme.text_muted).child(
+                                "Removes the profile, its mods and logs from disk. \
+                                             This can't be undone.",
+                            )),
+                    )
+                    .child(delete_controls),
+            )
+            .into_any_element()
+    }
+}
+
 fn section_heading(text: &str) -> impl IntoElement {
     div()
         .text_sm()
         .font_weight(FontWeight::SEMIBOLD)
         .child(text.to_string())
-}
-
-fn stat_card(label: &'static str, value: String, theme: &crate::theme::Theme) -> impl IntoElement {
-    div()
-        .rounded_lg()
-        .bg(theme.sidebar_background)
-        .border_1()
-        .border_color(theme.border)
-        .p_3()
-        .child(div().text_xs().text_color(theme.text_muted).child(label))
-        .child(div().font_weight(FontWeight::SEMIBOLD).child(value))
 }
 
 /// The label to show for a mod row. Falls back to the on-disk filename when
