@@ -9,7 +9,6 @@ pub enum AppError {
     Zip(zip::result::ZipError),
     Parse(String),
     Process(String),
-    Auth(String),
     Platform(String),
     Validation(String),
     State(String),
@@ -23,10 +22,6 @@ impl AppError {
 
     pub fn process(message: impl Into<String>) -> Self {
         Self::Process(message.into())
-    }
-
-    pub fn auth(message: impl Into<String>) -> Self {
-        Self::Auth(message.into())
     }
 
     pub fn platform(message: impl Into<String>) -> Self {
@@ -54,7 +49,6 @@ impl Display for AppError {
             Self::Zip(e) => write!(f, "Zip error: {e}"),
             Self::Parse(e) => write!(f, "Parse error: {e}"),
             Self::Process(e) => write!(f, "Process error: {e}"),
-            Self::Auth(e) => write!(f, "Auth error: {e}"),
             Self::Platform(e) => write!(f, "Platform error: {e}"),
             Self::Validation(e) => write!(f, "Validation error: {e}"),
             Self::State(e) => write!(f, "State error: {e}"),
@@ -86,12 +80,6 @@ impl From<zip::result::ZipError> for AppError {
 impl From<serde_json::Error> for AppError {
     fn from(value: serde_json::Error) -> Self {
         Self::Parse(value.to_string())
-    }
-}
-
-impl From<keyring::Error> for AppError {
-    fn from(value: keyring::Error) -> Self {
-        Self::State(value.to_string())
     }
 }
 
