@@ -91,6 +91,9 @@ jobs:
       - name: cargo build --release
         run: cargo build --release
 
+      - name: Rename binary
+        run: cp target/release/Starlight Starlight-linux-x86_64
+
       - name: Build AppImage
         run: bash packaging/linux/build-appimage.sh
 
@@ -105,6 +108,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: |
+            Starlight-linux-x86_64
             Starlight-linux-x86_64.AppImage
             Starlight-linux-x86_64.flatpak
           generate_release_notes: true
