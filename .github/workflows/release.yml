@@ -32,10 +32,10 @@ jobs:
         run: cargo build --release
 
       - name: Rename binary
-        run: Copy-Item target/release/Starlight.exe Starlight-Portable-x86_64.exe
+        run: Copy-Item target/release/Starlight.exe Starlight-windows-x86_64.exe
 
       # The updater matches release assets by exact name — keep the portable
-      # exe named Starlight-Portable-x86_64.exe.
+      # exe named Starlight-windows-x86_64.exe.
       - name: Build installer
         shell: pwsh
         run: |
@@ -45,7 +45,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            Starlight-Portable-x86_64.exe
+            Starlight-windows-x86_64.exe
             Starlight-Setup-x86_64.exe
           draft: true
 
