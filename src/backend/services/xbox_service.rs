@@ -78,9 +78,11 @@ pub fn prepare_xbox_launch(profile_path: &Path, game_dir: &Path) -> AppResult<()
             .join("BepInEx")
             .join("core")
             .join("BepInEx.Unity.IL2CPP.dll");
-        let coreclr_path = profile_path.join("dotnet").join("coreclr.dll");
+        let corlib_dir = profile_path.join("dotnet");
+        let coreclr_path = corlib_dir.join("coreclr.dll");
         let target_assembly = target_assembly.to_string_lossy().replace('\\', "\\\\");
         let coreclr_path = coreclr_path.to_string_lossy().replace('\\', "\\\\");
+        let corlib_dir = corlib_dir.to_string_lossy().replace('\\', "\\\\");
 
         let ini_content = std::fs::read_to_string(&src_ini)?;
         let mut rewritten = String::new();
@@ -90,6 +92,11 @@ pub fn prepare_xbox_launch(profile_path: &Path, game_dir: &Path) -> AppResult<()
                 rewritten.push_str(&format!("target_assembly = \"{target_assembly}\"\n"));
             } else if trimmed.starts_with("coreclr_path") && trimmed.contains('=') {
                 rewritten.push_str(&format!("coreclr_path = \"{coreclr_path}\"\n"));
+            } else if trimmed.starts_with("corlib_dir") && trimmed.contains('=') {
+                // The profile ini's corlib_dir is relative to the profile dir;
+                // Doorstop resolves relative paths against the game dir, so it
+                // must be absolute here or CoreCLR silently fails to boot.
+                rewritten.push_str(&format!("corlib_dir = \"{corlib_dir}\"\n"));
             } else {
                 rewritten.push_str(line);
                 rewritten.push('\n');
