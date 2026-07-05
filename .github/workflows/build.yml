@@ -1,9 +1,31 @@
 name: Build
 
+# Release builds are expensive (2 OSes, --release, installer, AppImage), so
+# they don't run on every PR — CI already compiles and tests the code there.
+# Build runs on pushes to main (so a broken release build is caught before
+# tagging), on PRs that touch the packaging scripts or this workflow (the only
+# thing CI doesn't cover), and on demand.
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "assets/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "build.rs"
+      - "packaging/**"
+      - ".github/workflows/build.yml"
   pull_request:
+    paths:
+      - "packaging/**"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+
+# A new push to the same branch/PR supersedes the previous run.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build:
@@ -46,7 +68,7 @@ jobs:
       - name: cargo build --release
         run: cargo build --release
 
-      # Compile the installer on every push so a broken script is caught
+      # Compile the installer on every run so a broken script is caught
       # here instead of during a tagged release.
       - name: Build installer
         if: runner.os == 'Windows'
@@ -54,7 +76,7 @@ jobs:
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /O"." packaging\windows\starlight.iss
 
-      # Same idea for the AppImage — it's cheap to validate per push.
+      # Same idea for the AppImage — it's cheap to validate per run.
       # (The Flatpak bundle needs a ~1 GB runtime download, so that one is
       # only built at release time.)
       - name: Build AppImage
