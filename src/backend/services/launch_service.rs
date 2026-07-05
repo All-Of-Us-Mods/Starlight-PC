@@ -4,7 +4,9 @@ use crate::backend::services::profile_service::ProfileEntry;
 #[cfg(windows)]
 use crate::backend::services::xbox_service;
 use crate::backend::state::game_runtime;
-use log::{debug, info};
+#[cfg(windows)]
+use log::debug;
+use log::info;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::process::Command;
