@@ -16,7 +16,6 @@ use crate::backend::services::core_service::LinuxRunnerKind;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
     core_service::{self, AccentColor, AppSettingsPatch, AppTint, GamePlatform},
-    epic_auth_service::{self, EpicAuthService},
     finder_service,
 };
 use crate::settings as app_settings;
@@ -401,119 +400,6 @@ fn path_field(
     })
 }
 
-// ---------- Epic Games account (manual link + paste-code login) ----------
-
-struct EpicCodeFieldState {
-    input: Entity<InputState>,
-}
-
-fn epic_account_group() -> SettingGroup {
-    SettingGroup::new()
-        .title("Epic Games account")
-        .description("Log in so Epic launches can pass a launch token to the game.")
-        .items(vec![SettingItem::new(
-            "Account",
-            SettingField::render(epic_account_field),
-        )])
-}
-
-fn epic_account_field(
-    _options: &gpui_component::setting::RenderOptions,
-    window: &mut Window,
-    cx: &mut App,
-) -> AnyElement {
-    if epic_auth_service::load_session().is_some() {
-        return div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .child("Logged in to Epic Games")
-            .child(
-                Button::new("epic-logout")
-                    .label("Log out")
-                    .on_click(|_, window, cx| epic_logout(window, cx)),
-            )
-            .into_any_element();
-    }
-
-    let state = window.use_keyed_state("epic-code-input", cx, |window, cx| EpicCodeFieldState {
-        input: cx.new(|cx| InputState::new(window, cx).placeholder("Paste authorizationCode here")),
-    });
-    let input_entity = state.read(cx).input.clone();
-
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(
-            Button::new("epic-open-login")
-                .icon(Icon::new(IconName::ExternalLink))
-                .label("Open Epic login page")
-                .on_click(|_, _, cx| cx.open_url(&EpicAuthService::auth_url())),
-        )
-        .child(
-            div()
-                .flex()
-                .gap_2()
-                .child(Input::new(&input_entity).w_full())
-                .child(Button::new("epic-login").label("Log in").on_click({
-                    let input_entity = input_entity.clone();
-                    move |_, window, cx| epic_login(input_entity.clone(), window, cx)
-                })),
-        )
-        .child(
-            div()
-                .text_xs()
-                .child("Log in on the page, then copy the \"authorizationCode\" value back here."),
-        )
-        .into_any_element()
-}
-
-fn epic_login(input_entity: Entity<InputState>, window: &mut Window, cx: &mut App) {
-    let code = input_entity.read(cx).value().trim().to_string();
-    if code.is_empty() {
-        return;
-    }
-
-    let window_handle = window.window_handle();
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move {
-                let api = EpicAuthService::new()?;
-                let session = api.login_with_auth_code(&code)?;
-                epic_auth_service::save_session(&session)
-            })
-            .await;
-        let _ = window_handle.update(cx, |_, window, cx| match result {
-            Ok(()) => {
-                input_entity.update(cx, |s, cx| s.set_value("", window, cx));
-                window.push_notification(Notification::success("Logged into Epic Games"), cx);
-                cx.refresh_windows();
-            }
-            Err(e) => {
-                warn!("epic login failed: {e}");
-                window
-                    .push_notification(Notification::error(format!("Epic login failed: {e}")), cx);
-            }
-        });
-    })
-    .detach();
-}
-
-fn epic_logout(window: &mut Window, cx: &mut App) {
-    match epic_auth_service::clear_session() {
-        Ok(()) => {
-            window.push_notification(Notification::success("Logged out of Epic Games"), cx);
-            cx.refresh_windows();
-        }
-        Err(e) => {
-            warn!("epic logout failed: {e}");
-            window.push_notification(Notification::error(format!("Logout failed: {e}")), cx);
-        }
-    }
-}
-
 // ---------- action handlers (Detect / Cache / Clear) ----------
 
 #[cfg(unix)]
@@ -668,7 +554,7 @@ impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let mut game_groups = vec![
+        let game_groups = vec![
             SettingGroup::new().title("Installation").items(vec![
                 SettingItem::new(
                     "Among Us path",
@@ -711,9 +597,6 @@ impl Render for SettingsView {
                 .description("Which storefront the game was installed from."),
             ]),
         ];
-        if matches!(app_settings::get(cx).game_platform, GamePlatform::Epic) {
-            game_groups.push(epic_account_group());
-        }
         let game_page = SettingPage::new("Game")
             .default_open(true)
             .groups(game_groups);

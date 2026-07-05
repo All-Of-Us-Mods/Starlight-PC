@@ -206,44 +206,27 @@ fn cleanup_linux_doorstop_files(game_dir: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn attach_epic_launch_token(cmd: &mut Command, platform: &str) -> AppResult<()> {
-    use crate::backend::services::epic_auth_service::{
-        EpicAuthService, load_session, save_session,
-    };
-    use log::warn;
+/// Borrow auth arguments from an Epic-launcher-started instance (see
+/// [`crate::backend::services::epic_launch_service`]) and append them
+/// verbatim, so our locally spawned copy authenticates like a normal Epic
+/// launch.
+#[cfg(windows)]
+fn attach_epic_launch_args(cmd: &mut Command, platform: &str) -> AppResult<()> {
+    use std::os::windows::process::CommandExt as _;
 
     if platform != "epic" {
         return Ok(());
     }
 
-    let Some(session) = load_session() else {
-        debug!("Epic launch: no session, skipping AUTH_PASSWORD (log in via Settings)");
-        return Ok(());
-    };
+    let args = crate::backend::services::epic_launch_service::acquire_launch_args()?;
+    cmd.raw_arg(args);
+    Ok(())
+}
 
-    let api = EpicAuthService::new()?;
-
-    // Refresh first so a long-idle access token doesn't fail the exchange below.
-    let session = match api.refresh_session(&session.refresh_token) {
-        Ok(refreshed) => {
-            let _ = save_session(&refreshed);
-            refreshed
-        }
-        Err(e) => {
-            warn!("Epic session refresh failed, trying existing token: {e}");
-            session
-        }
-    };
-
-    info!("Epic session found, requesting game token");
-    match api.get_game_token(&session) {
-        Ok(launch_token) => {
-            debug!("Epic game token obtained successfully");
-            cmd.arg(format!("-AUTH_PASSWORD={launch_token}"));
-        }
-        Err(e) => warn!("Failed to get Epic game token: {e}"),
-    }
-
+/// Epic auth-argument capture needs the Epic launcher, which only exists on
+/// Windows. Elsewhere the game launches without auth arguments.
+#[cfg(not(windows))]
+fn attach_epic_launch_args(_cmd: &mut Command, _platform: &str) -> AppResult<()> {
     Ok(())
 }
 
@@ -429,7 +412,7 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
         cmd.env("WINEDLLOVERRIDES", "winhttp=n,b");
     }
 
-    attach_epic_launch_token(&mut cmd, &args.platform)?;
+    attach_epic_launch_args(&mut cmd, &args.platform)?;
     let result = launch_process(cmd, Some(args.profile_id));
 
     // Keep the lock for the settle window after a successful spawn so the next
@@ -475,7 +458,7 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
     cmd.current_dir(&game_dir)
         .args(["--doorstop-enabled", "false"]);
 
-    attach_epic_launch_token(&mut cmd, &args.platform)?;
+    attach_epic_launch_args(&mut cmd, &args.platform)?;
     launch_process(cmd, None)
 }
 
