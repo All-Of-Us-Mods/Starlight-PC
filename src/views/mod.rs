@@ -53,6 +53,9 @@ pub fn modal_overlay(
             b: 0.0,
             a: 0.6,
         })
+        // Block hover/click hit-testing on the page behind the backdrop —
+        // absolutely-positioned elements don't occlude on their own.
+        .occlude()
         .flex()
         .items_center()
         .justify_center()
