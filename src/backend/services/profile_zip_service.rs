@@ -327,7 +327,8 @@ fn build_sanitized_metadata_and_extract_files(
     metadata.remove("created_at");
     metadata.remove("total_play_time");
     metadata.remove("last_launched_at");
-    metadata.insert("bepinex_installed".to_string(), Value::Bool(true));
+    // `bepinex_installed` is passed through as-is (arch string, or a legacy
+    // bool the import-side deserializer converts).
 
     if !metadata.contains_key("name") {
         metadata.insert(

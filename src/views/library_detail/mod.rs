@@ -849,7 +849,11 @@ impl LibraryDetailView {
         theme: &crate::theme::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let bep_installed = profile.bepinex_installed == Some(true);
+        let bep_installed = profile.bepinex_installed.is_some();
+        let platform = app_settings::get(cx).game_platform;
+        let bep_incompatible = profile
+            .bepinex_installed
+            .is_some_and(|arch| arch != platform.bepinex_arch());
         let installing = self.bep_progress.is_some();
         let primary_controls = self.render_primary_controls(bep_installed, installing, theme, cx);
         let manage_buttons = self.render_manage_buttons(cx);
@@ -905,6 +909,20 @@ impl LibraryDetailView {
                     .text_color(theme.warning)
                     .child(Icon::new(IconName::TriangleAlert).xsmall())
                     .child("BepInEx not installed")
+            }))
+            .children(bep_incompatible.then(|| {
+                div()
+                    .mt_1()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .text_xs()
+                    .text_color(theme.warning)
+                    .child(Icon::new(IconName::TriangleAlert).xsmall())
+                    .child(format!(
+                        "This BepInEx install is incompatible with {}",
+                        platform.display_name()
+                    ))
             }));
 
         div()

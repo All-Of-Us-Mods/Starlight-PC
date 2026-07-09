@@ -633,7 +633,7 @@ impl LobbiesView {
             .profiles
             .iter()
             .map(|p| {
-                let bep_subtitle = if p.bepinex_installed.unwrap_or(false) {
+                let bep_subtitle = if p.bepinex_installed.is_some() {
                     "Modded profile"
                 } else {
                     "BepInEx will be installed"
@@ -1086,7 +1086,7 @@ fn launch_into_lobby_for_profile(
     server_host: &str,
     server_port: u16,
 ) -> AppResult<String> {
-    if profile.bepinex_installed != Some(true) {
+    if profile.bepinex_installed.is_none() {
         profile_service::install_bepinex_for_profile(&profile.id)?;
     }
 
