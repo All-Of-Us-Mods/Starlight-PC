@@ -329,7 +329,7 @@ impl LibraryView {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(profile.name.clone()),
                     )
-                    .children((profile.bepinex_installed != Some(true)).then(|| {
+                    .children(profile.bepinex_installed.is_none().then(|| {
                         div()
                             .text_xs()
                             .text_color(theme.warning)

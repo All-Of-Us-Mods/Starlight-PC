@@ -327,7 +327,18 @@ fn build_sanitized_metadata_and_extract_files(
     metadata.remove("created_at");
     metadata.remove("total_play_time");
     metadata.remove("last_launched_at");
-    metadata.insert("bepinex_installed".to_string(), Value::Bool(true));
+    // Exported zips always bundle the BepInEx folder; make sure the metadata
+    // records an install. Keep the recorded arch if there is one, otherwise
+    // (legacy bool or absent) assume the currently selected platform's arch.
+    if !matches!(metadata.get("bepinex_installed"), Some(Value::String(_))) {
+        let arch = crate::backend::services::core_service::get_settings()
+            .map(|settings| settings.game_platform.bepinex_arch())
+            .unwrap_or(crate::backend::services::core_service::BepInExArch::X86);
+        metadata.insert(
+            "bepinex_installed".to_string(),
+            Value::String(arch.as_str().to_string()),
+        );
+    }
 
     if !metadata.contains_key("name") {
         metadata.insert(

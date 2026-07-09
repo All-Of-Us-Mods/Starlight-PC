@@ -1,4 +1,5 @@
 use crate::backend::error::{AppError, AppResult};
+use crate::backend::services::core_service::BepInExArch;
 use crate::backend::services::{bepinex_service, core_service, profile_zip_service};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -19,6 +20,33 @@ const CUSTOM_ICON_EXTENSIONS: [&str; 7] =
 
 fn default_true() -> bool {
     true
+}
+
+/// Arch assumed for BepInEx installs recorded before arch tracking (legacy
+/// `bepinex_installed: true`): whatever the currently selected platform needs,
+/// since that's the platform those installs were made for.
+fn legacy_bepinex_arch() -> BepInExArch {
+    core_service::get_settings()
+        .map(|settings| settings.game_platform.bepinex_arch())
+        .unwrap_or(BepInExArch::X86)
+}
+
+fn deserialize_bepinex_installed<'de, D>(deserializer: D) -> Result<Option<BepInExArch>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Compat {
+        Arch(BepInExArch),
+        Legacy(bool),
+    }
+
+    Ok(match Option::<Compat>::deserialize(deserializer)? {
+        Some(Compat::Arch(arch)) => Some(arch),
+        Some(Compat::Legacy(true)) => Some(legacy_bepinex_arch()),
+        Some(Compat::Legacy(false)) | None => None,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +76,13 @@ pub struct ProfileEntry {
     pub path: String,
     pub created_at: i64,
     pub last_launched_at: Option<i64>,
-    pub bepinex_installed: Option<bool>,
+    /// Architecture of the BepInEx build installed into this profile, or
+    /// `None` if BepInEx isn't installed. Profiles saved before arch tracking
+    /// stored a bool; a legacy `true` is read as the arch of the currently
+    /// selected platform (those installs were made with that platform's
+    /// build), a legacy `false` as `None`.
+    #[serde(default, deserialize_with = "deserialize_bepinex_installed")]
+    pub bepinex_installed: Option<BepInExArch>,
     pub total_play_time: Option<i64>,
     pub icon_mode: Option<String>,
     pub custom_icon_extension: Option<String>,
@@ -368,7 +402,7 @@ pub fn create_profile(name: &str) -> AppResult<ProfileEntry> {
         path: profile_path.to_string_lossy().to_string(),
         created_at: timestamp,
         last_launched_at: None,
-        bepinex_installed: Some(false),
+        bepinex_installed: None,
         total_play_time: Some(0),
         icon_mode: Some("default".to_string()),
         custom_icon_extension: None,
@@ -387,19 +421,15 @@ pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
         .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))?;
 
     let settings = core_service::get_settings()?;
-    let install_arch = match settings.game_platform {
-        core_service::GamePlatform::Epic | core_service::GamePlatform::Xbox => "x64",
-        core_service::GamePlatform::Steam => "x86",
-    };
+    let install_arch = settings.game_platform.bepinex_arch();
 
-    let bepinex_url = if install_arch == "x64" {
-        settings.bepinex_url_x64.clone()
-    } else {
-        settings.bepinex_url_x86.clone()
+    let bepinex_url = match install_arch {
+        BepInExArch::X64 => settings.bepinex_url_x64.clone(),
+        BepInExArch::X86 => settings.bepinex_url_x86.clone(),
     };
 
     let cache_path = if settings.cache_bepinex {
-        Some(core_service::get_bepinex_cache_path(install_arch)?)
+        Some(core_service::get_bepinex_cache_path(install_arch.as_str())?)
     } else {
         None
     };
@@ -412,7 +442,7 @@ pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
         profile_id,
     )?;
 
-    profile.bepinex_installed = Some(true);
+    profile.bepinex_installed = Some(install_arch);
     write_profile(&profile)?;
     Ok(())
 }
@@ -776,7 +806,8 @@ fn make_unique_profile_name(requested: &str, profiles: &[ProfileEntry]) -> Strin
 struct ImportedMetadata {
     name: Option<String>,
     last_launched_at: Option<i64>,
-    bepinex_installed: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_bepinex_installed")]
+    bepinex_installed: Option<BepInExArch>,
     icon_mode: Option<String>,
     custom_icon_extension: Option<String>,
     icon_mod_id: Option<String>,
@@ -880,12 +911,9 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
             path: profile_path.to_string_lossy().to_string(),
             created_at: timestamp,
             last_launched_at: imported.as_ref().and_then(|item| item.last_launched_at),
-            bepinex_installed: Some(
-                imported
-                    .as_ref()
-                    .map(|item| item.bepinex_installed.unwrap_or(false))
-                    .unwrap_or(true),
-            ),
+            bepinex_installed: imported
+                .as_ref()
+                .map_or(Some(legacy_bepinex_arch()), |item| item.bepinex_installed),
             total_play_time: Some(0),
             icon_mode: imported.as_ref().and_then(|item| item.icon_mode.clone()),
             custom_icon_extension: imported
@@ -994,7 +1022,7 @@ mod tests {
             path: dir.0.to_string_lossy().to_string(),
             created_at: 0,
             last_launched_at: None,
-            bepinex_installed: Some(true),
+            bepinex_installed: Some(BepInExArch::X86),
             total_play_time: None,
             icon_mode: None,
             custom_icon_extension: None,

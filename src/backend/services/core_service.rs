@@ -24,6 +24,43 @@ pub enum GamePlatform {
     Xbox,
 }
 
+impl GamePlatform {
+    /// Which BepInEx build the platform's game binary needs. Steam (and
+    /// itch.io, if it's ever added) ships a 32-bit Among Us; Epic and Xbox
+    /// ship 64-bit.
+    pub fn bepinex_arch(self) -> BepInExArch {
+        match self {
+            GamePlatform::Steam => BepInExArch::X86,
+            GamePlatform::Epic | GamePlatform::Xbox => BepInExArch::X64,
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            GamePlatform::Steam => "Steam",
+            GamePlatform::Epic => "Epic",
+            GamePlatform::Xbox => "Xbox",
+        }
+    }
+}
+
+/// Architecture of an installed BepInEx build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BepInExArch {
+    X86,
+    X64,
+}
+
+impl BepInExArch {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BepInExArch::X86 => "x86",
+            BepInExArch::X64 => "x64",
+        }
+    }
+}
+
 /// Background tint family for the app UI. The palettes live in `crate::theme`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

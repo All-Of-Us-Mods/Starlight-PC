@@ -377,7 +377,7 @@ impl ModDetailView {
             .profiles
             .iter()
             .find(|p| p.id == profile_id)
-            .is_none_or(|p| p.bepinex_installed != Some(true));
+            .is_none_or(|p| p.bepinex_installed.is_none());
         if let Some(panel) = self.install.as_mut() {
             panel.status = InstallStatus::Installing {
                 message: if needs_bepinex {
