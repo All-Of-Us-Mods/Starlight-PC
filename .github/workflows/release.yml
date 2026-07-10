@@ -94,6 +94,15 @@ jobs:
       - name: Rename binary
         run: cp target/release/Starlight Starlight-linux-x86_64
 
+      # Debian/RPM versions can't contain hyphens in the upstream part, so
+      # 2.0.0-beta.3 becomes 2.0.0~beta.3 (~ also sorts before the final release).
+      - name: Build .deb and .rpm
+        run: |
+          curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v2.43.1/nfpm_2.43.1_Linux_x86_64.tar.gz | tar -xz nfpm
+          export NFPM_VERSION="$(echo "${GITHUB_REF_NAME#v}" | sed 's/-/~/')"
+          ./nfpm package -f packaging/linux/nfpm.yaml -p deb -t Starlight-linux-x86_64.deb
+          ./nfpm package -f packaging/linux/nfpm.yaml -p rpm -t Starlight-linux-x86_64.rpm
+
       - name: Build AppImage
         run: bash packaging/linux/build-appimage.sh
 
@@ -109,6 +118,8 @@ jobs:
         with:
           files: |
             Starlight-linux-x86_64
+            Starlight-linux-x86_64.deb
+            Starlight-linux-x86_64.rpm
             Starlight-linux-x86_64.AppImage
             Starlight-linux-x86_64.flatpak
           generate_release_notes: true

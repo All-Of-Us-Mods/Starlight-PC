@@ -1,0 +1,18 @@
+# nfpm config — builds Starlight .deb and .rpm packages.
+# Version is injected via $NFPM_VERSION (see .github/workflows/release.yml).
+name: starlight
+arch: amd64
+platform: linux
+version: ${NFPM_VERSION}
+maintainer: yanpla <yanpla@users.noreply.github.com>
+description: Among Us mod manager
+homepage: https://github.com/yanpla/Starlight-PC
+license: GPL-3.0-only
+section: games
+contents:
+  - src: target/release/Starlight
+    dst: /usr/bin/starlight
+  - src: packaging/linux/dev.allofus.Starlight.desktop
+    dst: /usr/share/applications/dev.allofus.Starlight.desktop
+  - src: assets/icons/starlight.png
+    dst: /usr/share/icons/hicolor/256x256/apps/dev.allofus.Starlight.png
