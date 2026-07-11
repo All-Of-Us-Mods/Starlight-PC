@@ -1,0 +1,5 @@
+# Statically link the MSVC C runtime so the shipped exe doesn't depend on
+# VCRUNTIME140.dll — users without the VC++ redistributable can't launch
+# a dynamically-linked build.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
