@@ -1,5 +1,6 @@
 use chrono::{DateTime, Local};
 use gpui::*;
+use gpui_component::text::TextView;
 
 use crate::backend::api::Post;
 use crate::theme::ThemeExt;
@@ -67,7 +68,10 @@ impl Render for NewsDetailView {
                             .text_sm()
                             .line_height(px(22.0))
                             .text_color(theme.text)
-                            .child(self.post.content.clone()),
+                            .child(TextView::markdown(
+                                "news-content",
+                                self.post.content.clone(),
+                            )),
                     ),
             )
     }

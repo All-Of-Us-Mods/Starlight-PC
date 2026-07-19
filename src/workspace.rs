@@ -734,6 +734,15 @@ impl Render for Workspace {
             .text_color(theme.text)
             .text_size(px(14.0))
             .bg(theme.background)
+            // Mouse "back"/"forward" side buttons navigate like a browser.
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Back),
+                cx.listener(|this, _, _window, cx| this.go_back(cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Forward),
+                cx.listener(|this, _, _window, cx| this.go_forward(cx)),
+            )
             // Behind everything else. The sidebar and title bar are
             // transparent (see theme::apply), so the stars show through the
             // chrome; the content area paints over them.

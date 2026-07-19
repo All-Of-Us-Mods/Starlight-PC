@@ -169,10 +169,6 @@ pub fn fetch_trending_mods() -> AppResult<Vec<ModResponse>> {
     get_json(&format!("{}/api/v3/mods/trending", DEFAULT_API_BASE_URL))
 }
 
-pub fn fetch_mods_total() -> AppResult<u32> {
-    get_json(&format!("{}/api/v3/mods/total", DEFAULT_API_BASE_URL))
-}
-
 pub fn fetch_mods(limit: u32, offset: u32) -> AppResult<Vec<ModResponse>> {
     get_json(&format!(
         "{}/api/v3/mods?limit={}&offset={}",
