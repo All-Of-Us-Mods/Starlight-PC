@@ -155,7 +155,7 @@ fn region_info_path() -> AppResult<PathBuf> {
         LinuxRunnerKind::Wine => {
             let explicit = settings.linux_wine_region_info_path.trim();
             if !explicit.is_empty() {
-                return Ok(PathBuf::from(explicit));
+                return Ok(expand_tilde(explicit));
             }
             let prefix = settings.linux_wine_prefix.trim();
             if prefix.is_empty() {
@@ -163,11 +163,7 @@ fn region_info_path() -> AppResult<PathBuf> {
                     "Set the Wine prefix or RegionInfo.json path in Settings → Linux runtime",
                 ));
             }
-            let user = std::env::var("USER")
-                .map_err(|_| AppError::state("USER environment variable is not set"))?;
-            Ok(region_info_in(
-                PathBuf::from(prefix).join("drive_c").join("users").join(user),
-            ))
+            Ok(region_info_in(wine_user_dir(&expand_tilde(prefix))?))
         }
         LinuxRunnerKind::Proton | LinuxRunnerKind::Steam => {
             let compat = settings.linux_proton_compat_data_path.trim();
@@ -178,7 +174,7 @@ fn region_info_path() -> AppResult<PathBuf> {
                 ));
             }
             Ok(region_info_in(
-                PathBuf::from(compat)
+                expand_tilde(compat)
                     .join("pfx")
                     .join("drive_c")
                     .join("users")
@@ -186,6 +182,61 @@ fn region_info_path() -> AppResult<PathBuf> {
             ))
         }
     }
+}
+
+/// Expand a leading `~/` to the home directory — user-entered paths reach us
+/// verbatim, and a literal `~` component would resolve relative to the
+/// process working directory.
+#[cfg(target_os = "linux")]
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home).join(rest);
+    }
+    PathBuf::from(path)
+}
+
+/// The user directory inside a Wine prefix's `drive_c/users`. The host
+/// username doesn't reliably name it (prefixes can be created by another
+/// account or copied from another machine), so prefer the directory that
+/// actually holds Among Us' LocalLow data, then `$USER`, then a sole
+/// remaining candidate.
+#[cfg(target_os = "linux")]
+fn wine_user_dir(prefix: &std::path::Path) -> AppResult<PathBuf> {
+    let users = prefix.join("drive_c").join("users");
+    let mut candidates = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&users) {
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() || entry.file_name() == "Public" {
+                continue;
+            }
+            if dir
+                .join("AppData")
+                .join("LocalLow")
+                .join("Innersloth")
+                .join("Among Us")
+                .exists()
+            {
+                return Ok(dir);
+            }
+            candidates.push(dir);
+        }
+    }
+    if let Ok(user) = std::env::var("USER") {
+        let dir = users.join(&user);
+        if dir.is_dir() {
+            return Ok(dir);
+        }
+    }
+    if candidates.len() == 1 {
+        return Ok(candidates.remove(0));
+    }
+    Err(AppError::state(
+        "Could not find the user folder inside the Wine prefix; set the \
+         RegionInfo.json path in Settings → Linux runtime",
+    ))
 }
 
 /// `RegionInfo.json` under a Wine user directory. Wine resolves paths
