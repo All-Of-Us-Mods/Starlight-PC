@@ -8,6 +8,7 @@ use gpui_component::{
     progress::Progress,
     skeleton::Skeleton,
     tag::Tag,
+    text::TextView,
 };
 
 use crate::ui::icon::AppIcon;
@@ -611,7 +612,7 @@ impl Render for ModDetailView {
                                     .text_sm()
                                     .line_height(px(22.0))
                                     .text_color(theme.text)
-                                    .child(description),
+                                    .child(TextView::markdown("mod-long-description", description)),
                             )
                     }))
                     .children(data.version_info.as_ref().and_then(|version| {
@@ -628,7 +629,10 @@ impl Render for ModDetailView {
                                     div()
                                         .text_sm()
                                         .line_height(px(22.0))
-                                        .child(changelog.clone()),
+                                        .child(TextView::markdown(
+                                            "mod-changelog",
+                                            changelog.clone(),
+                                        )),
                                 )
                         })
                     }))
