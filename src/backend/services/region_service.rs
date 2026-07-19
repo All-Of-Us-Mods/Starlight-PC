@@ -146,10 +146,70 @@ fn region_info_path() -> AppResult<PathBuf> {
         .join("regionInfo.json"))
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn region_info_path() -> AppResult<PathBuf> {
+    use crate::backend::services::core_service::{self, LinuxRunnerKind};
+
+    let settings = core_service::get_settings()?;
+    match settings.linux_runner_kind {
+        LinuxRunnerKind::Wine => {
+            let explicit = settings.linux_wine_region_info_path.trim();
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+            let prefix = settings.linux_wine_prefix.trim();
+            if prefix.is_empty() {
+                return Err(AppError::state(
+                    "Set the Wine prefix or RegionInfo.json path in Settings → Linux runtime",
+                ));
+            }
+            let user = std::env::var("USER")
+                .map_err(|_| AppError::state("USER environment variable is not set"))?;
+            Ok(region_info_in(
+                PathBuf::from(prefix).join("drive_c").join("users").join(user),
+            ))
+        }
+        LinuxRunnerKind::Proton | LinuxRunnerKind::Steam => {
+            let compat = settings.linux_proton_compat_data_path.trim();
+            if compat.is_empty() {
+                return Err(AppError::state(
+                    "Set the Proton compat data path in Settings → Linux runtime \
+                     (Auto-detect can find it)",
+                ));
+            }
+            Ok(region_info_in(
+                PathBuf::from(compat)
+                    .join("pfx")
+                    .join("drive_c")
+                    .join("users")
+                    .join("steamuser"),
+            ))
+        }
+    }
+}
+
+/// `RegionInfo.json` under a Wine user directory. Wine resolves paths
+/// case-insensitively but we hit the host filesystem directly, so prefer
+/// whichever casing already exists on disk.
+#[cfg(target_os = "linux")]
+fn region_info_in(user_dir: PathBuf) -> PathBuf {
+    let dir = user_dir
+        .join("AppData")
+        .join("LocalLow")
+        .join("Innersloth")
+        .join("Among Us");
+    let lower = dir.join("regionInfo.json");
+    if lower.exists() {
+        lower
+    } else {
+        dir.join("RegionInfo.json")
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn region_info_path() -> AppResult<PathBuf> {
     Err(AppError::platform(
-        "Configuring Among Us regions is only supported on Windows",
+        "Configuring Among Us regions is only supported on Windows and Linux",
     ))
 }
 
