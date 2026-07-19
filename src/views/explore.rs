@@ -16,9 +16,9 @@ const GRID_GAP: f32 = 16.0;
 const SIDEBAR_WIDTH: f32 = 175.0;
 const PAGE_HORIZONTAL_PADDING: f32 = 64.0;
 const PAGE_FIXED_HEIGHT: f32 = 292.0;
-/// The API can't filter by mod type, so a type filter fetches (up to) this
-/// many mods in one request and filters + paginates client-side.
-const FILTER_FETCH_LIMIT: u32 = 500;
+/// The API can't sort or filter by mod type, so each query fetches (up to)
+/// this many mods in one request and sorts + filters + paginates client-side.
+const FETCH_LIMIT: u32 = 500;
 
 #[derive(Clone, Debug)]
 pub enum ExploreEvent {
@@ -96,19 +96,13 @@ pub struct ExploreView {
     query: String,
     page: u32,
     page_size: u32,
-    /// Total mods for the current query (the API exposes a `/total`
-    /// endpoint only for the unfiltered listing). `None` while we
-    /// haven't fetched the count yet or when searching (no count
-    /// available).
-    total: Option<u32>,
     sort: SortBy,
-    /// When not [`TypeFilter::All`], `state` holds the *entire* filtered
-    /// result set and pagination happens client-side (the API has no type
-    /// filter parameter).
     type_filter: TypeFilter,
     search_input: Entity<InputState>,
 }
 
+/// `Loaded` holds the *entire* result set for the current query; sorting,
+/// type filtering and pagination all happen client-side in `render`.
 enum LoadState {
     Loading,
     Loaded(Vec<ModResponse>),
@@ -134,7 +128,6 @@ impl ExploreView {
             query: String::new(),
             page: 0,
             page_size: 12,
-            total: None,
             sort: SortBy::Downloads,
             type_filter: TypeFilter::All,
             search_input,
@@ -145,42 +138,21 @@ impl ExploreView {
 
     fn fetch(&self, cx: &mut Context<Self>) {
         let query = self.query.clone();
-        let page_size = self.page_size;
-        let offset = self.page * page_size;
-        let filter = self.type_filter;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    if filter != TypeFilter::All {
-                        // No server-side type filter — pull everything for the
-                        // query and filter here; pagination is client-side.
-                        let mods = if query.is_empty() {
-                            api::fetch_mods(FILTER_FETCH_LIMIT, 0)
-                        } else {
-                            api::search_mods(&query, FILTER_FETCH_LIMIT, 0)
-                        }?;
-                        let filtered: Vec<ModResponse> =
-                            mods.into_iter().filter(|m| filter.matches(m)).collect();
-                        let total = filtered.len() as u32;
-                        Ok((filtered, Some(total)))
-                    } else if query.is_empty() {
-                        let total = api::fetch_mods_total().ok();
-                        api::fetch_mods(page_size, offset).map(|mods| (mods, total))
+                    if query.is_empty() {
+                        api::fetch_mods(FETCH_LIMIT, 0)
                     } else {
-                        api::search_mods(&query, page_size, offset).map(|mods| (mods, None))
+                        api::search_mods(&query, FETCH_LIMIT, 0)
                     }
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 match result {
-                    Ok((mods, total)) => {
-                        this.state = LoadState::Loaded(mods);
-                        this.total = total;
-                    }
-                    Err(e) => {
-                        this.state = LoadState::Failed(e.to_string());
-                    }
+                    Ok(mods) => this.state = LoadState::Loaded(mods),
+                    Err(e) => this.state = LoadState::Failed(e.to_string()),
                 }
                 cx.notify();
             });
@@ -193,15 +165,10 @@ impl ExploreView {
             return;
         }
 
+        // Keep the first visible mod on screen when the grid reflows.
         let first_visible_index = self.page * self.page_size;
         self.page_size = page_size;
         self.page = first_visible_index / self.page_size;
-        // With a type filter active the full result set is already loaded —
-        // repaginating is purely local.
-        if self.type_filter == TypeFilter::All {
-            self.state = LoadState::Loading;
-            self.fetch(cx);
-        }
         cx.notify();
     }
 
@@ -224,10 +191,7 @@ impl ExploreView {
         }
         self.type_filter = filter;
         self.page = 0;
-        self.total = None;
-        self.state = LoadState::Loading;
         cx.notify();
-        self.fetch(cx);
     }
 
     fn goto_page(&mut self, one_based_page: usize, cx: &mut Context<Self>) {
@@ -236,11 +200,6 @@ impl ExploreView {
             return;
         }
         self.page = new_page;
-        // See update_page_size — filtered pagination is client-side.
-        if self.type_filter == TypeFilter::All {
-            self.state = LoadState::Loading;
-            self.fetch(cx);
-        }
         cx.notify();
     }
 
@@ -336,53 +295,50 @@ impl Render for ExploreView {
                         })),
                 )
                 .into_any_element(),
-            LoadState::Loaded(mods) if mods.is_empty() => div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(theme.text_muted)
-                .child("No mods found.")
-                .into_any_element(),
             LoadState::Loaded(mods) => {
-                let mut sorted: Vec<&ModResponse> = mods.iter().collect();
-                sorted.sort_by_key(|m| std::cmp::Reverse(self.sort.key(m)));
-                if self.type_filter != TypeFilter::All {
-                    // `mods` is the whole filtered set — show this page's slice.
-                    sorted = sorted
-                        .into_iter()
+                // The full result set is loaded — filter, sort and paginate
+                // here so ordering doesn't depend on the grid's page size.
+                let mut sorted: Vec<&ModResponse> = mods
+                    .iter()
+                    .filter(|m| self.type_filter.matches(m))
+                    .collect();
+                if sorted.is_empty() {
+                    div()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_color(theme.text_muted)
+                        .child("No mods found.")
+                        .into_any_element()
+                } else {
+                    sorted.sort_by_key(|m| std::cmp::Reverse(self.sort.key(m)));
+                    let cards: Vec<AnyElement> = sorted
+                        .iter()
                         .skip((self.page * self.page_size) as usize)
                         .take(self.page_size as usize)
+                        .map(|m| Self::mod_card(m, &theme, cx))
                         .collect();
+                    div()
+                        .grid()
+                        .grid_cols(columns as u16)
+                        .gap_4()
+                        .flex_1()
+                        .overflow_hidden()
+                        .children(cards)
+                        .into_any_element()
                 }
-                let cards: Vec<AnyElement> = sorted
-                    .iter()
-                    .map(|m| Self::mod_card(m, &theme, cx))
-                    .collect();
-                div()
-                    .grid()
-                    .grid_cols(columns as u16)
-                    .gap_4()
-                    .flex_1()
-                    .overflow_hidden()
-                    .children(cards)
-                    .into_any_element()
             }
         };
 
-        // Prefer the real total from /api/v3/mods/total. When searching
-        // the API has no count endpoint, so fall back to "current + 1
-        // when this page is full, current otherwise."
         let current = (self.page + 1) as usize;
-        let total = match self.total {
-            Some(total) => {
+        let total = match &self.state {
+            LoadState::Loaded(mods) => {
+                let shown = mods.iter().filter(|m| self.type_filter.matches(m)).count();
                 let page_size = self.page_size.max(1) as usize;
-                ((total as usize).div_ceil(page_size)).max(1)
+                shown.div_ceil(page_size).max(1)
             }
-            None => {
-                let full = matches!(&self.state, LoadState::Loaded(v) if (v.len() as u32) == self.page_size);
-                if full { current + 1 } else { current }
-            }
+            _ => 1,
         };
 
         let pagination = (total > 1).then(|| {
