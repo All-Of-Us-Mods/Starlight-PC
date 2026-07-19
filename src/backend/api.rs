@@ -223,7 +223,8 @@ pub fn fetch_servers() -> AppResult<Vec<Server>> {
 }
 
 /// Fetch the public lobby list from a server that implements the optional
-/// `/x-api/games` endpoint (see `hpllp013.yaml`). `host`/`port` identify the
+/// lobby list endpoint (`/public_api/games`, with `/x-api/games` as a
+/// fallback — see `hpllp013.yaml`). `host`/`port` identify the
 /// region's server; the scheme to use isn't reliably known (a custom region's
 /// stored `Ip` scheme is only ever a guess — see `region_service::build_region`),
 /// so this tries HTTPS first and falls back to plain HTTP. Short timeouts keep
@@ -243,13 +244,15 @@ pub fn fetch_lobbies(host: &str, port: u16) -> AppResult<GamesResult> {
         } else {
             format!("{scheme}://{host}:{port}")
         };
-        match client
-            .get(format!("{origin}/x-api/games"))
-            .send()
-            .and_then(reqwest::blocking::Response::error_for_status)
-        {
-            Ok(response) => return Ok(response.json::<GamesResult>()?),
-            Err(e) => last_err = Some(e),
+        for path in ["public_api/games", "x-api/games"] {
+            match client
+                .get(format!("{origin}/{path}"))
+                .send()
+                .and_then(reqwest::blocking::Response::error_for_status)
+            {
+                Ok(response) => return Ok(response.json::<GamesResult>()?),
+                Err(e) => last_err = Some(e),
+            }
         }
     }
     Err(last_err.expect("loop runs at least once").into())
