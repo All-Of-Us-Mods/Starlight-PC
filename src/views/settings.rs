@@ -283,6 +283,17 @@ fn patch_linux_wine_prefix(value: SharedString, cx: &mut App) {
 }
 
 #[cfg(unix)]
+fn patch_linux_wine_region_info_path(value: SharedString, cx: &mut App) {
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            linux_wine_region_info_path: Some(value.to_string()),
+            ..Default::default()
+        },
+    );
+}
+
+#[cfg(unix)]
 fn patch_linux_proton_compat_data_path(value: SharedString, cx: &mut App) {
     app_settings::update(
         cx,
@@ -787,6 +798,26 @@ impl Render for SettingsView {
                 ),
             );
 
+            let wine_region_info = SettingItem::new(
+                "RegionInfo.json path",
+                path_field(
+                    "linux-wine-region-info",
+                    false,
+                    |cx| {
+                        app_settings::get(cx)
+                            .linux_wine_region_info_path
+                            .clone()
+                            .into()
+                    },
+                    patch_linux_wine_region_info_path,
+                ),
+            )
+            .description(
+                "Among Us' RegionInfo.json inside the Wine prefix, used for server \
+                 management. Leave empty to derive it from the Wine prefix \
+                 (drive_c/users/<your user>/AppData/LocalLow/Innersloth/Among Us).",
+            );
+
             let proton_compat = SettingItem::new(
                 "Proton compat data path",
                 path_field(
@@ -800,6 +831,10 @@ impl Render for SettingsView {
                     },
                     patch_linux_proton_compat_data_path,
                 ),
+            )
+            .description(
+                "The game's Steam compatdata folder (steamapps/compatdata/945360). \
+                 Also used to locate RegionInfo.json for server management.",
             );
 
             let steam_run = SettingItem::new(
@@ -816,8 +851,16 @@ impl Render for SettingsView {
 
             // Only show the fields the selected runner actually uses.
             let items = match kind {
-                LinuxRunnerKind::Steam => vec![runner],
-                LinuxRunnerKind::Wine => vec![auto_detect, runner, runner_binary, wine_prefix],
+                LinuxRunnerKind::Steam => vec![auto_detect, runner, proton_compat],
+                LinuxRunnerKind::Wine => {
+                    vec![
+                        auto_detect,
+                        runner,
+                        runner_binary,
+                        wine_prefix,
+                        wine_region_info,
+                    ]
+                }
                 LinuxRunnerKind::Proton => {
                     vec![auto_detect, runner, runner_binary, proton_compat, steam_run]
                 }

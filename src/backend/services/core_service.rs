@@ -128,6 +128,11 @@ pub struct AppSettings {
     pub linux_runner_binary: String,
     #[serde(default)]
     pub linux_wine_prefix: String,
+    /// Explicit path to Among Us' `RegionInfo.json` for plain Wine setups,
+    /// where the prefix layout (user name inside `drive_c/users`) varies.
+    /// Empty means "derive from the Wine prefix".
+    #[serde(default)]
+    pub linux_wine_region_info_path: String,
     #[serde(default)]
     pub linux_proton_compat_data_path: String,
     #[serde(default)]
@@ -157,6 +162,7 @@ impl Default for AppSettings {
             linux_runner_kind: LinuxRunnerKind::Steam,
             linux_runner_binary: String::new(),
             linux_wine_prefix: String::new(),
+            linux_wine_region_info_path: String::new(),
             linux_proton_compat_data_path: String::new(),
             linux_proton_steam_client_path: String::new(),
             linux_proton_use_steam_run: true,
@@ -181,6 +187,7 @@ pub struct AppSettingsPatch {
     pub linux_runner_kind: Option<LinuxRunnerKind>,
     pub linux_runner_binary: Option<String>,
     pub linux_wine_prefix: Option<String>,
+    pub linux_wine_region_info_path: Option<String>,
     pub linux_proton_compat_data_path: Option<String>,
     pub linux_proton_steam_client_path: Option<String>,
     pub linux_proton_use_steam_run: Option<bool>,
@@ -355,6 +362,9 @@ pub fn update_settings(patch: AppSettingsPatch) -> AppResult<AppSettings> {
     }
     if let Some(value) = patch.linux_wine_prefix {
         settings.linux_wine_prefix = value;
+    }
+    if let Some(value) = patch.linux_wine_region_info_path {
+        settings.linux_wine_region_info_path = value;
     }
     if let Some(value) = patch.linux_proton_compat_data_path {
         settings.linux_proton_compat_data_path = value;

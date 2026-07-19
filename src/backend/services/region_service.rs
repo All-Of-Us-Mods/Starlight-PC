@@ -146,10 +146,121 @@ fn region_info_path() -> AppResult<PathBuf> {
         .join("regionInfo.json"))
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn region_info_path() -> AppResult<PathBuf> {
+    use crate::backend::services::core_service::{self, LinuxRunnerKind};
+
+    let settings = core_service::get_settings()?;
+    match settings.linux_runner_kind {
+        LinuxRunnerKind::Wine => {
+            let explicit = settings.linux_wine_region_info_path.trim();
+            if !explicit.is_empty() {
+                return Ok(expand_tilde(explicit));
+            }
+            let prefix = settings.linux_wine_prefix.trim();
+            if prefix.is_empty() {
+                return Err(AppError::state(
+                    "Set the Wine prefix or RegionInfo.json path in Settings → Linux runtime",
+                ));
+            }
+            Ok(region_info_in(wine_user_dir(&expand_tilde(prefix))?))
+        }
+        LinuxRunnerKind::Proton | LinuxRunnerKind::Steam => {
+            let compat = settings.linux_proton_compat_data_path.trim();
+            if compat.is_empty() {
+                return Err(AppError::state(
+                    "Set the Proton compat data path in Settings → Linux runtime \
+                     (Auto-detect can find it)",
+                ));
+            }
+            Ok(region_info_in(
+                expand_tilde(compat)
+                    .join("pfx")
+                    .join("drive_c")
+                    .join("users")
+                    .join("steamuser"),
+            ))
+        }
+    }
+}
+
+/// Expand a leading `~/` to the home directory — user-entered paths reach us
+/// verbatim, and a literal `~` component would resolve relative to the
+/// process working directory.
+#[cfg(target_os = "linux")]
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home).join(rest);
+    }
+    PathBuf::from(path)
+}
+
+/// The user directory inside a Wine prefix's `drive_c/users`. The host
+/// username doesn't reliably name it (prefixes can be created by another
+/// account or copied from another machine), so prefer the directory that
+/// actually holds Among Us' LocalLow data, then `$USER`, then a sole
+/// remaining candidate.
+#[cfg(target_os = "linux")]
+fn wine_user_dir(prefix: &std::path::Path) -> AppResult<PathBuf> {
+    let users = prefix.join("drive_c").join("users");
+    let mut candidates = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&users) {
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() || entry.file_name() == "Public" {
+                continue;
+            }
+            if dir
+                .join("AppData")
+                .join("LocalLow")
+                .join("Innersloth")
+                .join("Among Us")
+                .exists()
+            {
+                return Ok(dir);
+            }
+            candidates.push(dir);
+        }
+    }
+    if let Ok(user) = std::env::var("USER") {
+        let dir = users.join(&user);
+        if dir.is_dir() {
+            return Ok(dir);
+        }
+    }
+    if candidates.len() == 1 {
+        return Ok(candidates.remove(0));
+    }
+    Err(AppError::state(
+        "Could not find the user folder inside the Wine prefix; set the \
+         RegionInfo.json path in Settings → Linux runtime",
+    ))
+}
+
+/// `RegionInfo.json` under a Wine user directory. Wine resolves paths
+/// case-insensitively but we hit the host filesystem directly, so prefer
+/// whichever casing already exists on disk.
+#[cfg(target_os = "linux")]
+fn region_info_in(user_dir: PathBuf) -> PathBuf {
+    let dir = user_dir
+        .join("AppData")
+        .join("LocalLow")
+        .join("Innersloth")
+        .join("Among Us");
+    let lower = dir.join("regionInfo.json");
+    if lower.exists() {
+        lower
+    } else {
+        dir.join("RegionInfo.json")
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn region_info_path() -> AppResult<PathBuf> {
     Err(AppError::platform(
-        "Configuring Among Us regions is only supported on Windows",
+        "Configuring Among Us regions is only supported on Windows and Linux",
     ))
 }
 
