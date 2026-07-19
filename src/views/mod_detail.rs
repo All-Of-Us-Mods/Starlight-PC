@@ -1,6 +1,6 @@
 use gpui::*;
 use gpui_component::{
-    Disableable as _, Icon, WindowExt,
+    Disableable as _, Icon, IconName, WindowExt,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     input::{Input, InputState},
@@ -474,6 +474,29 @@ fn chip(text: String) -> impl IntoElement {
     Tag::new().child(text)
 }
 
+fn link_icon(link_type: &str) -> IconName {
+    match link_type.to_ascii_lowercase().as_str() {
+        "source" | "github" => IconName::Github,
+        "wiki" | "docs" | "documentation" => IconName::BookOpen,
+        "donate" | "sponsor" | "funding" => IconName::Heart,
+        _ => IconName::Globe,
+    }
+}
+
+/// A mod's external link as a clickable button — icon by link kind, the kind
+/// as the label (capitalized), opening the URL in the browser.
+fn link_button(ix: usize, link: &crate::backend::api::ExternalLink) -> impl IntoElement {
+    let mut label = link.link_type.clone();
+    if let Some(first) = label.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    let url = link.url.clone();
+    Button::new(SharedString::from(format!("mod-link-{ix}")))
+        .icon(Icon::new(link_icon(&link.link_type)))
+        .label(label)
+        .on_click(move |_, _, cx| cx.open_url(&url))
+}
+
 impl Render for ModDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
@@ -646,11 +669,14 @@ impl Render for ModDetailView {
                                     .flex_col()
                                     .gap_2()
                                     .child(section_label("Links", &theme))
-                                    .child(div().flex().flex_wrap().gap_2().children(
-                                        links.into_iter().map(|link| {
-                                            chip(format!("{}: {}", link.link_type, link.url))
-                                        }),
-                                    ))
+                                    .child(
+                                        div().flex().flex_wrap().gap_2().children(
+                                            links
+                                                .iter()
+                                                .enumerate()
+                                                .map(|(ix, link)| link_button(ix, link)),
+                                        ),
+                                    )
                             }),
                     )
                     .children(m.license.clone().map(|license| {
