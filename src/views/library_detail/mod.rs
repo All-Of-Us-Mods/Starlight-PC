@@ -40,6 +40,8 @@ use icon_dialog::{IconDialogState, render_icon_dialog};
 #[derive(Clone, Debug)]
 pub enum LibraryDetailEvent {
     Close,
+    /// The user clicked "Install Mods" — navigate to the Explore page.
+    OpenExplore,
 }
 
 impl EventEmitter<LibraryDetailEvent> for LibraryDetailView {}
@@ -1109,11 +1111,24 @@ impl LibraryDetailView {
                         .justify_between()
                         .child(section_heading(&format!("Mods · {}", profile.mods.len())))
                         .child(
-                            Button::new("add-custom-mod")
-                                .icon(Icon::new(IconName::Plus))
-                                .label("Add DLL")
-                                .on_click(
-                                    cx.listener(|this, _, _window, cx| this.add_custom_mods(cx)),
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("install-mods")
+                                        .icon(Icon::new(AppIcon::Compass))
+                                        .label("Install Mods")
+                                        .on_click(cx.listener(|_, _, _window, cx| {
+                                            cx.emit(LibraryDetailEvent::OpenExplore)
+                                        })),
+                                )
+                                .child(
+                                    Button::new("add-custom-mod")
+                                        .icon(Icon::new(IconName::Plus))
+                                        .label("Add DLL")
+                                        .on_click(cx.listener(|this, _, _window, cx| {
+                                            this.add_custom_mods(cx)
+                                        })),
                                 ),
                         ),
                 )

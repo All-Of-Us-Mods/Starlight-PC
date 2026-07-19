@@ -706,6 +706,7 @@ impl Workspace {
                 this.close_current(cx);
                 Self::reload_last_launched(cx);
             }
+            LibraryDetailEvent::OpenExplore => this.switch_tab(Tab::Explore, cx),
         })
         .detach();
         self.navigate(Page::LibraryDetail(detail), cx);
