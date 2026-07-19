@@ -1107,8 +1107,10 @@ impl LibraryDetailView {
                 .child(
                     div()
                         .flex()
+                        .flex_wrap()
                         .items_center()
                         .justify_between()
+                        .gap_2()
                         .child(section_heading(&format!("Mods · {}", profile.mods.len())))
                         .child(
                             div()
