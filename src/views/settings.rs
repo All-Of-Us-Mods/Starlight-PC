@@ -648,10 +648,27 @@ impl Render for SettingsView {
                 SettingItem::new(
                     "Themes folder",
                     SettingField::render(|_, _, _| {
-                        Button::new("open-themes-folder")
-                            .icon(Icon::new(IconName::FolderOpen))
-                            .label("Open Themes Folder")
-                            .on_click(|_, _, _| open_in_file_manager(&crate::theme::themes_dir()))
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                Button::new("open-themes-folder")
+                                    .icon(Icon::new(IconName::FolderOpen))
+                                    .label("Open Themes Folder")
+                                    .on_click(|_, _, _| {
+                                        open_in_file_manager(&crate::theme::themes_dir())
+                                    }),
+                            )
+                            .child(
+                                Button::new("browse-themes")
+                                    .icon(Icon::new(IconName::ExternalLink))
+                                    .label("Browse Themes")
+                                    .on_click(|_, _, cx| {
+                                        cx.open_url(
+                                            "https://github.com/longbridge/gpui-component/tree/main/themes",
+                                        )
+                                    }),
+                            )
                     }),
                 )
                 .description(
