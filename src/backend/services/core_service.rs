@@ -99,6 +99,12 @@ fn default_true() -> bool {
     true
 }
 
+/// Sidebar width in pixels. Below `crate::workspace::SIDEBAR_COLLAPSE_WIDTH`
+/// the sidebar renders as an icon rail — see `crate::workspace`.
+fn default_sidebar_width() -> f32 {
+    175.0
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LinuxRunnerKind {
@@ -145,6 +151,9 @@ pub struct AppSettings {
     pub accent_color: AccentColor,
     #[serde(default = "default_true")]
     pub show_stars_background: bool,
+    /// Width the user dragged the sidebar to; drives icon mode when small.
+    #[serde(default = "default_sidebar_width")]
+    pub sidebar_width: f32,
 }
 
 impl Default for AppSettings {
@@ -169,6 +178,7 @@ impl Default for AppSettings {
             app_tint: AppTint::default(),
             accent_color: AccentColor::default(),
             show_stars_background: true,
+            sidebar_width: default_sidebar_width(),
         }
     }
 }
@@ -194,6 +204,7 @@ pub struct AppSettingsPatch {
     pub app_tint: Option<AppTint>,
     pub accent_color: Option<AccentColor>,
     pub show_stars_background: Option<bool>,
+    pub sidebar_width: Option<f32>,
 }
 
 fn settings_path() -> AppResult<PathBuf> {
@@ -383,6 +394,9 @@ pub fn update_settings(patch: AppSettingsPatch) -> AppResult<AppSettings> {
     }
     if let Some(value) = patch.show_stars_background {
         settings.show_stars_background = value;
+    }
+    if let Some(value) = patch.sidebar_width {
+        settings.sidebar_width = value;
     }
 
     let path = settings_path()?;

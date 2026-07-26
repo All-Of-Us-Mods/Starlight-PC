@@ -12,8 +12,6 @@ use gpui_component::{Icon, IconName};
 const MIN_CARD_WIDTH: f32 = 360.0;
 const MAX_GRID_COLUMNS: u32 = 4;
 const GRID_GAP: f32 = 16.0;
-/// Keep in sync with the sidebar width set in `workspace.rs`.
-const SIDEBAR_WIDTH: f32 = 175.0;
 const PAGE_HORIZONTAL_PADDING: f32 = 64.0;
 const PAGE_FIXED_HEIGHT: f32 = 292.0;
 /// The API can't sort or filter by mod type, so each query fetches (up to)
@@ -248,9 +246,12 @@ impl Render for ExploreView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let viewport_size = window.viewport_size();
-        let content_width =
-            (f32::from(viewport_size.width) - SIDEBAR_WIDTH - PAGE_HORIZONTAL_PADDING)
-                .max(MIN_CARD_WIDTH);
+        // The sidebar is resizable, so the grid has to ask how wide it is now.
+        let sidebar_width =
+            crate::workspace::sidebar_layout_width(crate::settings::get(cx).sidebar_width);
+        let content_width = (f32::from(viewport_size.width) - sidebar_width
+            - PAGE_HORIZONTAL_PADDING)
+            .max(MIN_CARD_WIDTH);
         let middle_height =
             (f32::from(viewport_size.height) - PAGE_FIXED_HEIGHT).max(MOD_CARD_HEIGHT);
         let columns = (((content_width + GRID_GAP) / (MIN_CARD_WIDTH + GRID_GAP)).floor() as u32)
