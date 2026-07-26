@@ -89,7 +89,7 @@ struct TargetOption<'a> {
     subtitle: &'a str,
     /// Per-profile mod install preview (see `install_summary`); empty to hide.
     detail: &'a str,
-    detail_color: Rgba,
+    detail_color: Hsla,
 }
 
 impl LobbiesView {
@@ -1010,7 +1010,7 @@ fn preview_mod_installs(required: &[LobbyMod], installed: &[ProfileModEntry]) ->
 
 /// Human-readable label for a [`ModInstallPreview`], plus the color to show
 /// it in (the theme's success color when nothing needs to change).
-fn install_summary(preview: &ModInstallPreview, theme: &Theme) -> (String, Rgba) {
+fn install_summary(preview: &ModInstallPreview, theme: &Theme) -> (String, Hsla) {
     if preview.fully_satisfied() && preview.unavailable == 0 {
         return (
             "All required mods already installed".to_string(),

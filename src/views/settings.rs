@@ -15,7 +15,7 @@ use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::core_service::LinuxRunnerKind;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
-    core_service::{self, AccentColor, AppSettingsPatch, AppTint, GamePlatform},
+    core_service::{self, AppSettingsPatch, GamePlatform},
     finder_service,
 };
 use crate::settings as app_settings;
@@ -48,6 +48,14 @@ impl SettingsView {
     }
 }
 
+/// A setting item whose field is rendered under the label instead of beside
+/// it. The horizontal layout caps the label at 60% of the row and clips
+/// whatever doesn't fit in the rest, so anything wider than a switch or a
+/// short dropdown — text inputs, path pickers, button pairs — has to stack.
+fn stacked_item(title: impl Into<SharedString>, field: SettingField<SharedString>) -> SettingItem {
+    SettingItem::new(title, field).layout(Axis::Vertical)
+}
+
 fn format_bytes(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = KIB * 1024.0;
@@ -75,11 +83,12 @@ fn cache_item(arch: &'static str, label: &'static str) -> SettingItem {
         },
         Err(_) => (false, "Cache path unavailable".into()),
     };
-    SettingItem::new(
+    stacked_item(
         label,
         SettingField::render(move |_, _, _| {
             div()
                 .flex()
+                .flex_wrap()
                 .gap_2()
                 .child(
                     Button::new(SharedString::from(format!("cache-{arch}")))
@@ -170,46 +179,15 @@ fn patch_platform(value: SharedString, cx: &mut App) {
     );
 }
 
-/// Re-apply the palette from the (just-updated) settings global.
-fn reapply_theme(cx: &mut App) {
-    let settings = app_settings::get(cx);
-    crate::theme::apply(cx, settings.app_tint, settings.accent_color);
-}
-
-fn patch_app_tint(value: SharedString, cx: &mut App) {
-    let tint = match value.as_ref() {
-        "warm" => AppTint::Warm,
-        "zinc" => AppTint::Zinc,
-        "crimson" => AppTint::Crimson,
-        "violet" => AppTint::Violet,
-        _ => AppTint::Black,
-    };
+fn patch_theme_name(value: SharedString, cx: &mut App) {
     app_settings::update(
         cx,
         AppSettingsPatch {
-            app_tint: Some(tint),
+            theme_name: Some(value.to_string()),
             ..Default::default()
         },
     );
-    reapply_theme(cx);
-}
-
-fn patch_accent_color(value: SharedString, cx: &mut App) {
-    let accent = match value.as_ref() {
-        "blue" => AccentColor::Blue,
-        "red" => AccentColor::Red,
-        "purple" => AccentColor::Purple,
-        "green" => AccentColor::Green,
-        _ => AccentColor::Starlight,
-    };
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            accent_color: Some(accent),
-            ..Default::default()
-        },
-    );
-    reapply_theme(cx);
+    crate::theme::apply(cx, &value);
 }
 
 fn patch_show_stars_background(value: bool, cx: &mut App) {
@@ -550,13 +528,17 @@ fn open_data_folder() {
     let Ok(dir) = crate::backend::directories::app_data_dir() else {
         return;
     };
-    let _ = std::fs::create_dir_all(&dir);
+    open_in_file_manager(&dir);
+}
+
+fn open_in_file_manager(dir: &std::path::Path) {
+    let _ = std::fs::create_dir_all(dir);
     #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("explorer").arg(&dir).spawn();
+    let _ = std::process::Command::new("explorer").arg(dir).spawn();
     #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(&dir).spawn();
+    let _ = std::process::Command::new("open").arg(dir).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+    let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
 }
 
 // ---------- view ----------
@@ -567,7 +549,7 @@ impl Render for SettingsView {
 
         let game_groups = vec![
             SettingGroup::new().title("Installation").items(vec![
-                SettingItem::new(
+                stacked_item(
                     "Among Us path",
                     path_field(
                         "among-us",
@@ -577,7 +559,7 @@ impl Render for SettingsView {
                     ),
                 )
                 .description("Folder containing Among Us.exe."),
-                SettingItem::new(
+                stacked_item(
                     "Auto-detect",
                     SettingField::render(|_, _, _| {
                         Button::new("detect-among-us")
@@ -632,7 +614,7 @@ impl Render for SettingsView {
         ];
         if app_settings::get(cx).allow_multi_instance_launch {
             launch_items.push(
-                SettingItem::new(
+                stacked_item(
                     "Launch delay between instances (seconds)",
                     SettingField::input(
                         |cx| {
@@ -653,50 +635,56 @@ impl Render for SettingsView {
         let launch_page = SettingPage::new("Launch")
             .group(SettingGroup::new().title("Behavior").items(launch_items));
 
+        let theme_options: Vec<(SharedString, SharedString)> = crate::theme::theme_names(cx)
+            .into_iter()
+            .map(|name| (name.clone(), name))
+            .collect();
+
         let appearance_page =
             SettingPage::new("Appearance").group(SettingGroup::new().title("Theme").items(vec![
                 SettingItem::new(
-                    "Background tint",
-                    SettingField::dropdown(
-                        vec![
-                            ("black".into(), "Pure Black".into()),
-                            ("warm".into(), "Warm".into()),
-                            ("zinc".into(), "Zinc".into()),
-                            ("crimson".into(), "Crimson".into()),
-                            ("violet".into(), "Violet".into()),
-                        ],
-                        |cx| match app_settings::get(cx).app_tint {
-                            AppTint::Black => "black".into(),
-                            AppTint::Warm => "warm".into(),
-                            AppTint::Zinc => "zinc".into(),
-                            AppTint::Crimson => "crimson".into(),
-                            AppTint::Violet => "violet".into(),
-                        },
-                        patch_app_tint,
+                    "Theme",
+                    SettingField::scrollable_dropdown(
+                        theme_options,
+                        |cx| app_settings::get(cx).theme_name.clone().into(),
+                        patch_theme_name,
                     ),
                 )
-                .description("Tint family for backgrounds, cards and borders."),
-                SettingItem::new(
-                    "Accent color",
-                    SettingField::dropdown(
-                        vec![
-                            ("starlight".into(), "Starlight (Gold)".into()),
-                            ("blue".into(), "Blue".into()),
-                            ("red".into(), "Red".into()),
-                            ("purple".into(), "Purple".into()),
-                            ("green".into(), "Green".into()),
-                        ],
-                        |cx| match app_settings::get(cx).accent_color {
-                            AccentColor::Starlight => "starlight".into(),
-                            AccentColor::Blue => "blue".into(),
-                            AccentColor::Red => "red".into(),
-                            AccentColor::Purple => "purple".into(),
-                            AccentColor::Green => "green".into(),
-                        },
-                        patch_accent_color,
-                    ),
+                .description(
+                    "Drop gpui-component theme JSON files into the themes folder to add \
+                     your own.",
+                ),
+                stacked_item(
+                    "Themes folder",
+                    SettingField::render(|_, _, _| {
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(
+                                Button::new("open-themes-folder")
+                                    .icon(Icon::new(IconName::FolderOpen))
+                                    .label("Open Themes Folder")
+                                    .on_click(|_, _, _| {
+                                        open_in_file_manager(&crate::theme::themes_dir())
+                                    }),
+                            )
+                            .child(
+                                Button::new("browse-themes")
+                                    .icon(Icon::new(IconName::ExternalLink))
+                                    .label("Browse Themes")
+                                    .on_click(|_, _, cx| {
+                                        cx.open_url(
+                                            "https://github.com/longbridge/gpui-component/tree/main/themes",
+                                        )
+                                    }),
+                            )
+                    }),
                 )
-                .description("Color of primary buttons, highlights and focus rings."),
+                .description(
+                    "Bundled Starlight themes are rewritten on every launch, copy one to a \
+                     new file before editing it.",
+                ),
                 SettingItem::new(
                     "Floating stars background",
                     SettingField::switch(
@@ -724,14 +712,14 @@ impl Render for SettingsView {
                 .title("Download URLs")
                 .description("Override the default release archive locations.")
                 .items(vec![
-                    SettingItem::new(
+                    stacked_item(
                         "BepInEx x64 URL",
                         SettingField::input(
                             |cx| app_settings::get(cx).bepinex_url_x64.clone().into(),
                             patch_bepinex_url_x64,
                         ),
                     ),
-                    SettingItem::new(
+                    stacked_item(
                         "BepInEx x86 URL",
                         SettingField::input(
                             |cx| app_settings::get(cx).bepinex_url_x86.clone().into(),
@@ -778,7 +766,7 @@ impl Render for SettingsView {
                  WINEDLLOVERRIDES=\"winhttp=n,b\" %command%.",
             );
 
-            let runner_binary = SettingItem::new(
+            let runner_binary = stacked_item(
                 "Runner binary",
                 path_field(
                     "linux-runner-binary",
@@ -788,7 +776,7 @@ impl Render for SettingsView {
                 ),
             );
 
-            let wine_prefix = SettingItem::new(
+            let wine_prefix = stacked_item(
                 "Wine prefix",
                 path_field(
                     "linux-wine-prefix",
@@ -798,7 +786,7 @@ impl Render for SettingsView {
                 ),
             );
 
-            let wine_region_info = SettingItem::new(
+            let wine_region_info = stacked_item(
                 "RegionInfo.json path",
                 path_field(
                     "linux-wine-region-info",
@@ -818,7 +806,7 @@ impl Render for SettingsView {
                  (drive_c/users/<your user>/AppData/LocalLow/Innersloth/Among Us).",
             );
 
-            let proton_compat = SettingItem::new(
+            let proton_compat = stacked_item(
                 "Proton compat data path",
                 path_field(
                     "linux-proton-compat",
