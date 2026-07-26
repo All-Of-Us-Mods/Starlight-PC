@@ -48,6 +48,14 @@ impl SettingsView {
     }
 }
 
+/// A setting item whose field is rendered under the label instead of beside
+/// it. The horizontal layout caps the label at 60% of the row and clips
+/// whatever doesn't fit in the rest, so anything wider than a switch or a
+/// short dropdown — text inputs, path pickers, button pairs — has to stack.
+fn stacked_item(title: impl Into<SharedString>, field: SettingField<SharedString>) -> SettingItem {
+    SettingItem::new(title, field).layout(Axis::Vertical)
+}
+
 fn format_bytes(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = KIB * 1024.0;
@@ -75,11 +83,12 @@ fn cache_item(arch: &'static str, label: &'static str) -> SettingItem {
         },
         Err(_) => (false, "Cache path unavailable".into()),
     };
-    SettingItem::new(
+    stacked_item(
         label,
         SettingField::render(move |_, _, _| {
             div()
                 .flex()
+                .flex_wrap()
                 .gap_2()
                 .child(
                     Button::new(SharedString::from(format!("cache-{arch}")))
@@ -540,7 +549,7 @@ impl Render for SettingsView {
 
         let game_groups = vec![
             SettingGroup::new().title("Installation").items(vec![
-                SettingItem::new(
+                stacked_item(
                     "Among Us path",
                     path_field(
                         "among-us",
@@ -550,7 +559,7 @@ impl Render for SettingsView {
                     ),
                 )
                 .description("Folder containing Among Us.exe."),
-                SettingItem::new(
+                stacked_item(
                     "Auto-detect",
                     SettingField::render(|_, _, _| {
                         Button::new("detect-among-us")
@@ -605,7 +614,7 @@ impl Render for SettingsView {
         ];
         if app_settings::get(cx).allow_multi_instance_launch {
             launch_items.push(
-                SettingItem::new(
+                stacked_item(
                     "Launch delay between instances (seconds)",
                     SettingField::input(
                         |cx| {
@@ -645,11 +654,12 @@ impl Render for SettingsView {
                     "Drop gpui-component theme JSON files into the themes folder to add \
                      your own.",
                 ),
-                SettingItem::new(
+                stacked_item(
                     "Themes folder",
                     SettingField::render(|_, _, _| {
                         div()
                             .flex()
+                            .flex_wrap()
                             .gap_2()
                             .child(
                                 Button::new("open-themes-folder")
@@ -702,14 +712,14 @@ impl Render for SettingsView {
                 .title("Download URLs")
                 .description("Override the default release archive locations.")
                 .items(vec![
-                    SettingItem::new(
+                    stacked_item(
                         "BepInEx x64 URL",
                         SettingField::input(
                             |cx| app_settings::get(cx).bepinex_url_x64.clone().into(),
                             patch_bepinex_url_x64,
                         ),
                     ),
-                    SettingItem::new(
+                    stacked_item(
                         "BepInEx x86 URL",
                         SettingField::input(
                             |cx| app_settings::get(cx).bepinex_url_x86.clone().into(),
@@ -756,7 +766,7 @@ impl Render for SettingsView {
                  WINEDLLOVERRIDES=\"winhttp=n,b\" %command%.",
             );
 
-            let runner_binary = SettingItem::new(
+            let runner_binary = stacked_item(
                 "Runner binary",
                 path_field(
                     "linux-runner-binary",
@@ -766,7 +776,7 @@ impl Render for SettingsView {
                 ),
             );
 
-            let wine_prefix = SettingItem::new(
+            let wine_prefix = stacked_item(
                 "Wine prefix",
                 path_field(
                     "linux-wine-prefix",
@@ -776,7 +786,7 @@ impl Render for SettingsView {
                 ),
             );
 
-            let wine_region_info = SettingItem::new(
+            let wine_region_info = stacked_item(
                 "RegionInfo.json path",
                 path_field(
                     "linux-wine-region-info",
@@ -796,7 +806,7 @@ impl Render for SettingsView {
                  (drive_c/users/<your user>/AppData/LocalLow/Innersloth/Among Us).",
             );
 
-            let proton_compat = SettingItem::new(
+            let proton_compat = stacked_item(
                 "Proton compat data path",
                 path_field(
                     "linux-proton-compat",
