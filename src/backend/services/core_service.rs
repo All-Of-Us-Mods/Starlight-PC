@@ -65,6 +65,11 @@ fn default_true() -> bool {
     true
 }
 
+/// Sidebar width in pixels. Below `crate::workspace::SIDEBAR_COLLAPSE_WIDTH`
+/// the sidebar renders as an icon rail — see `crate::workspace`.
+fn default_sidebar_width() -> f32 {
+    175.0
+}
 /// Name of the JSON theme applied on startup when settings don't name one.
 /// Themes are resolved by name against `crate::theme`'s registry.
 fn default_theme_name() -> String {
@@ -116,6 +121,9 @@ pub struct AppSettings {
     pub theme_name: String,
     #[serde(default = "default_true")]
     pub show_stars_background: bool,
+    /// Width the user dragged the sidebar to; drives icon mode when small.
+    #[serde(default = "default_sidebar_width")]
+    pub sidebar_width: f32,
 }
 
 impl Default for AppSettings {
@@ -139,6 +147,7 @@ impl Default for AppSettings {
             linux_proton_use_steam_run: true,
             theme_name: default_theme_name(),
             show_stars_background: true,
+            sidebar_width: default_sidebar_width(),
         }
     }
 }
@@ -163,6 +172,7 @@ pub struct AppSettingsPatch {
     pub linux_proton_use_steam_run: Option<bool>,
     pub theme_name: Option<String>,
     pub show_stars_background: Option<bool>,
+    pub sidebar_width: Option<f32>,
 }
 
 fn settings_path() -> AppResult<PathBuf> {
@@ -349,6 +359,9 @@ pub fn update_settings(patch: AppSettingsPatch) -> AppResult<AppSettings> {
     }
     if let Some(value) = patch.show_stars_background {
         settings.show_stars_background = value;
+    }
+    if let Some(value) = patch.sidebar_width {
+        settings.sidebar_width = value;
     }
 
     let path = settings_path()?;

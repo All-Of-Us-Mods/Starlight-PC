@@ -22,9 +22,31 @@ use crate::views::settings::SettingsView;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::notification::Notification;
 use gpui_component::sidebar::{
-    Sidebar, SidebarCollapsible, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarToggleButton,
+    Sidebar, SidebarCollapsible, SidebarHeader, SidebarMenu, SidebarMenuItem,
 };
 use gpui_component::{Disableable, Icon, IconName, Sizable, TitleBar, WindowExt};
+
+/// Icon-rail width — matches gpui-component's own collapsed sidebar width, so
+/// the rail and the element inside it agree.
+pub const SIDEBAR_COLLAPSED_WIDTH: f32 = 48.0;
+/// Narrower than this, the header drops the "Starlight" wordmark and keeps
+/// just the star — the nav labels still fit, so only the header gives way.
+pub const SIDEBAR_WORDMARK_WIDTH: f32 = 140.0;
+/// Dragging narrower than this snaps the sidebar to the icon rail. Labels stop
+/// fitting somewhere around here, which is what makes it the right cutoff.
+pub const SIDEBAR_COLLAPSE_WIDTH: f32 = 90.0;
+/// Widest the sidebar can be dragged; past this it just eats the content area.
+pub const SIDEBAR_MAX_WIDTH: f32 = 320.0;
+
+/// Width the sidebar actually lays out at for a given dragged width: either
+/// the icon rail or the dragged width itself.
+pub fn sidebar_layout_width(dragged: f32) -> f32 {
+    if dragged < SIDEBAR_COLLAPSE_WIDTH {
+        SIDEBAR_COLLAPSED_WIDTH
+    } else {
+        dragged.min(SIDEBAR_MAX_WIDTH)
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -93,8 +115,12 @@ pub struct Workspace {
     /// is non-zero the title-bar button becomes a red "Stop".
     running_count: usize,
     stoppable_count: usize,
-    /// Icon-only sidebar (labels hidden). Session-only, not persisted.
-    sidebar_collapsed: bool,
+    /// Width the sidebar has been dragged to. Tracks the cursor live while
+    /// dragging and is written back to settings on release; below
+    /// [`SIDEBAR_COLLAPSE_WIDTH`] the sidebar renders as an icon rail.
+    sidebar_width: f32,
+    /// True between mouse-down on the resize handle and the matching mouse-up.
+    sidebar_resizing: bool,
     /// Own entity so the drift animation only re-renders the starfield,
     /// not the whole workspace every frame.
     stars: Entity<StarsBackground>,
@@ -183,7 +209,8 @@ impl Workspace {
             last_launched: None,
             running_count: initial.running_count,
             stoppable_count: initial.stoppable_running_count,
-            sidebar_collapsed: false,
+            sidebar_width: app_settings::get(cx).sidebar_width,
+            sidebar_resizing: false,
             stars: cx.new(StarsBackground::new),
         }
     }
@@ -495,12 +522,106 @@ impl Workspace {
             .on_click(cx.listener(move |this, _, _window, cx| this.switch_tab(tab, cx)))
     }
 
-    fn render_sidenav(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let collapsed = self.sidebar_collapsed;
+    /// Sidebar plus its drag handle. The sidebar itself is sized `w_full` so it
+    /// fills the rail we size here — giving it an explicit pixel width instead
+    /// would route it through gpui-component's 200ms width transition, which
+    /// can't keep up with a drag.
+    fn render_sidebar(&self, theme: &theme::Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let width = sidebar_layout_width(self.sidebar_width);
 
-        // Collapsed: the 48px rail leaves ~32px inside the paddings, so use a
-        // smaller icon and center it instead of the default space-between.
+        div()
+            .relative()
+            .h_full()
+            .flex_shrink_0()
+            .w(px(width))
+            .child(self.render_sidenav(cx))
+            .child(
+                // Straddles the sidebar's right border so the grab area covers
+                // it from both sides.
+                div()
+                    .id("sidebar-resize-handle")
+                    .absolute()
+                    .top_0()
+                    .right(px(-3.0))
+                    .h_full()
+                    .w(px(6.0))
+                    .cursor_col_resize()
+                    .when(self.sidebar_resizing, |this| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left(px(2.0))
+                                .w_px()
+                                .bg(theme.primary),
+                        )
+                    })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _window, cx| {
+                            this.sidebar_resizing = true;
+                            cx.notify();
+                        }),
+                    ),
+            )
+    }
+
+    /// Full-window layer that owns the pointer during a drag, so the sidebar
+    /// keeps following the cursor once it leaves the handle.
+    fn render_sidebar_resize_capture(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("sidebar-resize-capture")
+            .absolute()
+            .inset_0()
+            .cursor_col_resize()
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                // The sidebar is flush against the window's left edge, so the
+                // cursor's x is the width the user is asking for.
+                let width = f32::from(event.position.x).clamp(0.0, SIDEBAR_MAX_WIDTH);
+                if width != this.sidebar_width {
+                    this.sidebar_width = width;
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _window, cx| this.finish_sidebar_resize(cx)),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _window, cx| this.finish_sidebar_resize(cx)),
+            )
+    }
+
+    /// End a drag and persist the result. The dragged width is stored rather
+    /// than the collapsed flag, so icon mode survives a restart as "the user
+    /// left it narrow".
+    fn finish_sidebar_resize(&mut self, cx: &mut Context<Self>) {
+        if !self.sidebar_resizing {
+            return;
+        }
+        self.sidebar_resizing = false;
+        let width = self.sidebar_width;
+        app_settings::update(
+            cx,
+            crate::backend::services::core_service::AppSettingsPatch {
+                sidebar_width: Some(width),
+                ..Default::default()
+            },
+        );
+        cx.notify();
+    }
+
+    fn render_sidenav(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let collapsed = self.sidebar_width < SIDEBAR_COLLAPSE_WIDTH;
+        let show_wordmark = self.sidebar_width >= SIDEBAR_WORDMARK_WIDTH;
+
+        // Three stages as the sidebar narrows: full header, then the star
+        // alone with the nav labels still readable, then the icon rail.
         let header = if collapsed {
+            // The 48px rail leaves ~32px inside the paddings, so use a smaller
+            // icon and center it instead of the default space-between.
             SidebarHeader::new().p_0().justify_center().child(
                 Icon::new(AppIcon::Starlight)
                     .size(px(22.0))
@@ -513,18 +634,18 @@ impl Workspace {
                         .size(px(28.0))
                         .text_color(rgb(0xffc107)),
                 )
-                .child(
-                    div()
-                        .text_xl()
-                        .font_weight(FontWeight::BOLD)
-                        .child("Starlight"),
-                )
+                .when(show_wordmark, |this| {
+                    this.child(
+                        div()
+                            .text_xl()
+                            .font_weight(FontWeight::BOLD)
+                            .child("Starlight"),
+                    )
+                })
         };
 
         Sidebar::new("starlight-sidebar")
-            // Slimmer than the library's 255px default; keep in sync with
-            // `SIDEBAR_WIDTH` in views/explore.rs (grid layout math).
-            .w(px(175.0))
+            .w_full()
             .collapsible(SidebarCollapsible::Icon)
             .collapsed(collapsed)
             .header(header)
@@ -536,14 +657,6 @@ impl Workspace {
                     .child(self.menu_item(Tab::Servers, cx))
                     .child(self.menu_item(Tab::Lobbies, cx))
                     .child(self.menu_item(Tab::Settings, cx)),
-            )
-            .footer(
-                SidebarToggleButton::new()
-                    .collapsed(collapsed)
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.sidebar_collapsed = !this.sidebar_collapsed;
-                        cx.notify();
-                    })),
             )
     }
 
@@ -764,7 +877,7 @@ impl Render for Workspace {
                     .min_h(px(0.0))
                     .w_full()
                     .overflow_hidden()
-                    .child(self.render_sidenav(cx))
+                    .child(self.render_sidebar(&theme, cx))
                     .child(
                         div()
                             .flex_1()
@@ -780,6 +893,10 @@ impl Render for Workspace {
             .children(sheet_layer)
             .children(dialog_layer)
             .children(notification_layer)
+            // Last child so it sits above the page while a drag is in flight.
+            .when(self.sidebar_resizing, |el| {
+                el.child(self.render_sidebar_resize_capture(cx))
+            })
     }
 }
 
