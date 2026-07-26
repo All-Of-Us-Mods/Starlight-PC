@@ -40,9 +40,7 @@ fn query_game_processes() -> AppResult<Vec<(u32, String)>> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::process(format!(
-            "Process query failed: {stderr}"
-        )));
+        return Err(AppError::process(format!("Process query failed: {stderr}")));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout)
@@ -61,9 +59,7 @@ fn kill_process(pid: u32) -> AppResult<()> {
         .status()
         .map_err(|e| AppError::process(format!("Failed to run taskkill: {e}")))?;
     if !status.success() {
-        return Err(AppError::process(format!(
-            "taskkill failed for pid {pid}"
-        )));
+        return Err(AppError::process(format!("taskkill failed for pid {pid}")));
     }
     Ok(())
 }

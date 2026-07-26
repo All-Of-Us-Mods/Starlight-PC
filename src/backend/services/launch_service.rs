@@ -4,14 +4,11 @@ use crate::backend::services::profile_service::ProfileEntry;
 #[cfg(windows)]
 use crate::backend::services::xbox_service;
 use crate::backend::state::game_runtime;
-#[cfg(windows)]
-use log::debug;
-use log::info;
+use log::{debug, info};
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-#[cfg(target_os = "linux")]
-use std::{fs, path::Path};
 
 /// Serializes modded launches. Held across prep + spawn and then for the
 /// per-launch settle delay afterwards, so a second launch fired in quick
@@ -266,8 +263,21 @@ fn launch_process(mut cmd: Command, profile_id: Option<String>) -> AppResult<()>
 }
 
 /// Among Us' Steam app id.
-#[cfg(target_os = "linux")]
 const STEAM_APP_ID: &str = "945360";
+
+/// Drop a `steam_appid.txt` next to the game so Steamworks can identify the app
+/// when the game isn't started by the Steam client itself (modded launches run
+/// the exe directly). Steam-only; other platforms ignore the file. Best-effort:
+/// a read-only game dir shouldn't block the launch.
+fn ensure_steam_appid_file(game_dir: &Path) {
+    let path = game_dir.join("steam_appid.txt");
+    if fs::read_to_string(&path).is_ok_and(|s| s.trim() == STEAM_APP_ID) {
+        return;
+    }
+    if let Err(e) = fs::write(&path, STEAM_APP_ID) {
+        debug!("failed to write {}: {e}", path.display());
+    }
+}
 
 /// Write a Doorstop `doorstop_config.ini` into the game dir. Used by the
 /// Steam-launch path, where we can't pass `--doorstop-*` args on the command
@@ -498,6 +508,10 @@ pub fn launch_vanilla_from_settings() -> AppResult<()> {
     }
     .to_string();
 
+    if matches!(settings.game_platform, core_service::GamePlatform::Steam) {
+        ensure_steam_appid_file(game_exe.parent().expect("game_exe has a parent"));
+    }
+
     #[cfg(target_os = "linux")]
     let runner = build_linux_runner_from_settings(&settings)?;
 
@@ -610,6 +624,10 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
         core_service::GamePlatform::Xbox => "xbox",
     }
     .to_string();
+
+    if matches!(settings.game_platform, core_service::GamePlatform::Steam) {
+        ensure_steam_appid_file(game_exe.parent().expect("game_exe has a parent"));
+    }
 
     #[cfg(target_os = "linux")]
     let runner = build_linux_runner_from_settings(&settings)?;
