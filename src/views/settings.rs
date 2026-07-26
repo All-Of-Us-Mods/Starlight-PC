@@ -643,7 +643,7 @@ impl Render for SettingsView {
                 )
                 .description(
                     "Drop gpui-component theme JSON files into the themes folder to add \
-                     your own — they appear here without a restart.",
+                     your own.",
                 ),
                 SettingItem::new(
                     "Themes folder",
@@ -655,7 +655,7 @@ impl Render for SettingsView {
                     }),
                 )
                 .description(
-                    "Bundled Starlight themes are rewritten on every launch — copy one to a \
+                    "Bundled Starlight themes are rewritten on every launch, copy one to a \
                      new file before editing it.",
                 ),
                 SettingItem::new(
