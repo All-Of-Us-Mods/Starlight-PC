@@ -649,13 +649,9 @@ impl Render for ModDetailView {
                                 .p_3()
                                 .child(section_label("Changelog", &theme))
                                 .child(
-                                    div()
-                                        .text_sm()
-                                        .line_height(px(22.0))
-                                        .child(TextView::markdown(
-                                            "mod-changelog",
-                                            changelog.clone(),
-                                        )),
+                                    div().text_sm().line_height(px(22.0)).child(
+                                        TextView::markdown("mod-changelog", changelog.clone()),
+                                    ),
                                 )
                         })
                     }))
