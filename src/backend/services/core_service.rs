@@ -61,42 +61,14 @@ impl BepInExArch {
     }
 }
 
-/// Background tint family for the app UI. The palettes live in `crate::theme`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AppTint {
-    /// Pure black backgrounds.
-    #[default]
-    Black,
-    /// Warm brown-tinted near-black, like the upstream app.
-    Warm,
-    /// Cool zinc near-black (the pre-theming look).
-    Zinc,
-    /// Red-tinted darks.
-    Crimson,
-    /// Purple-tinted darks.
-    Violet,
-}
-
-/// Accent color for the app UI, independent of the background tint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AccentColor {
-    /// Starlight gold.
-    #[default]
-    Starlight,
-    /// Blue (the pre-theming accent).
-    Blue,
-    /// Crewmate red.
-    Red,
-    /// Impostor purple.
-    Purple,
-    /// Green.
-    Green,
-}
-
 fn default_true() -> bool {
     true
+}
+
+/// Name of the JSON theme applied on startup when settings don't name one.
+/// Themes are resolved by name against `crate::theme`'s registry.
+fn default_theme_name() -> String {
+    "Starlight".to_string()
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -139,10 +111,9 @@ pub struct AppSettings {
     pub linux_proton_steam_client_path: String,
     #[serde(default)]
     pub linux_proton_use_steam_run: bool,
-    #[serde(default)]
-    pub app_tint: AppTint,
-    #[serde(default)]
-    pub accent_color: AccentColor,
+    /// Name of the active JSON theme (see `crate::theme`).
+    #[serde(default = "default_theme_name")]
+    pub theme_name: String,
     #[serde(default = "default_true")]
     pub show_stars_background: bool,
 }
@@ -166,8 +137,7 @@ impl Default for AppSettings {
             linux_proton_compat_data_path: String::new(),
             linux_proton_steam_client_path: String::new(),
             linux_proton_use_steam_run: true,
-            app_tint: AppTint::default(),
-            accent_color: AccentColor::default(),
+            theme_name: default_theme_name(),
             show_stars_background: true,
         }
     }
@@ -191,8 +161,7 @@ pub struct AppSettingsPatch {
     pub linux_proton_compat_data_path: Option<String>,
     pub linux_proton_steam_client_path: Option<String>,
     pub linux_proton_use_steam_run: Option<bool>,
-    pub app_tint: Option<AppTint>,
-    pub accent_color: Option<AccentColor>,
+    pub theme_name: Option<String>,
     pub show_stars_background: Option<bool>,
 }
 
@@ -375,11 +344,8 @@ pub fn update_settings(patch: AppSettingsPatch) -> AppResult<AppSettings> {
     if let Some(value) = patch.linux_proton_use_steam_run {
         settings.linux_proton_use_steam_run = value;
     }
-    if let Some(value) = patch.app_tint {
-        settings.app_tint = value;
-    }
-    if let Some(value) = patch.accent_color {
-        settings.accent_color = value;
+    if let Some(value) = patch.theme_name {
+        settings.theme_name = value;
     }
     if let Some(value) = patch.show_stars_background {
         settings.show_stars_background = value;

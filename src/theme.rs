@@ -1,182 +1,166 @@
-use gpui::*;
+//! Theming on top of gpui-component's JSON theme system.
+//!
+//! Themes are plain `ThemeSet` JSON files (the same format gpui-component
+//! ships in its `themes/` folder) living in `{app_data}/themes`. The bundled
+//! Starlight palettes are written there on startup, the directory is watched
+//! so edits apply live, and the active theme is remembered by name in
+//! settings.
+//!
+//! [`Theme`] is a small projection of the active gpui-component palette,
+//! kept because the app's own views read a handful of named colors rather
+//! than the full component color set.
 
-use crate::backend::services::core_service::{AccentColor, AppTint};
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+use gpui::*;
+use gpui_component::{Theme as ComponentTheme, ThemeColor, ThemeConfig, ThemeRegistry};
+use log::warn;
+
+/// Starlight's own themes, written into the themes directory on startup.
+const BUNDLED_THEMES: &str = include_str!("../assets/themes/starlight.json");
+const BUNDLED_FILE_NAME: &str = "starlight.json";
+
+/// Theme applied when settings name a theme that isn't installed.
+pub const DEFAULT_THEME_NAME: &str = "Starlight";
 
 #[derive(Clone)]
 pub struct Theme {
-    pub background: Rgba,
-    pub sidebar_background: Rgba,
-    pub primary: Rgba,
-    pub text: Rgba,
-    pub text_muted: Rgba,
-    pub border: Rgba,
-    pub hover: Rgba,
+    pub background: Hsla,
+    pub sidebar_background: Hsla,
+    pub primary: Hsla,
+    pub text: Hsla,
+    pub text_muted: Hsla,
+    pub border: Hsla,
+    pub hover: Hsla,
     /// Status colors for inline error / success / warning text.
-    pub danger: Rgba,
-    pub success: Rgba,
-    pub warning: Rgba,
+    pub danger: Hsla,
+    pub success: Hsla,
+    pub warning: Hsla,
 }
 
 impl Global for Theme {}
 
 impl Theme {
-    /// Compose a palette from a background tint family and an accent color —
-    /// the two are independent settings.
-    pub fn from_parts(tint: AppTint, accent: AccentColor) -> Self {
-        // Neutrals shared by every tint.
-        let base = Self {
-            background: rgb(0x000000),
-            sidebar_background: rgb(0x111111),
-            primary: accent_rgba(accent),
-            text: rgb(0xfafafa),
-            text_muted: rgb(0xa1a1aa),
-            border: rgb(0x232323),
-            hover: rgb(0x232323),
-            danger: rgb(0xef4444),
-            success: rgb(0x22c55e),
-            warning: rgb(0xf59e0b),
-        };
-        match tint {
-            AppTint::Black => base,
-            AppTint::Warm => Self {
-                background: rgb(0x0a0908),
-                sidebar_background: rgb(0x161412),
-                border: rgb(0x2a2725),
-                hover: rgb(0x2a2725),
-                text_muted: rgb(0xa8a29e),
-                ..base
-            },
-            AppTint::Zinc => Self {
-                background: rgb(0x09090b),
-                sidebar_background: rgb(0x18181b),
-                border: rgb(0x27272a),
-                hover: rgb(0x27272a),
-                ..base
-            },
-            AppTint::Crimson => Self {
-                background: rgb(0x0c0809),
-                sidebar_background: rgb(0x1c1315),
-                border: rgb(0x2f2225),
-                hover: rgb(0x2f2225),
-                text_muted: rgb(0xa89ea1),
-                ..base
-            },
-            AppTint::Violet => Self {
-                background: rgb(0x0a0810),
-                sidebar_background: rgb(0x171226),
-                border: rgb(0x2a2338),
-                hover: rgb(0x2a2338),
-                text_muted: rgb(0xa39fae),
-                ..base
-            },
+    /// Project the active gpui-component palette onto the names the app's
+    /// views use. Cards and panels ride on `secondary`, hover surfaces on
+    /// `accent` — the two roles those colors already play in the components.
+    fn from_colors(colors: &ThemeColor) -> Self {
+        Self {
+            background: colors.background,
+            sidebar_background: colors.secondary,
+            primary: colors.primary,
+            text: colors.foreground,
+            text_muted: colors.muted_foreground,
+            border: colors.border,
+            hover: colors.accent,
+            danger: colors.danger,
+            success: colors.success,
+            warning: colors.warning,
         }
     }
 }
 
-fn accent_rgba(accent: AccentColor) -> Rgba {
-    match accent {
-        AccentColor::Starlight => rgb(0xffc107),
-        AccentColor::Blue => rgb(0x3b82f6),
-        AccentColor::Red => rgb(0xf43f5e),
-        AccentColor::Purple => rgb(0xa855f7),
-        AccentColor::Green => rgb(0x22c55e),
+/// Where user theme files live. Users can drop any gpui-component theme JSON
+/// here; it shows up in the theme picker without a restart.
+pub fn themes_dir() -> PathBuf {
+    crate::backend::directories::app_data_dir()
+        .unwrap_or_default()
+        .join("themes")
+}
+
+/// Write the bundled themes into `dir`, overwriting the previous copy so app
+/// updates ship palette fixes. Skipped when the content already matches, so
+/// startup doesn't wake the directory watcher for nothing.
+fn install_bundled_themes(dir: &Path) {
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        warn!("failed to create themes dir {}: {e}", dir.display());
+        return;
+    }
+    let path = dir.join(BUNDLED_FILE_NAME);
+    if std::fs::read_to_string(&path).is_ok_and(|existing| existing == BUNDLED_THEMES) {
+        return;
+    }
+    if let Err(e) = std::fs::write(&path, BUNDLED_THEMES) {
+        warn!("failed to write {}: {e}", path.display());
     }
 }
 
 pub fn init(cx: &mut App) {
-    let settings = crate::settings::get(cx);
-    apply(cx, settings.app_tint, settings.accent_color);
+    let dir = themes_dir();
+    install_bundled_themes(&dir);
+
+    // Register the bundled themes synchronously so the first frame is already
+    // themed — `watch_dir` loads the directory on a background task and would
+    // otherwise leave a flash of gpui-component's default palette.
+    if let Err(e) = ThemeRegistry::global_mut(cx).load_themes_from_str(BUNDLED_THEMES) {
+        warn!("failed to load bundled themes: {e}");
+    }
+    apply_saved(cx);
+
+    // Every registry change (initial directory load, or a file edited while
+    // the app runs) re-applies the selected theme.
+    cx.observe_global::<ThemeRegistry>(apply_saved).detach();
+
+    if let Err(e) = ThemeRegistry::watch_dir(dir, cx, |_| {}) {
+        warn!("failed to watch themes dir: {e}");
+    }
 }
 
-/// Install the preset's palette as the [`Theme`] global and push the whole
-/// palette into gpui-component's theme too, so its widgets (buttons, inputs,
-/// dropdowns, sidebar, title bar, …) follow the preset app-wide. The sidebar
-/// and title bar are made transparent so they share the main window
-/// background — the starfield shows through them. Refreshes all windows so a
-/// mid-session switch repaints immediately.
-pub fn apply(cx: &mut App, tint: AppTint, accent: AccentColor) {
-    let palette = Theme::from_parts(tint, accent);
-    let primary: Hsla = palette.primary.into();
-    let background: Hsla = palette.background.into();
-    let card: Hsla = palette.sidebar_background.into();
-    let border: Hsla = palette.border.into();
-    let hover: Hsla = palette.hover.into();
-    let text: Hsla = palette.text.into();
-    let text_muted: Hsla = palette.text_muted.into();
+/// Names of every installed theme, in the registry's display order.
+pub fn theme_names(cx: &App) -> Vec<SharedString> {
+    ThemeRegistry::global(cx)
+        .sorted_themes()
+        .iter()
+        .map(|config| config.name.clone())
+        .collect()
+}
+
+/// Re-apply the theme named in settings. Used on startup, after the theme
+/// picker changes, and whenever the themes directory is reloaded.
+pub fn apply_saved(cx: &mut App) {
+    let name = crate::settings::get(cx).theme_name.clone();
+    apply(cx, &name);
+}
+
+/// Install `name` as the active theme, falling back to the Starlight default
+/// (and then to whatever the registry considers its default dark theme) when
+/// it isn't installed.
+pub fn apply(cx: &mut App, name: &str) {
+    let registry = ThemeRegistry::global(cx);
+    let config = registry
+        .themes()
+        .get(&SharedString::from(name.trim().to_string()))
+        .or_else(|| {
+            registry
+                .themes()
+                .get(&SharedString::new_static(DEFAULT_THEME_NAME))
+        })
+        .cloned()
+        .unwrap_or_else(|| registry.default_dark_theme().clone());
+
+    ComponentTheme::global_mut(cx).apply_config(&config);
+    finish_apply(cx, &config);
+}
+
+/// Post-process a freshly applied theme: keep the window chrome transparent
+/// unless the theme asked for its own (the workspace paints the background
+/// and the starfield behind the sidebar and title bar), then republish the
+/// app palette and repaint.
+fn finish_apply(cx: &mut App, config: &Rc<ThemeConfig>) {
     let transparent = gpui::transparent_black();
+    let theme = ComponentTheme::global_mut(cx);
 
-    // Light accents (gold) need dark button text; darker ones read best white.
-    let luminance =
-        0.299 * palette.primary.r + 0.587 * palette.primary.g + 0.114 * palette.primary.b;
-    let primary_foreground: Hsla = if luminance > 0.6 {
-        rgb(0x0a0908).into()
-    } else {
-        rgb(0xfafafa).into()
-    };
+    if config.colors.sidebar.is_none() {
+        theme.colors.sidebar = transparent;
+        theme.tokens.sidebar = transparent.into();
+    }
+    if config.colors.title_bar.is_none() {
+        theme.colors.title_bar = transparent;
+        theme.tokens.title_bar = transparent.into();
+    }
 
-    let component_theme = gpui_component::Theme::global_mut(cx);
-    let colors = &mut component_theme.colors;
-
-    colors.background = background;
-    colors.foreground = text;
-    colors.border = border;
-    colors.input = border;
-    colors.ring = primary;
-
-    let primary_hover = Hsla {
-        l: (primary.l * 0.92).clamp(0.0, 1.0),
-        ..primary
-    };
-    let primary_active = Hsla {
-        l: (primary.l * 0.84).clamp(0.0, 1.0),
-        ..primary
-    };
-
-    colors.primary = primary;
-    colors.primary_hover = primary_hover;
-    colors.primary_active = primary_active;
-    colors.primary_foreground = primary_foreground;
-
-    // Buttons have their own color family (they don't read `primary`/`secondary`).
-    colors.button_primary = primary;
-    colors.button_primary_hover = primary_hover;
-    colors.button_primary_active = primary_active;
-    colors.button_primary_foreground = primary_foreground;
-    colors.button = card;
-    colors.button_hover = hover;
-    colors.button_active = hover;
-    colors.button_foreground = text;
-
-    colors.secondary = card;
-    colors.secondary_hover = hover;
-    colors.secondary_active = hover;
-    colors.secondary_foreground = text;
-    colors.accent = hover;
-    colors.accent_foreground = text;
-    colors.muted = hover;
-    colors.muted_foreground = text_muted;
-    colors.popover = card;
-    colors.popover_foreground = text;
-    colors.list = transparent;
-    colors.list_hover = hover;
-    colors.list_active = hover;
-    colors.skeleton = hover;
-
-    // Transparent chrome: the workspace paints the background (and the
-    // starfield) behind these, so they blend into the main window.
-    colors.sidebar = transparent;
-    colors.sidebar_foreground = text;
-    colors.sidebar_border = border;
-    colors.sidebar_accent = hover;
-    colors.sidebar_accent_foreground = text;
-    colors.sidebar_primary = primary;
-    colors.title_bar = transparent;
-    colors.title_bar_border = border;
-
-    // Newer components (Sidebar, TitleBar, …) render from `tokens`, which are
-    // derived from `colors` — regenerate them or the changes above won't show.
-    component_theme.tokens = gpui_component::ThemeTokens::from(&component_theme.colors);
-
+    let palette = Theme::from_colors(&theme.colors);
     cx.set_global(palette);
     cx.refresh_windows();
 }
@@ -190,5 +174,38 @@ pub trait ThemeExt {
 impl<'a, V> ThemeExt for Context<'a, V> {
     fn theme(&self) -> &Theme {
         self.global::<Theme>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Deliberately not `use super::*`: that pulls in `gpui::*`, whose `test`
+    // attribute macro would shadow the built-in `#[test]`.
+    use super::{BUNDLED_THEMES, DEFAULT_THEME_NAME};
+
+    /// Deserializing as `serde_json::Value` rather than `ThemeSet` on purpose:
+    /// instantiating the generated `ThemeSet` deserializer here overflows
+    /// rustc's stack. The registry parses the real thing at runtime; this
+    /// guards the file's shape.
+    #[test]
+    fn bundled_themes_parse_and_include_the_default() {
+        let set: serde_json::Value =
+            serde_json::from_str(BUNDLED_THEMES).expect("bundled themes are valid JSON");
+        let themes = set["themes"].as_array().expect("themes array");
+
+        assert!(
+            themes.iter().any(|t| t["name"] == DEFAULT_THEME_NAME),
+            "bundled set must contain the fallback theme"
+        );
+        for theme in themes {
+            assert_eq!(theme["mode"], "dark", "{}", theme["name"]);
+            for key in ["background", "foreground", "primary.background"] {
+                assert!(
+                    theme["colors"][key].is_string(),
+                    "{} is missing {key}",
+                    theme["name"]
+                );
+            }
+        }
     }
 }
