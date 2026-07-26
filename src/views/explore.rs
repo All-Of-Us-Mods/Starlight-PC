@@ -249,9 +249,9 @@ impl Render for ExploreView {
         // The sidebar is resizable, so the grid has to ask how wide it is now.
         let sidebar_width =
             crate::workspace::sidebar_layout_width(crate::settings::get(cx).sidebar_width);
-        let content_width = (f32::from(viewport_size.width) - sidebar_width
-            - PAGE_HORIZONTAL_PADDING)
-            .max(MIN_CARD_WIDTH);
+        let content_width =
+            (f32::from(viewport_size.width) - sidebar_width - PAGE_HORIZONTAL_PADDING)
+                .max(MIN_CARD_WIDTH);
         let middle_height =
             (f32::from(viewport_size.height) - PAGE_FIXED_HEIGHT).max(MOD_CARD_HEIGHT);
         let columns = (((content_width + GRID_GAP) / (MIN_CARD_WIDTH + GRID_GAP)).floor() as u32)
