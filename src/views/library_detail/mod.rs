@@ -1197,10 +1197,7 @@ impl LibraryDetailView {
                     .rounded_lg()
                     .bg(theme.sidebar_background)
                     .border_1()
-                    .border_color(Rgba {
-                        a: 0.45,
-                        ..theme.danger
-                    })
+                    .border_color(theme.danger.alpha(0.45))
                     .px_4()
                     .py_3()
                     .flex()
