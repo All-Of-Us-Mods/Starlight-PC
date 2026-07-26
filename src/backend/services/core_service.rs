@@ -69,6 +69,7 @@ fn default_true() -> bool {
 /// the sidebar renders as an icon rail — see `crate::workspace`.
 fn default_sidebar_width() -> f32 {
     175.0
+}
 /// Name of the JSON theme applied on startup when settings don't name one.
 /// Themes are resolved by name against `crate::theme`'s registry.
 fn default_theme_name() -> String {
