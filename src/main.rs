@@ -165,6 +165,16 @@ fn main() {
                 // settings sidebars crowd the content off-screen.
                 window_min_size: Some(size(px(820.0), px(600.0))),
                 app_id: Some("starlight".into()),
+                // GPUI defaults to server-side decorations. On Windows and
+                // macOS that's what we want — `title_bar_options` makes the
+                // native titlebar transparent and we draw into it. On Linux
+                // there's no equivalent, so a compositor that honours the
+                // request (KWin, wlroots) draws a second titlebar above ours;
+                // ask for CSD instead. Both backends degrade on their own if
+                // CSD isn't available (X11 without a compositor falls back to
+                // server-side).
+                #[cfg(target_os = "linux")]
+                window_decorations: Some(WindowDecorations::Client),
                 ..Default::default()
             };
 
