@@ -2,6 +2,7 @@ use gpui::*;
 use log::warn;
 
 use crate::backend::api::{self, Server};
+use crate::backend::error::AppResult;
 use crate::backend::services::region_service::{self, RegionInfo};
 use crate::theme::ThemeExt;
 use crate::views::{page_root, section_label};
@@ -14,8 +15,12 @@ use gpui_component::{Icon, IconName, Sizable};
 pub struct ServersView {
     state: LoadState,
     /// Current contents of Among Us' `regionInfo.json`, or `None` if it could
-    /// not be read (e.g. non-Windows).
+    /// not be read.
     regions: Option<RegionInfo>,
+    /// Why the region file couldn't be read, when `regions` is `None`. Kept
+    /// because the reason is usually actionable — on Linux, an unset Wine
+    /// prefix or Proton compat data path.
+    regions_error: Option<String>,
     custom_dialog: Option<CustomServerInput>,
     notice: Option<String>,
     error: Option<String>,
@@ -42,6 +47,7 @@ impl ServersView {
         Self {
             state: LoadState::Loading,
             regions: None,
+            regions_error: None,
             custom_dialog: None,
             notice: None,
             error: None,
@@ -53,19 +59,14 @@ impl ServersView {
         cx.spawn(async move |this, cx| {
             let (servers, regions) = cx
                 .background_executor()
-                .spawn(async {
-                    (
-                        api::fetch_servers(),
-                        region_service::read_region_info().ok(),
-                    )
-                })
+                .spawn(async { (api::fetch_servers(), region_service::read_region_info()) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.state = match servers {
                     Ok(servers) => LoadState::Loaded(servers),
                     Err(e) => LoadState::Failed(e.to_string()),
                 };
-                this.regions = regions;
+                this.set_regions(regions);
                 cx.notify();
             });
         })
@@ -76,14 +77,27 @@ impl ServersView {
         cx.spawn(async move |this, cx| {
             let regions = cx
                 .background_executor()
-                .spawn(async { region_service::read_region_info().ok() })
+                .spawn(async { region_service::read_region_info() })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.regions = regions;
+                this.set_regions(regions);
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    fn set_regions(&mut self, regions: AppResult<RegionInfo>) {
+        match regions {
+            Ok(info) => {
+                self.regions = Some(info);
+                self.regions_error = None;
+            }
+            Err(e) => {
+                self.regions = None;
+                self.regions_error = Some(e.to_string());
+            }
+        }
     }
 
     fn add_server(&mut self, server: Server, cx: &mut Context<Self>) {
@@ -285,7 +299,11 @@ impl ServersView {
             return div()
                 .text_sm()
                 .text_color(theme.text_muted)
-                .child("Could not read regionInfo.json (Windows only).")
+                .child(
+                    self.regions_error
+                        .clone()
+                        .unwrap_or_else(|| "Could not read regionInfo.json.".to_string()),
+                )
                 .into_any_element();
         };
 

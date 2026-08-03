@@ -52,8 +52,9 @@ pub struct LobbiesView {
 enum LoadState {
     Loading,
     Loaded(Vec<LobbyRow>),
-    /// `regionInfo.json` could not be read (e.g. not on Windows).
-    Unsupported,
+    /// `regionInfo.json` could not be read; holds the reason, which is usually
+    /// actionable (on Linux, an unset Wine prefix or Proton compat data path).
+    RegionsUnavailable(String),
 }
 
 #[derive(Clone)]
@@ -133,9 +134,9 @@ impl LobbiesView {
                     .await;
 
                 match servers {
-                    Err(_) => {
+                    Err(e) => {
                         let _ = this.update(cx, |this, cx| {
-                            this.state = LoadState::Unsupported;
+                            this.state = LoadState::RegionsUnavailable(e.to_string());
                             this.refreshing = false;
                             cx.notify();
                         });
@@ -488,10 +489,14 @@ impl LobbiesView {
                         .into_any_element()
                 }))
                 .into_any_element(),
-            LoadState::Unsupported => div()
+            LoadState::RegionsUnavailable(reason) => div()
+                .flex()
+                .flex_col()
+                .gap_1()
                 .text_sm()
                 .text_color(theme.text_muted)
-                .child("Could not read your Among Us regions (Windows only). Add a region on the Servers tab to browse its lobbies.")
+                .child(format!("Could not read your Among Us regions: {reason}"))
+                .child("Add a region on the Servers tab to browse its lobbies.")
                 .into_any_element(),
             LoadState::Loaded(rows) if rows.is_empty() => div()
                 .text_sm()
@@ -502,7 +507,11 @@ impl LobbiesView {
                 .flex()
                 .flex_col()
                 .gap_2()
-                .children(rows.iter().enumerate().map(|(ix, row)| self.render_row(ix, row, theme, cx)))
+                .children(
+                    rows.iter()
+                        .enumerate()
+                        .map(|(ix, row)| self.render_row(ix, row, theme, cx)),
+                )
                 .into_any_element(),
         }
     }
