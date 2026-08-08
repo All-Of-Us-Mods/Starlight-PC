@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 const DEFAULT_BEPINEX_URL_X86: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x86-6.0.0-be.752%2Bdd0655f.zip";
 const DEFAULT_BEPINEX_URL_X64: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.752%2Bdd0655f.zip";
 const SETTINGS_FILE_NAME: &str = "settings.json";
+const BOOT_CONFIG_FILE_NAME: &str = "boot.config";
+const SINGLE_INSTANCE_KEY: &str = "single_instance=";
 
 /// Default seconds to wait between queued multi-instance launches so the first
 /// instance can warm the shared BepInEx cache/interop before the next starts.
@@ -305,6 +307,8 @@ pub fn get_settings() -> AppResult<AppSettings> {
 
 pub fn update_settings(patch: AppSettingsPatch) -> AppResult<AppSettings> {
     let mut settings = get_settings()?;
+    let enabling_multi_instance = patch.allow_multi_instance_launch == Some(true);
+    let changing_among_us_path = patch.among_us_path.is_some();
 
     if let Some(value) = patch.bepinex_url_x86 {
         settings.bepinex_url_x86 = value;
@@ -364,10 +368,57 @@ pub fn update_settings(patch: AppSettingsPatch) -> AppResult<AppSettings> {
         settings.sidebar_width = value;
     }
 
+    // Unity refuses to start a second process when this boot.config entry is
+    // present. Remove it when multi-instance launching is enabled so the
+    // setting works for the user's actual game installation rather than only
+    // changing Starlight's launch behavior.
+    if settings.allow_multi_instance_launch && (enabling_multi_instance || changing_among_us_path) {
+        remove_single_instance_from_boot_config(&settings.among_us_path)?;
+    }
+
     let path = settings_path()?;
     write_settings_to_file(&path, &settings)?;
 
     Ok(settings)
+}
+
+/// Remove Unity's single-process setting from the configured Among Us
+/// installation. A missing game/config file is harmless because users can
+/// enable the setting before configuring or installing the game.
+pub fn remove_single_instance_from_boot_config(among_us_path: &str) -> AppResult<bool> {
+    let boot_config = Path::new(among_us_path)
+        .join("Among Us_Data")
+        .join(BOOT_CONFIG_FILE_NAME);
+    if !boot_config.exists() {
+        return Ok(false);
+    }
+
+    let contents = fs::read_to_string(&boot_config)?;
+    let Some(updated) = remove_single_instance_line(&contents) else {
+        return Ok(false);
+    };
+
+    fs::write(boot_config, updated)?;
+    Ok(true)
+}
+
+fn remove_single_instance_line(contents: &str) -> Option<String> {
+    let mut removed = false;
+    let mut updated = String::with_capacity(contents.len());
+
+    // split_inclusive keeps the original LF/CRLF endings and whether the file
+    // ended with a newline, avoiding unrelated boot.config changes.
+    for segment in contents.split_inclusive('\n') {
+        let line = segment.strip_suffix('\n').unwrap_or(segment);
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.trim_start().starts_with(SINGLE_INSTANCE_KEY) {
+            removed = true;
+        } else {
+            updated.push_str(segment);
+        }
+    }
+
+    removed.then_some(updated)
 }
 
 pub fn get_bepinex_cache_path(architecture: &str) -> AppResult<String> {
@@ -396,5 +447,19 @@ mod tests {
         assert!(!path.with_extension("json.tmp").exists());
 
         fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn remove_single_instance_line_preserves_other_boot_config_content() {
+        let contents = "build_guid=abc\r\nsingle_instance=1\r\nfoo=bar\r\n";
+
+        assert_eq!(
+            remove_single_instance_line(contents),
+            Some("build_guid=abc\r\nfoo=bar\r\n".to_string())
+        );
+        assert_eq!(
+            remove_single_instance_line("build_guid=abc\nfoo=bar\n"),
+            None
+        );
     }
 }
