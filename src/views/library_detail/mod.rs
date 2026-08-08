@@ -735,7 +735,7 @@ impl LibraryDetailView {
                 .gap_2()
                 .items_center()
                 .justify_end()
-                .flex_wrap();
+                .flex_nowrap();
             if running == 0 {
                 row = row.child(
                     Button::new("launch")
