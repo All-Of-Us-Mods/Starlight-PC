@@ -13,7 +13,12 @@ updates:
           - minor
           - patch
 
-  # Workflow actions (checkout, rust-cache, install-nix, gh-release, …).
+  # Workflow actions (checkout, rust-cache, install-nix, gh-release, …). These
+  # are pinned to full commit SHAs, not tags: the release jobs hold
+  # `contents: write`, so a retargeted tag would be able to publish an
+  # executable under a release users' updaters already trust. Dependabot moves
+  # the SHA and the `# version` comment next to it together, so the pins don't
+  # rot — keep new actions pinned the same way.
   - package-ecosystem: github-actions
     directory: /
     schedule:
