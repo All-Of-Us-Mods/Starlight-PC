@@ -1,0 +1,320 @@
+# Starlight UI translations (rust-i18n v1 format: locale comes from the
+# filename suffix, e.g. app.en.yml -> "en"). English is the source of truth;
+# other locales only need the keys they translate (missing keys fall back to
+# English). Keys are namespaced by page: nav, home, explore, library, profile,
+# mod, news, lobbies, servers, settings, plus common.* shared bits.
+nav:
+  home: Home
+  explore: Explorar
+  library: Biblioteca
+  servers: Servidores
+  lobbies: Salas
+  settings: Configurações
+common:
+  cancel: Cancelar
+  save: Salvar
+  delete: Deletar
+  close: Fechar
+  stop: Parar
+  clear: Limpar
+  retry: Tentar Novamente
+  unknown: Desconhecido
+  never: Nunca
+  failed: "Falha: %{error}"
+time:
+  hours_minutes: "%{hours}h %{minutes}m"
+  minutes: "%{minutes} min"
+  less_than_minute: "< 1 min"
+home:
+  news: Notícias
+  trending: Mods em Alta
+  by_author: "por %{author}"
+news:
+  unknown_date: Data desconhecida
+  posted_by: "Postado por %{author}"
+  content: Conteúdo
+explore:
+  search: Procurar mods...
+  load_failed: "Falha ao carregar os mods: %{error}"
+  no_mods: Nenhum mod encontrado.
+  type_label: Tipo
+  sort:
+    downloads: Downloads
+    updated: Atualizado recentemente
+    newest: Mais recentes
+  type:
+    all: Todos
+    all_clients: Todos os Clientes
+    client_only: Apenas Cliente
+    host_only: Apenas Anfitrião
+library:
+  profile_name: Nome do Perfil
+  new_profile: Novo Perfil
+  create: Criar
+  create_profile: Criar Perfil
+  import: Importar
+  import_profile: Importar Perfil
+  import_failed: "A importação falhou: %{error}"
+  importing: "Importando… %{percent}%"
+  add_mod_failed: "Falha ao adicionar mod: %{error}"
+  unsupported_drop: Solte um arquivo .dll do mod ou um arquivo .zip do perfil exportado
+  drop_dll_on_profile: Arraste e solte um arquivo .dll para um perfil para instalá-lo.
+  vanilla_failed: "Inicialização vanilla falhou: %{error}"
+  launch_vanilla: Iniciar Vanilla
+  stop_all: "Parar tudo (%{count})"
+  load_failed: "Falha ao carregar os perfis: %{error}"
+  empty: Ainda não há perfis. Clique em "Criar Perfil" para criar um ou solte aqui um arquivo .zip de perfil exportado.
+  setup_banner: O caminho do Among Us não está configurado — os perfis ainda não podem ser iniciados.
+  open_settings: Abrir Configurações
+  card_stats: "%{mods} mods · %{played} jogado"
+  last_launched: "Última vez iniciado %{when}"
+mod:
+  fallback_title: Mod
+  new_profile_name: Novo nome do perfil
+  empty_profile_name: O nome do perfil não pode estar vazio
+  pick_profile: Escolha um perfil primeiro
+  installing_bepinex_mods: Instalando BepInEx + mods…
+  installing_mods: Instalando mods…
+  bepinex_progress: "BepInEx: %{message}"
+  install_version: "Instalar v%{version}"
+  downloads: "%{count} downloads"
+  updated: "Atualizado %{date}"
+  type_label: "Tipo: %{kind}"
+  about: Sobre
+  changelog: Registro de alterações
+  links: Links
+  licensed_under: "Licenciado sob %{license}"
+  resolving: Resolvendo dependências…
+  installed: Instalado.
+  new_profile_chip: + Novo perfil
+  created_on_install: Criado durante a instalação, usando o ícone deste mod
+  optional: " (opcional)"
+  dep_label: "%{name} v%{version}%{optional}"
+  dep_detail: "%{id} — restrição %{constraint}"
+  dep_already_installed: "%{detail} — já instalado"
+  unresolved: "%{count} dependências não puderam ser resolvidas e serão ignoradas: %{list}"
+  install_into: Instalar no perfil
+  version: Versão
+  dependencies: Dependências
+  install: Instalar
+lobbies:
+  dialog_title: "Iniciar na sala %{code}"
+  launching: Iniciando…
+  launch: Iniciar
+  code_copied: "Código %{code} copiado para a área de transferência. "
+  code_copied_notice: Código copiado para a área de transferência.
+  copy_code: Copiar código de entrada
+  regions_unavailable: "%{reason} Adicione uma região na aba Servidores para procurar suas salas."
+  regions_unavailable_title: Não foi possível ler suas regiões do Among Us
+  empty: Nenhum lobby aberto encontrado. Apenas servidores que publicam uma lista de salas aparecem aqui.
+  unknown_host: Anfitrião desconhecido
+  modded_profile: Perfil modificado
+  bepinex_will_install: BepInEx será instalado
+  temporary_profile: Perfil temporário
+  temporary_profile_subtitle: Perfil novo, excluído automaticamente quando o jogo fechar
+  region: "Região: %{region}"
+  profile: Perfil
+  no_mods_required: Nenhum mod necessário.
+  required_mods: Mods necessários
+  refreshing: Atualizando…
+  description: Jogos abertos nas regiões ativadas que publicam uma lista pública de salas. Entre no jogo e depois cole o código copiado dentro do Among Us.
+  active: Salas ativas
+  all_installed: Todos os mods necessários já estão instalados
+  will_install: "Será instalado: %{names}"
+  more: ", +%{count} mais"
+  checking: "verificando %{count} mod(s)…"
+  not_in_catalog: "%{count} não estão no catálogo (serão ignorados)"
+  unknown_map: Mapa desconhecido
+  unknown_mod: Mod desconhecido
+  unknown_mod_version: "Mod desconhecido %{version}"
+  profile_gone: O perfil selecionado não existe mais
+  profile_gone_launch: O perfil desapareceu antes de iniciar
+  launched_region_set: Iniciado com a região definida para este lobby.
+  launched: Iniciado.
+  skipped_catalog: " %{count} mod(s) necessários não estavam no catálogo e foram ignorados."
+  skipped_failed: " %{count} mod(s) não puderam ser instalados e foram ignorados."
+servers:
+  added: 'Região "%{name}" adicionada'
+  already_added: '"%{name}" já foi adicionada'
+  saved: 'Região "%{name}" salva'
+  my_server: Meu Servidor
+  edit_title: Editar servidor
+  add_title: Adicionar servidor personalizado
+  name: Nome
+  address: Endereço
+  port: Porta
+  use_dtls: Usar DTLS
+  add: Adicionar
+  add_custom: Adicionar personalizado
+  name_address_required: Nome e endereço são obrigatórios.
+  port_invalid: A porta deve ser um número entre 1 e 65535.
+  conflict: '"%{name}" já aponta para esse endereço e porta.'
+  address_exists: Já existe uma região para esse endereço.
+  regioninfo_unreadable: Não foi possível ler regionInfo.json.
+  no_regions: Nenhuma região configurada ainda. Adicione uma abaixo.
+  edit_tooltip: Editar este servidor
+  remove_tooltip: Remover este servidor
+  load_failed: "Falha ao carregar os servidores: %{error}"
+  none_available: Nenhum servidor disponível.
+  all_added: Todos os servidores disponíveis foram adicionados.
+  by_address: "por %{owner} · %{address}:%{port}"
+  description: Adicione servidores da comunidade como regiões do Among Us. Reinicie o jogo para aplicar as alterações.
+  installed_regions: Regiões instaladas
+  available: Servidores disponíveis
+profile:
+  fallback_title: Perfil
+  this_profile: este perfil
+  not_found: Perfil não encontrado
+  bepinex_not_installed: BepInEx não instalado
+  bepinex_incompatible: Esta instalação do BepInEx é incompatível com %{platform}
+  install_bepinex: Instalar BepInEx
+  instances_running: "%{count} instância(s) em execução"
+  launch_another: Iniciar outra
+  open_folder: Abrir Pasta
+  export_zip: Exportar ZIP
+  desktop_shortcut: Atalho na Área de Trabalho
+  exporting: "Exportando… %{percent}%"
+  exported: "Perfil exportado para %{dest}"
+  export_failed: "Falha ao exportar: %{error}"
+  shortcut_created: "Atalho criado em %{path}"
+  shortcut_failed: "Falha ao criar atalho: %{error}"
+  rename_title: Renomear Perfil
+  rename_failed: "Falha ao renomear: %{error}"
+  delete_title: Excluir perfil
+  delete_desc: 'Excluir "%{name}"? Seus mods e registros serão removidos do disco. Esta ação não pode ser desfeita.'
+  delete_failed: "Falha ao excluir: %{error}"
+  delete_profile: Excluir Perfil
+  delete_this_profile: Excluir este perfil
+  delete_this_profile_desc: Remove o perfil, seus mods e registros do disco. Esta ação não pode ser desfeita.
+  danger_zone: Zona de perigo
+  remove_mod_title: Remover mod
+  remove_mod_desc: 'Remover "%{name}" deste perfil? Seus arquivos serão excluídos do disco.'
+  remove: Remover
+  remove_mod_failed: "Falha ao remover mod: %{error}"
+  toggle_failed: "Falha ao alternar: %{error}"
+  add_dll_prompt: Adicionar plugin do BepInEx (.dll)
+  drop_dll: Solte um arquivo .dll de mod para adicioná-lo a este perfil
+  drop_zip: Importe arquivos .zip de perfil pela página Biblioteca
+  added: "%{names} adicionado(s)"
+  custom_mod: Personalizado
+  no_mods: Nenhum mod instalado. Instale pela aba Explorar ou solte aqui um arquivo .dll de plugin do BepInEx.
+  mods_heading: "Mods · %{count}"
+  install_mods: Instalar Mods
+  add_dll: Adicionar DLL
+icon:
+  title: Editar Ícone do Perfil
+  choose_image_prompt: Escolha uma imagem para o ícone
+  image_empty: A imagem selecionada está vazia
+  image_read_failed: "Falha ao ler a imagem: %{error}"
+  choose_custom: Escolha uma imagem para o ícone personalizado
+  select_mod: Selecione o ícone de um mod instalado
+  update_failed: "Falha ao atualizar o ícone: %{error}"
+  tab_default: Padrão
+  tab_custom: Imagem Personalizada
+  tab_mod: Mod Instalado
+  default_desc: Use o ícone padrão do perfil.
+  image_ready: Nova imagem pronta para salvar.
+  using_existing: Usando a imagem personalizada existente. Escolha uma nova para substituí-la.
+  formats: PNG, JPG, WEBP, GIF, BMP ou AVIF.
+  change_image: Alterar Imagem
+  choose_image: Escolher Imagem
+  no_mods: Nenhum mod instalado. Adicione um mod para usar o ícone dele.
+notify:
+  among_us_detected: "Among Us detectado em %{path}"
+  among_us_not_found: "Não foi possível encontrar o Among Us automaticamente — defina a pasta dele em Configurações → Jogo antes de iniciar."
+migrate:
+  offer: "Encontrado(s) %{count} perfil(is) da versão anterior do Starlight. Deseja migrá-lo(s) para esta instalação?"
+  title: Migrar perfis
+  action: Migrar
+  done: "%{count} perfil(is) migrado(s)"
+  failed: "Falha na migração: %{error}"
+titlebar:
+  stop_count: "Parar (%{count})"
+  launch: "Iniciar %{name}"
+  launch_failed: "Falha ao iniciar: %{error}"
+  stop_failed: "Falha ao parar: %{error}"
+update:
+  available: "Starlight %{version} está disponível."
+  title: Atualização disponível
+  restart: Reiniciar e Atualizar
+  failed: "Falha na atualização: %{error}"
+settings:
+  page:
+    game: Jogo
+    launch: Inicialização
+    appearance: Aparência
+    bepinex: BepInEx
+    linux: Ambiente Linux
+    about: Sobre
+  group:
+    installation: Instalação
+    platform: Plataforma
+    behavior: Comportamento
+    theme: Tema
+    cache: Cache
+    download_urls: URLs de Download
+    runner: Executor
+    runner_desc: 'A Steam é iniciada pelo cliente Steam (a Steam deve estar em execução). Para inicializações com mods, defina as opções de inicialização da Steam do jogo como WINEDLLOVERRIDES="winhttp=n,b" %command%.'
+  among_us_path: Caminho do Among Us
+  among_us_path_desc: Pasta que contém o Among Us.exe.
+  auto_detect: Detectar automaticamente
+  auto_detect_among_us: Detectar Among Us automaticamente
+  auto_detect_desc: Procura locais de instalação conhecidos e define o caminho acima.
+  game_platform: Plataforma do jogo
+  game_platform_desc: Loja pela qual o jogo foi instalado.
+  close_on_launch: Fechar o Starlight ao iniciar
+  close_on_launch_desc: Fecha o aplicativo após iniciar o jogo.
+  multi_instance: Permitir múltiplas instâncias
+  multi_instance_desc: "Permite iniciar mais de uma janela do jogo ao mesmo tempo. As instâncias extras são executadas a partir de uma cópia temporária do perfil, permitindo que sejam iniciadas imediatamente sem conflitos com os arquivos do BepInEx."
+  theme: Tema
+  theme_desc: Coloque arquivos JSON de tema do gpui-component na pasta de temas para adicionar seus próprios temas.
+  language: Idioma
+  language_desc: Idioma da interface do Starlight e de seus componentes.
+  themes_folder: Pasta de temas
+  open_themes_folder: Abrir Pasta de Temas
+  browse_themes: Procurar Temas
+  themes_folder_desc: Os temas incluídos do Starlight são substituídos a cada inicialização; copie um para um novo arquivo antes de editá-lo.
+  stars_background: Fundo de estrelas flutuantes
+  stars_background_desc: Exibe o campo de estrelas que se move lentamente ao fundo das páginas.
+  cache_downloads: Armazenar downloads do BepInEx em cache
+  cache_downloads_desc: Reutiliza arquivos armazenados em cache entre instalações de perfis.
+  cache:
+    x64: Cache x64
+    x86: Cache x86
+    cached: "Em cache · %{size}"
+    not_cached: Não está em cache
+    path_unavailable: Caminho do cache indisponível
+    download: Baixar
+    downloaded: "BepInEx %{arch} baixado"
+    download_failed: "Falha ao baixar o BepInEx %{arch}: %{error}"
+    cleared: "Cache do BepInEx %{arch} limpo"
+    clear_failed: "Falha ao limpar: %{error}"
+    path_error: "Caminho do cache: %{error}"
+  bepinex_x64_url: URL do BepInEx x64
+  bepinex_x86_url: URL do BepInEx x86
+  download_urls_desc: Substitua os locais padrão dos arquivos das versões.
+  detected: "Among Us detectado em %{path}"
+  detected_store: "Among Us (%{store}) detectado em %{path}"
+  not_detected: Não foi possível detectar automaticamente a instalação do Among Us
+  detection_failed: "Falha na detecção: %{error}"
+  linux:
+    detected: Ambiente Linux detectado
+    auto_detect: Detectar ambiente Linux automaticamente
+    auto_detect_desc: Procura prefixos do Steam/Proton + Wine a partir do caminho do Among Us.
+    runner: Executor
+    runner_desc: 'A Steam é iniciada pelo cliente Steam (a Steam deve estar em execução). Para inicializações com mods, defina as opções de inicialização da Steam do jogo como WINEDLLOVERRIDES="winhttp=n,b" %command%.'
+    runner_binary: Binário do executor
+    wine_prefix: Prefixo do Wine
+    region_info_path: Caminho do RegionInfo.json
+    region_info_desc: "O RegionInfo.json do Among Us dentro do prefixo do Wine, usado para gerenciamento de servidores. Deixe em branco para derivá-lo do prefixo do Wine (drive_c/users/<seu usuário>/AppData/LocalLow/Innersloth/Among Us)."
+    proton_compat: Caminho dos dados de compatibilidade do Proton
+    proton_compat_desc: Pasta compatdata da Steam do jogo (steamapps/compatdata/945360). Também usada para localizar o RegionInfo.json para gerenciamento de servidores.
+    steam_run: Executar o Proton com steam-run
+    steam_run_desc: Inicia o Proton através do steam-run (NixOS/sistemas não FHS). Desative para executar o binário do Proton diretamente.
+  license: Licença GNU GPLv3
+  view_source: Ver Código-Fonte
+  open_data_folder: Abrir Pasta de Dados
+  path:
+    select_folder: Selecionar pasta
+    select_file: Selecionar arquivo
+    browse: Procurar
