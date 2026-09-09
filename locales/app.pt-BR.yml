@@ -1,8 +1,3 @@
-# Starlight UI translations (rust-i18n v1 format: locale comes from the
-# filename suffix, e.g. app.en.yml -> "en"). English is the source of truth;
-# other locales only need the keys they translate (missing keys fall back to
-# English). Keys are namespaced by page: nav, home, explore, library, profile,
-# mod, news, lobbies, servers, settings, plus common.* shared bits.
 nav:
   home: Home
   explore: Explorar
@@ -21,6 +16,7 @@ common:
   unknown: Desconhecido
   never: Nunca
   failed: "Falha: %{error}"
+  by_author: "por %{author}"
 time:
   hours_minutes: "%{hours}h %{minutes}m"
   minutes: "%{minutes} min"
@@ -28,7 +24,6 @@ time:
 home:
   news: Notícias
   trending: Mods em Alta
-  by_author: "por %{author}"
 news:
   unknown_date: Data desconhecida
   posted_by: "Postado por %{author}"
