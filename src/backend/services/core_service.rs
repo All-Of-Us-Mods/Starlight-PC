@@ -69,6 +69,17 @@ pub enum ScrollbarVisibility {
     Always,
 }
 
+/// Which GitHub releases the self-updater follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReleaseChannel {
+    /// Tagged releases only.
+    #[default]
+    Stable,
+    /// Also the nightly pre-releases cut from `main`.
+    Nightly,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -143,6 +154,9 @@ pub struct AppSettings {
     /// Width the user dragged the sidebar to; drives icon mode when small.
     #[serde(default = "default_sidebar_width")]
     pub sidebar_width: f32,
+    /// Which releases the self-updater offers (see `update_service`).
+    #[serde(default)]
+    pub release_channel: ReleaseChannel,
 }
 
 impl Default for AppSettings {
@@ -168,6 +182,7 @@ impl Default for AppSettings {
             show_stars_background: true,
             scrollbar_visibility: ScrollbarVisibility::default(),
             sidebar_width: default_sidebar_width(),
+            release_channel: ReleaseChannel::default(),
         }
     }
 }
@@ -194,6 +209,7 @@ pub struct AppSettingsPatch {
     pub show_stars_background: Option<bool>,
     pub scrollbar_visibility: Option<ScrollbarVisibility>,
     pub sidebar_width: Option<f32>,
+    pub release_channel: Option<ReleaseChannel>,
 }
 
 fn settings_path() -> AppResult<PathBuf> {
@@ -388,6 +404,9 @@ pub fn update_settings(patch: AppSettingsPatch) -> AppResult<AppSettings> {
     }
     if let Some(value) = patch.sidebar_width {
         settings.sidebar_width = value;
+    }
+    if let Some(value) = patch.release_channel {
+        settings.release_channel = value;
     }
 
     // Unity refuses to start a second process when this boot.config entry is

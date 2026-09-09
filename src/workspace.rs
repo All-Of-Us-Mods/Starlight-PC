@@ -222,7 +222,7 @@ impl Workspace {
         Self::reload_last_launched(cx);
 
         #[cfg(windows)]
-        Self::check_for_update(window, cx);
+        Self::check_for_update_on_startup(window, cx);
 
         Self::first_run_detect_game(window, cx);
         Self::offer_legacy_migration(library.clone(), window, cx);
@@ -401,31 +401,16 @@ impl Workspace {
         .detach();
     }
 
-    /// Check GitHub Releases for a newer build a few seconds after startup
-    /// (so it doesn't compete with the initial UI render) and, if found,
-    /// surface a notification offering to install it.
+    /// Run the update check a few seconds after startup, so it doesn't
+    /// compete with the initial UI render.
     #[cfg(windows)]
-    fn check_for_update(window: &mut Window, cx: &mut Context<Self>) {
-        use crate::backend::services::update_service;
-
+    fn check_for_update_on_startup(window: &mut Window, cx: &mut Context<Self>) {
         let window_handle = window.window_handle();
         cx.spawn(async move |_, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_secs(3))
                 .await;
-            let update = cx
-                .background_executor()
-                .spawn(async { update_service::check_for_update() })
-                .await;
-            match update {
-                Ok(Some(info)) => {
-                    let _ = window_handle.update(cx, |_, window, cx| {
-                        window.push_notification(update_notification(info), cx);
-                    });
-                }
-                Ok(None) => {}
-                Err(e) => warn!("update check failed: {e}"),
-            }
+            let _ = window_handle.update(cx, |_, window, cx| check_for_update(window, cx, false));
         })
         .detach();
     }
@@ -956,6 +941,42 @@ impl Render for Workspace {
                 el.child(self.render_sidebar_resize_capture(cx))
             })
     }
+}
+
+/// Check the user's release channel for a build newer than this one and, if
+/// there is one, offer to install it.
+///
+/// `report_no_update` is what separates the two callers: the check on startup
+/// stays quiet unless there's something to install, while the button in
+/// Settings has to answer either way.
+#[cfg(windows)]
+pub(crate) fn check_for_update(window: &mut Window, cx: &mut App, report_no_update: bool) {
+    use crate::backend::services::update_service;
+
+    let channel = app_settings::get(cx).release_channel;
+    let window_handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        let update = cx
+            .background_executor()
+            .spawn(async move { update_service::check_for_update(channel) })
+            .await;
+        let notification = match update {
+            Ok(Some(info)) => update_notification(info),
+            Ok(None) if report_no_update => Notification::info(t!("update.up_to_date").to_string()),
+            Ok(None) => return,
+            Err(e) => {
+                warn!("update check failed: {e}");
+                if !report_no_update {
+                    return;
+                }
+                Notification::error(t!("update.check_failed", error = e).to_string())
+            }
+        };
+        let _ = window_handle.update(cx, |_, window, cx| {
+            window.push_notification(notification, cx);
+        });
+    })
+    .detach();
 }
 
 /// Build the "update available" notification, with an action button that
