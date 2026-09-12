@@ -64,7 +64,10 @@ pub enum LinuxRunner {
         use_steam_run: bool,
     },
     /// Launch through the Steam client instead of running Proton ourselves.
-    Steam,
+    Steam {
+        #[serde(rename = "compatDataPath")]
+        compat_data_path: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -154,7 +157,7 @@ fn build_game_command(
                 cmd
             }
             // Steam launches branch to `steam -applaunch` before reaching here.
-            LinuxRunner::Steam => unreachable!("Steam launches via steam -applaunch"),
+            LinuxRunner::Steam { .. } => unreachable!("Steam launches via steam -applaunch"),
         };
 
         Ok(cmd)
@@ -372,14 +375,53 @@ fn spawn_steam(mut cmd: Command) -> AppResult<()> {
     Ok(())
 }
 
+/// Wine loads its own builtin `winhttp` unless told the game directory's
+/// native copy wins, so the Doorstop proxy needs a DLL override. Launches we
+/// spawn ourselves pass one in `WINEDLLOVERRIDES`, but `steam -applaunch` only
+/// forwards a request to a Steam client that already has its own environment —
+/// so for Steam launches the override has to live where that client's Proton
+/// will read it anyway: the prefix registry.
+///
+/// Appends its own section rather than editing the existing one; wine merges
+/// duplicate sections on load and rewrites the file canonically on shutdown,
+/// after which the value is simply already there.
+#[cfg(target_os = "linux")]
+fn ensure_winhttp_dll_override(compat_data_path: &str) -> AppResult<()> {
+    const OVERRIDE: &str = r#""winhttp"="native,builtin""#;
+
+    let user_reg = PathBuf::from(compat_data_path).join("pfx").join("user.reg");
+    let registry = fs::read_to_string(&user_reg).map_err(|e| {
+        AppError::validation(format!(
+            "Proton prefix not found at {} ({e}). Start Among Us from Steam once to create it, then launch again.",
+            user_reg.display()
+        ))
+    })?;
+
+    if registry.lines().any(|line| line.trim() == OVERRIDE) {
+        return Ok(());
+    }
+
+    fs::write(
+        &user_reg,
+        format!("{registry}\n[Software\\\\Wine\\\\DllOverrides] 0\n{OVERRIDE}\n"),
+    )?;
+    info!("added winhttp DLL override to {}", user_reg.display());
+    Ok(())
+}
+
 /// Modded launch handed to the Steam client instead of running Proton
 /// ourselves. Steam owns the process, so Steamworks initializes (online play)
 /// and the game runs inside the Steam Linux Runtime (audio). Doorstop config
 /// goes through `doorstop_config.ini` since `steam -applaunch` can't forward
 /// `--doorstop-*` args.
 #[cfg(target_os = "linux")]
-fn launch_modded_via_steam(args: &LaunchModdedArgs, game_dir: &Path) -> AppResult<()> {
+fn launch_modded_via_steam(
+    args: &LaunchModdedArgs,
+    game_dir: &Path,
+    compat_data_path: &str,
+) -> AppResult<()> {
     prepare_linux_winhttp_proxy(game_dir, &args.profile_path)?;
+    ensure_winhttp_dll_override(compat_data_path)?;
     write_doorstop_ini(
         game_dir,
         &to_wine_path(&args.bepinex_dll),
@@ -388,12 +430,7 @@ fn launch_modded_via_steam(args: &LaunchModdedArgs, game_dir: &Path) -> AppResul
     )?;
 
     let mut cmd = Command::new("steam");
-    cmd.arg("-applaunch")
-        .arg(STEAM_APP_ID)
-        // Only reaches Proton if this call cold-starts Steam. If Steam is
-        // already running, set this once in the game's Steam launch options:
-        //   WINEDLLOVERRIDES="winhttp=n,b" %command%
-        .env("WINEDLLOVERRIDES", "winhttp=n,b");
+    cmd.arg("-applaunch").arg(STEAM_APP_ID);
     spawn_steam(cmd)?;
 
     game_runtime::register_steam_launch(Some(args.profile_id.clone()))
@@ -420,8 +457,8 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     // doorstop_config.ini instead of command-line args. Steam only ever runs
     // one instance, so this path never uses an instance copy.
     #[cfg(target_os = "linux")]
-    if matches!(args.runner, LinuxRunner::Steam) {
-        return launch_modded_via_steam(&args, &game_dir);
+    if let LinuxRunner::Steam { compat_data_path } = &args.runner {
+        return launch_modded_via_steam(&args, &game_dir, compat_data_path);
     }
 
     // Second and later concurrent launches of this profile run from their own
@@ -522,7 +559,7 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
     // Steam runner: disable doorstop via the ini (clears any prior modded
     // config) and hand the launch to the Steam client.
     #[cfg(target_os = "linux")]
-    if matches!(args.runner, LinuxRunner::Steam) {
+    if matches!(args.runner, LinuxRunner::Steam { .. }) {
         clear_doorstop_ini(&game_dir)?;
         let mut cmd = Command::new("steam");
         cmd.arg("-applaunch").arg(STEAM_APP_ID);
@@ -604,9 +641,12 @@ fn build_linux_runner_from_settings(
 ) -> AppResult<LinuxRunner> {
     use crate::backend::services::core_service::LinuxRunnerKind;
 
-    // Steam runs through the Steam client, so it needs no runner binary.
+    // Steam runs through the Steam client, so it needs no runner binary — only
+    // the prefix, to place the winhttp DLL override in.
     if matches!(settings.linux_runner_kind, LinuxRunnerKind::Steam) {
-        return Ok(LinuxRunner::Steam);
+        return Ok(LinuxRunner::Steam {
+            compat_data_path: settings.linux_proton_compat_data_path.clone(),
+        });
     }
 
     let binary = settings.linux_runner_binary.trim();
