@@ -14,6 +14,8 @@ use log::warn;
 use crate::backend::events::{self, BackendEvent};
 #[cfg(unix)]
 use crate::backend::services::core_service::LinuxRunnerKind;
+#[cfg(windows)]
+use crate::backend::services::core_service::ReleaseChannel;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
     core_service::{self, AppSettingsPatch, GamePlatform, ScrollbarVisibility},
@@ -255,6 +257,21 @@ fn patch_scrollbar_visibility(value: SharedString, cx: &mut App) {
     );
     crate::theme::apply_scrollbar_visibility(cx);
     cx.refresh_windows();
+}
+
+#[cfg(windows)]
+fn patch_release_channel(value: SharedString, cx: &mut App) {
+    let channel = match value.as_ref() {
+        "nightly" => ReleaseChannel::Nightly,
+        _ => ReleaseChannel::Stable,
+    };
+    app_settings::update(
+        cx,
+        AppSettingsPatch {
+            release_channel: Some(channel),
+            ..Default::default()
+        },
+    );
 }
 
 fn patch_bepinex_url_x64(value: SharedString, cx: &mut App) {
@@ -935,6 +952,47 @@ impl Render for SettingsView {
             )
         };
 
+        // Only Windows can install an update in place (see `update_service`),
+        // so only Windows gets a say in which builds it looks for.
+        #[cfg(windows)]
+        let updates_group = SettingGroup::new()
+            .title(t!("settings.group.updates"))
+            .items(vec![
+                SettingItem::new(
+                    t!("settings.release_channel"),
+                    SettingField::dropdown(
+                        vec![
+                            (
+                                "stable".into(),
+                                t!("settings.channel_stable").to_string().into(),
+                            ),
+                            (
+                                "nightly".into(),
+                                t!("settings.channel_nightly").to_string().into(),
+                            ),
+                        ],
+                        |cx| match app_settings::get(cx).release_channel {
+                            ReleaseChannel::Stable => "stable".into(),
+                            ReleaseChannel::Nightly => "nightly".into(),
+                        },
+                        patch_release_channel,
+                    ),
+                )
+                .description(t!("settings.release_channel_desc").to_string()),
+                SettingItem::new(
+                    t!("settings.check_for_updates"),
+                    SettingField::render(|_, _, _| {
+                        Button::new("check-for-updates")
+                            .icon(Icon::new(AppIcon::Download))
+                            .label(t!("settings.check_now"))
+                            .on_click(|_, window, cx| {
+                                crate::workspace::check_for_update(window, cx, true)
+                            })
+                    }),
+                )
+                .description(t!("settings.check_for_updates_desc").to_string()),
+            ]);
+
         let about_page =
             SettingPage::new(t!("settings.page.about")).group(SettingGroup::new().items(vec![
                 SettingItem::render(|_, _window, cx| {
@@ -1008,6 +1066,9 @@ impl Render for SettingsView {
                         )
                 }),
             ]));
+
+        #[cfg(windows)]
+        let about_page = about_page.group(updates_group);
 
         crate::views::page_root("settings-page", &theme)
             .overflow_y_scrollbar()

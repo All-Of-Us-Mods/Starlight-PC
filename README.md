@@ -8,6 +8,11 @@ Get the latest release here:
 
 https://github.com/All-Of-Us-Mods/Starlight-PC/releases/latest
 
+Nightly builds are cut from `main` every night there are changes, and are
+published as pre-releases. To follow them, set Settings → About → Updates →
+Release channel to **Nightly** (Windows only, since that's where the in-app
+updater works) — or just download a pre-release by hand.
+
 ## Screenshots
 
 ### Explore

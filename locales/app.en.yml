@@ -263,6 +263,8 @@ update:
   title: Update available
   restart: Restart & Update
   failed: "Update failed: %{error}"
+  up_to_date: Starlight is up to date.
+  check_failed: "Update check failed: %{error}"
 settings:
   page:
     game: Game
@@ -278,6 +280,7 @@ settings:
     theme: Theme
     cache: Cache
     download_urls: Download URLs
+    updates: Updates
     runner: Runner
     runner_desc: 'Steam launches via the Steam client (Steam must be running). For modded launches, set the game''s Steam launch options to WINEDLLOVERRIDES="winhttp=n,b" %command%.'
   among_us_path: Among Us path
@@ -339,6 +342,13 @@ settings:
     proton_compat_desc: The game's Steam compatdata folder (steamapps/compatdata/945360). Also used to locate RegionInfo.json for server management.
     steam_run: Wrap Proton in steam-run
     steam_run_desc: Launch Proton via steam-run (NixOS/non-FHS systems). Disable to run the Proton binary directly.
+  release_channel: Release channel
+  release_channel_desc: Stable ships tested releases. Nightly builds every night from the latest code — newer features, rougher edges.
+  channel_stable: Stable
+  channel_nightly: Nightly
+  check_for_updates: Check for updates
+  check_for_updates_desc: Starlight also checks on startup.
+  check_now: Check Now
   license: GNU GPLv3 License
   view_source: View Source
   open_data_folder: Open Data Folder

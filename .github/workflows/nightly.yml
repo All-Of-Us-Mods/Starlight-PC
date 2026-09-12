@@ -1,0 +1,171 @@
+name: Nightly
+
+# Cuts a pre-release from main every night, for users on the nightly channel
+# (Settings → About → Updates in the app). Nothing is published on a night
+# where main didn't move.
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+# Never two nightlies at once — they'd fight over the same tag namespace.
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.plan.outputs.changed }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      # Full history so the last nightly tag is available for the diff check.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to build, and as what version
+        id: plan
+        run: |
+          last=$(git tag --list 'v*-nightly.*' --sort=-creatordate | head -n1)
+          if [ -n "$last" ] && [ "$(git rev-list -n1 "$last")" = "$GITHUB_SHA" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No commits since $last — skipping tonight's nightly."
+            exit 0
+          fi
+
+          # A nightly is a pre-release of the *next* patch version, so it sorts
+          # above the release it was cut from and below the release that
+          # supersedes it. That ordering is what the in-app updater walks —
+          # see src/backend/services/update_service.rs.
+          core=$(grep -m1 '^version = "' Cargo.toml | sed -E 's/^version = "([^"-]+).*/\1/')
+          IFS=. read -r major minor patch <<< "$core"
+          version="$major.$minor.$((patch + 1))-nightly.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER"
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "::notice::Building nightly $version"
+
+  # Nightlies ship the two things testers need — the Windows exe (which is
+  # also what the self-updater installs) plus its installer, and a Linux
+  # binary plus AppImage. The .deb/.rpm/Flatpak packages stay release-only:
+  # they're for distribution channels, and the Flatpak alone would pull a
+  # ~1 GB runtime every night.
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: nightly-windows-x86_64
+          - os: ubuntu-latest
+            artifact: nightly-linux-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # The updater compares the running binary's CARGO_PKG_VERSION against the
+      # release tag, so the build has to carry the nightly version. Not
+      # committed — it only exists for this build.
+      - name: Stamp the nightly version into Cargo.toml
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          sed -i "0,/^version = /s|^version = .*|version = \"$VERSION\"|" Cargo.toml
+          grep -m1 '^version = ' Cargo.toml
+
+      - name: Install system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libfontconfig1-dev \
+            libfreetype-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxcb1-dev \
+            libgl-dev \
+            libvulkan-dev
+
+      - name: cargo build --release
+        run: cargo build --release
+
+      # The updater matches release assets by exact name — keep the portable
+      # exe named Starlight-windows-x86_64.exe.
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item target/release/Starlight.exe Starlight-windows-x86_64.exe
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ needs.prepare.outputs.version }} /O"." packaging\windows\starlight.iss
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cp target/release/Starlight Starlight-linux-x86_64
+          bash packaging/linux/build-appimage.sh
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            Starlight-windows-x86_64.exe
+            Starlight-Setup-x86_64.exe
+            Starlight-linux-x86_64
+            Starlight-linux-x86_64.AppImage
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+
+      # One release for both platforms, tagged at the commit that was built.
+      # Pre-release is what keeps nightlies out of /releases/latest, which is
+      # how the stable channel stays stable.
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: v${{ needs.prepare.outputs.version }}
+          name: Nightly ${{ needs.prepare.outputs.version }}
+          prerelease: true
+          body: |
+            Automated nightly build of `main`. Less tested than a release —
+            expect rough edges.
+
+            To get these automatically, set Settings → About → Updates →
+            Release channel to **Nightly** in Starlight.
+          generate_release_notes: true
+          files: dist/*
+
+      # Nightly builds pile up fast, so keep only the most recent handful —
+      # enough to drop back a few days if one turns out to be broken.
+      - name: Prune old nightlies
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP: 5
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json tagName,isPrerelease \
+            --jq '.[] | select(.isPrerelease and (.tagName | test("-nightly\\."))) | .tagName' \
+            | tail -n "+$((KEEP + 1))" \
+            | xargs -r -I{} gh release delete {} \
+                --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
