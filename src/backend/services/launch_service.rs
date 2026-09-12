@@ -401,10 +401,15 @@ fn ensure_winhttp_dll_override(compat_data_path: &str) -> AppResult<()> {
         return Ok(());
     }
 
+    // Swap the registry in rather than writing over it: a write that failed
+    // partway would leave the prefix itself truncated, which costs the user
+    // far more than this launch.
+    let temporary_path = user_reg.with_extension("reg.tmp");
     fs::write(
-        &user_reg,
+        &temporary_path,
         format!("{registry}\n[Software\\\\Wine\\\\DllOverrides] 0\n{OVERRIDE}\n"),
     )?;
+    fs::rename(&temporary_path, &user_reg)?;
     info!("added winhttp DLL override to {}", user_reg.display());
     Ok(())
 }
@@ -635,6 +640,31 @@ pub fn launch_vanilla_from_settings() -> AppResult<()> {
     })
 }
 
+/// Where the Steam launch's Proton prefix lives. The compatibility data path
+/// setting wins when it's filled in, but Steam is the default runner and that
+/// setting is optional, so fall back to deriving the prefix from the game's own
+/// location rather than failing a launch that used to work.
+#[cfg(target_os = "linux")]
+fn steam_compat_data_path(
+    settings: &crate::backend::services::core_service::AppSettings,
+) -> AppResult<String> {
+    let configured = settings.linux_proton_compat_data_path.trim();
+    if !configured.is_empty() {
+        return Ok(configured.to_string());
+    }
+
+    crate::backend::services::finder_service::proton_compat_data_path(Path::new(
+        &settings.among_us_path,
+    ))
+    .map(|path| path.to_string_lossy().to_string())
+    .ok_or_else(|| {
+        AppError::validation(format!(
+            "Could not find the Proton prefix for {}. Set the compatibility data path in Settings.",
+            settings.among_us_path
+        ))
+    })
+}
+
 #[cfg(target_os = "linux")]
 fn build_linux_runner_from_settings(
     settings: &crate::backend::services::core_service::AppSettings,
@@ -645,7 +675,7 @@ fn build_linux_runner_from_settings(
     // the prefix, to place the winhttp DLL override in.
     if matches!(settings.linux_runner_kind, LinuxRunnerKind::Steam) {
         return Ok(LinuxRunner::Steam {
-            compat_data_path: settings.linux_proton_compat_data_path.clone(),
+            compat_data_path: steam_compat_data_path(settings)?,
         });
     }
 
