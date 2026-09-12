@@ -273,6 +273,15 @@ fn steamapps_root_from_among_us_path(path: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Proton's prefix for Among Us, derived from where the game is installed:
+/// Steam always keeps it in the same library, at
+/// `<library>/steamapps/compatdata/945360`.
+#[cfg(target_os = "linux")]
+pub fn proton_compat_data_path(among_us_path: &Path) -> Option<PathBuf> {
+    steamapps_root_from_among_us_path(among_us_path)
+        .map(|root| root.join("compatdata").join(AMONG_US_STEAM_APP_ID))
+}
+
 #[cfg(target_os = "linux")]
 fn build_linux_detection(
     steam_root: Option<PathBuf>,
@@ -337,9 +346,7 @@ fn build_linux_detection(
 #[cfg(target_os = "linux")]
 fn detect_linux_runner_from_among_us(path: &Path) -> LinuxRunnerDetection {
     let steamapps_root = steamapps_root_from_among_us_path(path);
-    let compat_data = steamapps_root
-        .as_ref()
-        .map(|root| root.join("compatdata").join(AMONG_US_STEAM_APP_ID));
+    let compat_data = proton_compat_data_path(path);
 
     let steam_root = steamapps_root
         .as_ref()
