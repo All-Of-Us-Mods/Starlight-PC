@@ -148,7 +148,7 @@ jobs:
           name: Nightly ${{ needs.prepare.outputs.version }}
           prerelease: true
           body: |
-            Automated nightly build of `main`. Less tested than a release —
+            Automated nightly build of `main`. Less tested than a release,
             expect rough edges.
 
             To get these automatically, set Settings → About → Updates →
