@@ -198,15 +198,15 @@ profile:
   drop_zip: 從資源庫頁面導入設定檔 .zip 檔案
   added: "已新增 %{names}"
   custom_mod: 自定義
-  one_update_available:
-  updates_available:
-  update_all_mods:
-  updating_all_mods:
-  update_mod:
-  updating_mod:
-  updated_one_mod:
-  updated_mods:
-  update_mods_failed:
+  one_update_available: 1 個更新可用
+  updates_available: "%{count} 個更新可用"
+  update_all_mods: "更新全部 (%{count})"
+  updating_all_mods: 正在更新模組…
+  update_mod: 更新
+  updating_mod: 更新中…
+  updated_one_mod: 已更新 1 個模組
+  updated_mods: "已更新 %{count} 個模組"
+  update_mods_failed: "更新失敗：%{error}"
   no_mods: 未安裝模組。請從「探索」安裝，或將 BepInEx 外掛程式 .dll 拖曳至此處。
   mods_heading: "模組 · %{count}"
   install_mods: 安裝模組
@@ -263,6 +263,8 @@ update:
   title: 有可用更新
   restart: 重新啟動並更新
   failed: "更新失敗：%{error}"
+  up_to_date: Starlight 已是最新版本。
+  check_failed: "更新檢查失敗：%{error}"
 settings:
   page:
     game: 遊戲
@@ -278,6 +280,7 @@ settings:
     theme: 主題
     cache: 快取
     download_urls: 下載 URL
+    updates: 更新
     runner: 執行器
     runner_desc: '透過 Steam 用戶端啟動（Steam 必須正在執行）。對於模組啟動，請將遊戲的 Steam 啟動選項設定為 WINEDLLOVERRIDES="winhttp=n,b" %command%。'
   among_us_path: Among Us 路徑
@@ -299,11 +302,11 @@ settings:
   browse_themes: 瀏覽主題
   stars_background: 浮動星空背景
   stars_background_desc: 在頁面後方顯示緩慢漂移的星空。
-  # MISSING: scrollbars
-  # MISSING: scrollbars_desc
-  # MISSING: scrollbars_scrolling
-  # MISSING: scrollbars_hover
-  # MISSING: scrollbars_always
+  scrollbars: 捲軸
+  scrollbars_desc: 覆疊式捲軸何時顯示。
+  scrollbars_scrolling: 捲動時
+  scrollbars_hover: 滑鼠懸停時
+  scrollbars_always: 一律
   cache_downloads: 快取 BepInEx 下載
   cache_downloads_desc: 在不同設定檔安裝之間重複使用快取的壓縮檔。
   cache:
@@ -339,6 +342,13 @@ settings:
     proton_compat_desc: 遊戲的 Steam compatdata 資料夾（steamapps/compatdata/945360）。也用於定位 RegionInfo.json 以進行伺服器管理。
     steam_run: 透過 steam-run 包裝 Proton
     steam_run_desc: 透過 steam-run 啟動 Proton（用於 NixOS／非 FHS 系統）。停用後將直接執行 Proton 執行檔。
+  release_channel: 發布頻道
+  release_channel_desc: 穩定版提供經過測試的發行版本。夜間生成版每天根據最新程式碼建置——功能較新，但可能較不穩定。
+  channel_stable: 穩定版
+  channel_nightly: 夜間生成版
+  check_for_updates: 檢查更新
+  check_for_updates_desc: Starlight 也會在啟動時檢查更新。
+  check_now: 立即檢查
   license: GNU GPLv3 授權條款
   view_source: 檢視原始碼
   open_data_folder: 開啟資料夾
