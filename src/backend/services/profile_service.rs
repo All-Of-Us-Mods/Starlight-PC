@@ -1,5 +1,6 @@
+use crate::backend::binary::BinaryArch;
 use crate::backend::error::{AppError, AppResult};
-use crate::backend::services::core_service::BepInExArch;
+use crate::backend::services::bepinex_runtime::BepInExRuntime;
 use crate::backend::services::{bepinex_service, core_service, profile_zip_service};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -20,25 +21,6 @@ const CUSTOM_ICON_EXTENSIONS: [&str; 7] =
 
 fn default_true() -> bool {
     true
-}
-
-fn deserialize_bepinex_installed<'de, D>(deserializer: D) -> Result<Option<BepInExArch>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Compat {
-        Arch(BepInExArch),
-        Legacy(bool),
-    }
-
-    Ok(match Option::<Compat>::deserialize(deserializer)? {
-        Some(Compat::Arch(arch)) => Some(arch),
-        // Boolean metadata carries no architecture; resolve from files when loading.
-        Some(Compat::Legacy(true)) => None,
-        Some(Compat::Legacy(false)) | None => None,
-    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,10 +52,6 @@ pub struct ProfileEntry {
     pub path: String,
     pub created_at: i64,
     pub last_launched_at: Option<i64>,
-    /// Architecture of the installed runtime, reconciled from the profile's
-    /// binaries on load. Legacy boolean metadata carries no architecture.
-    #[serde(default, deserialize_with = "deserialize_bepinex_installed")]
-    pub bepinex_installed: Option<BepInExArch>,
     pub total_play_time: Option<i64>,
     pub icon_mode: Option<String>,
     pub custom_icon_extension: Option<String>,
@@ -97,8 +75,12 @@ impl ProfileEntry {
 
     /// True when BepInEx is missing or isn't the `game_arch` build —
     /// either way the profile can't launch until it's installed.
-    pub fn needs_bepinex(&self, game_arch: BepInExArch) -> bool {
-        self.bepinex_installed != Some(game_arch)
+    pub fn needs_bepinex(&self, game_arch: BinaryArch) -> bool {
+        self.bepinex_runtime().needs_install(game_arch)
+    }
+
+    pub fn bepinex_runtime(&self) -> BepInExRuntime<'_> {
+        BepInExRuntime::new(Path::new(&self.path))
     }
 }
 
@@ -158,27 +140,29 @@ fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> AppResult<Option<P
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    let mut profile = serde_json::from_str::<ProfileEntry>(&raw).map_err(|error| {
+    let mut metadata = serde_json::from_str::<serde_json::Value>(&raw).map_err(|error| {
+        AppError::parse(format!(
+            "Failed to parse profile metadata at '{}': {error}",
+            metadata_path.display()
+        ))
+    })?;
+    // Old values (including booleans) are ignored. Remove the obsolete field
+    // once on load so existing profiles also stop persisting runtime state.
+    let migrated = metadata
+        .as_object_mut()
+        .is_some_and(|metadata| metadata.remove("bepinex_installed").is_some());
+    let mut profile = serde_json::from_value::<ProfileEntry>(metadata).map_err(|error| {
         AppError::parse(format!(
             "Failed to parse profile metadata at '{}': {error}",
             metadata_path.display()
         ))
     })?;
     profile.path = profile_dir.to_string_lossy().to_string();
-    sync_bepinex_arch(&mut profile);
     sync_custom_mods(&mut profile);
+    if migrated {
+        write_profile(&profile)?;
+    }
     Ok(Some(profile))
-}
-
-/// Profile binaries, not the current store or stale metadata, define the
-/// installed build. Unknown or incomplete installs must be repaired.
-fn sync_bepinex_arch(profile: &mut ProfileEntry) {
-    let root = Path::new(&profile.path);
-    profile.bepinex_installed = root
-        .join("BepInEx/core/BepInEx.Unity.IL2CPP.dll")
-        .is_file()
-        .then(|| core_service::read_pe_arch(&root.join("dotnet/coreclr.dll")))
-        .flatten();
 }
 
 /// Reconcile the mod list with the DLLs actually present in `BepInEx/plugins`.
@@ -421,7 +405,6 @@ pub fn create_profile(name: &str) -> AppResult<ProfileEntry> {
         path: profile_path.to_string_lossy().to_string(),
         created_at: timestamp,
         last_launched_at: None,
-        bepinex_installed: None,
         total_play_time: Some(0),
         icon_mode: Some("default".to_string()),
         custom_icon_extension: None,
@@ -455,26 +438,10 @@ fn base_file_name(file: &str) -> AppResult<&str> {
 /// already has it. A profile holding the other arch's build is reinstalled in
 /// place: plugins and config stay, the arch-specific runtime is replaced.
 pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
-    let mut profile = load_profile(profile_id)?;
+    let profile = load_profile(profile_id)?;
 
     let settings = profile.launch_settings(&core_service::get_settings()?)?;
     let install_arch = core_service::game_arch(&settings.among_us_path);
-    if !profile.needs_bepinex(install_arch) {
-        return Ok(());
-    }
-
-    // Extracting over the old build would leave its arch-only files behind.
-    {
-        let profile_path = Path::new(&profile.path);
-        for dir in [
-            profile_path.join("dotnet"),
-            profile_path.join("BepInEx").join("core"),
-        ] {
-            if dir.exists() {
-                fs::remove_dir_all(&dir)?;
-            }
-        }
-    }
 
     let cache_path = if settings.cache_bepinex {
         Some(core_service::get_bepinex_cache_path(install_arch)?)
@@ -482,17 +449,13 @@ pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
         None
     };
 
-    bepinex_service::install_bepinex(
-        settings.bepinex_url(install_arch).to_string(),
-        profile.path.clone(),
-        cache_path,
-        bepinex_service::BepInExTargetType::Profile,
+    bepinex_service::ensure_installed(
+        &profile.bepinex_runtime(),
+        install_arch,
+        settings.bepinex_url(install_arch),
+        cache_path.as_deref(),
         profile_id,
-    )?;
-
-    profile.bepinex_installed = Some(install_arch);
-    write_profile(&profile)?;
-    Ok(())
+    )
 }
 
 pub fn delete_profile(profile_id: &str) -> AppResult<()> {
@@ -811,8 +774,6 @@ fn make_unique_profile_name(requested: &str, profiles: &[ProfileEntry]) -> Strin
 struct ImportedMetadata {
     name: Option<String>,
     last_launched_at: Option<i64>,
-    #[serde(default, deserialize_with = "deserialize_bepinex_installed")]
-    bepinex_installed: Option<BepInExArch>,
     icon_mode: Option<String>,
     custom_icon_extension: Option<String>,
     icon_mod_id: Option<String>,
@@ -921,7 +882,6 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
             path: profile_path.to_string_lossy().to_string(),
             created_at: timestamp,
             last_launched_at: imported.as_ref().and_then(|item| item.last_launched_at),
-            bepinex_installed: imported.as_ref().and_then(|item| item.bepinex_installed),
             total_play_time: Some(0),
             icon_mode: imported.as_ref().and_then(|item| item.icon_mode.clone()),
             custom_icon_extension: imported
@@ -972,7 +932,6 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
                 })
                 .collect(),
         };
-        sync_bepinex_arch(&mut profile);
         normalize_icon_selection(&mut profile);
         if let Err(error) = write_profile(&profile) {
             for path in &created_paths {
@@ -997,6 +956,7 @@ pub fn export_profile_zip(profile_id: &str, destination: &str) -> AppResult<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::test_support::write_test_pe;
 
     struct TempProfileDir(PathBuf);
 
@@ -1041,7 +1001,6 @@ mod tests {
             path: dir.0.to_string_lossy().to_string(),
             created_at: 0,
             last_launched_at: None,
-            bepinex_installed: Some(BepInExArch::X86),
             total_play_time: None,
             icon_mode: None,
             custom_icon_extension: None,
@@ -1059,16 +1018,6 @@ mod tests {
         }
     }
 
-    fn write_test_pe(path: &Path, machine: u16) {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let mut bytes = vec![0u8; 0x80];
-        bytes[..2].copy_from_slice(b"MZ");
-        bytes[0x3C..0x40].copy_from_slice(&0x40u32.to_le_bytes());
-        bytes[0x40..0x44].copy_from_slice(b"PE\0\0");
-        bytes[0x44..0x46].copy_from_slice(&machine.to_le_bytes());
-        fs::write(path, bytes).unwrap();
-    }
-
     #[test]
     fn switching_between_x64_stores_preserves_runtime_incompatibility() {
         use crate::backend::services::core_service::{AppSettings, GamePlatform};
@@ -1083,8 +1032,14 @@ mod tests {
         .unwrap();
         write_test_pe(&dir.0.join("dotnet/coreclr.dll"), 0x014c);
         let mut metadata = serde_json::to_value(&profile).unwrap();
-        // Both old boolean metadata and stale arch metadata must use the real runtime.
-        for stored in [serde_json::json!(true), serde_json::json!("x64")] {
+        // Every obsolete value is ignored and removed; the binary defines the build.
+        for stored in [
+            serde_json::json!(true),
+            serde_json::json!(false),
+            serde_json::json!("x64"),
+            serde_json::json!("unknown"),
+            serde_json::Value::Null,
+        ] {
             metadata["bepinex_installed"] = stored;
             fs::write(
                 metadata_path(&dir.0),
@@ -1094,7 +1049,13 @@ mod tests {
             let mut loaded = parse_profile(&metadata_path(&dir.0), &dir.0)
                 .unwrap()
                 .unwrap();
-            assert_eq!(loaded.bepinex_installed, Some(BepInExArch::X86));
+            assert_eq!(
+                loaded.bepinex_runtime().installed_arch(),
+                Some(BinaryArch::X86)
+            );
+            let saved: serde_json::Value =
+                serde_json::from_slice(&fs::read(metadata_path(&dir.0)).unwrap()).unwrap();
+            assert!(saved.get("bepinex_installed").is_none());
             let mut settings = AppSettings::default();
             for platform in [GamePlatform::Steam, GamePlatform::Epic] {
                 let path = dir.0.join(platform.id());
@@ -1113,7 +1074,6 @@ mod tests {
                 assert!(loaded.needs_bepinex_for_settings(&settings));
             }
             write_test_pe(&dir.0.join("dotnet/coreclr.dll"), 0x8664);
-            sync_bepinex_arch(&mut loaded);
             for install in &settings.game_installations {
                 loaded.installation_id = Some(install.id.clone());
                 assert!(!loaded.needs_bepinex_for_settings(&settings));
@@ -1125,23 +1085,69 @@ mod tests {
     #[test]
     fn unreadable_runtime_is_not_inferred_from_metadata() {
         let dir = TempProfileDir::new("unknown-runtime");
-        let mut profile = profile_at(&dir, vec![]);
-        sync_bepinex_arch(&mut profile);
-        assert_eq!(profile.bepinex_installed, None);
-        assert!(profile.needs_bepinex(BepInExArch::X64));
+        let profile = profile_at(&dir, vec![]);
+        let mut metadata = serde_json::to_value(&profile).unwrap();
+        metadata["bepinex_installed"] = serde_json::json!("x64");
+        fs::write(
+            metadata_path(&dir.0),
+            serde_json::to_vec(&metadata).unwrap(),
+        )
+        .unwrap();
+        let profile = parse_profile(&metadata_path(&dir.0), &dir.0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(profile.bepinex_runtime().installed_arch(), None);
+        assert!(profile.needs_bepinex(BinaryArch::X64));
     }
 
     #[test]
     fn needs_bepinex_when_missing_or_wrong_arch() {
         let dir = TempProfileDir::new("needs-bepinex");
-        let mut profile = profile_at(&dir, Vec::new());
+        let profile = profile_at(&dir, Vec::new());
 
-        profile.bepinex_installed = None;
-        assert!(profile.needs_bepinex(BepInExArch::X64));
+        assert!(profile.needs_bepinex(BinaryArch::X64));
 
-        profile.bepinex_installed = Some(BepInExArch::X86);
-        assert!(profile.needs_bepinex(BepInExArch::X64));
-        assert!(!profile.needs_bepinex(BepInExArch::X86));
+        let runtime = profile.bepinex_runtime();
+        fs::create_dir_all(runtime.core_dir()).unwrap();
+        fs::write(runtime.assembly_path(), b"managed").unwrap();
+        write_test_pe(&runtime.coreclr_path(), 0x014c);
+        assert!(profile.needs_bepinex(BinaryArch::X64));
+        assert!(!profile.needs_bepinex(BinaryArch::X86));
+        write_test_pe(&runtime.coreclr_path(), 0x8664);
+        assert!(!profile.needs_bepinex(BinaryArch::X64));
+        fs::remove_file(runtime.assembly_path()).unwrap();
+        assert!(profile.needs_bepinex(BinaryArch::X64));
+    }
+
+    #[test]
+    fn writing_profiles_never_serializes_runtime_state() {
+        let dir = TempProfileDir::new("runtime-metadata");
+        let profile = profile_at(&dir, vec![]);
+        let runtime = profile.bepinex_runtime();
+        fs::create_dir_all(runtime.core_dir()).unwrap();
+        fs::write(runtime.assembly_path(), b"managed").unwrap();
+        write_test_pe(&runtime.coreclr_path(), 0x014c);
+        write_profile(&profile).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&fs::read(metadata_path(&dir.0)).unwrap()).unwrap();
+        assert!(saved.get("bepinex_installed").is_none());
+        let restored: ProfileEntry = serde_json::from_value(saved).unwrap();
+        assert_eq!(
+            restored.bepinex_runtime().installed_arch(),
+            Some(BinaryArch::X86)
+        );
+    }
+
+    #[test]
+    fn imported_metadata_ignores_obsolete_runtime_values() {
+        let imported: ImportedMetadata = serde_json::from_value(serde_json::json!({
+            "name": "Imported",
+            "bepinex_installed": {"obsolete": "value"},
+            "mods": {"reactor": "2.0.0"}
+        }))
+        .unwrap();
+        assert_eq!(imported.name.as_deref(), Some("Imported"));
+        assert_eq!(imported.mods.unwrap()["reactor"], "2.0.0");
     }
 
     #[test]

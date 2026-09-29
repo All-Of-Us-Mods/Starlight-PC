@@ -1,9 +1,9 @@
 use super::installation_service::{GAME_EXE_NAME, GameInstallation};
+use crate::backend::binary::{BinaryArch, read_pe_arch};
 use crate::backend::directories;
 use crate::backend::error::AppResult;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 const DEFAULT_BEPINEX_URL_X86: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x86-6.0.0-be.752%2Bdd0655f.zip";
@@ -54,51 +54,12 @@ impl GamePlatform {
     }
 }
 
-/// Architecture of an installed BepInEx build.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BepInExArch {
-    X86,
-    X64,
-}
-
-impl BepInExArch {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            BepInExArch::X86 => "x86",
-            BepInExArch::X64 => "x64",
-        }
-    }
-}
-
 /// Which BepInEx build the game in `among_us_path` needs, read from the PE
 /// header of its executable — platforms have switched bitness between game
 /// updates, so the binary is the only reliable source. Falls back to x64 (what
 /// most platforms ship) when the executable can't be read.
-pub fn game_arch(among_us_path: &str) -> BepInExArch {
-    read_pe_arch(&Path::new(among_us_path.trim()).join(GAME_EXE_NAME)).unwrap_or(BepInExArch::X64)
-}
-
-pub(super) fn read_pe_arch(exe: &Path) -> Option<BepInExArch> {
-    let mut file = fs::File::open(exe).ok()?;
-    let mut dos_header = [0u8; 0x40];
-    file.read_exact(&mut dos_header).ok()?;
-    if &dos_header[..2] != b"MZ" {
-        return None;
-    }
-    let pe_offset = u32::from_le_bytes(dos_header[0x3C..0x40].try_into().ok()?);
-    file.seek(SeekFrom::Start(pe_offset.into())).ok()?;
-    // "PE\0\0" signature, then the COFF header's machine field.
-    let mut pe_header = [0u8; 6];
-    file.read_exact(&mut pe_header).ok()?;
-    if &pe_header[..4] != b"PE\0\0" {
-        return None;
-    }
-    match u16::from_le_bytes([pe_header[4], pe_header[5]]) {
-        0x014c => Some(BepInExArch::X86),
-        0x8664 => Some(BepInExArch::X64),
-        _ => None,
-    }
+pub fn game_arch(among_us_path: &str) -> BinaryArch {
+    read_pe_arch(&Path::new(among_us_path.trim()).join(GAME_EXE_NAME)).unwrap_or(BinaryArch::X64)
 }
 
 /// When the overlay scrollbars are visible.
@@ -210,10 +171,10 @@ pub struct AppSettings {
 }
 
 impl AppSettings {
-    pub fn bepinex_url(&self, arch: BepInExArch) -> &str {
+    pub fn bepinex_url(&self, arch: BinaryArch) -> &str {
         match arch {
-            BepInExArch::X64 => &self.bepinex_url_x64,
-            BepInExArch::X86 => &self.bepinex_url_x86,
+            BinaryArch::X64 => &self.bepinex_url_x64,
+            BinaryArch::X86 => &self.bepinex_url_x86,
         }
     }
 }
@@ -422,7 +383,7 @@ fn remove_single_instance_line(contents: &str) -> Option<String> {
     removed.then_some(updated)
 }
 
-pub fn get_bepinex_cache_path(arch: BepInExArch) -> AppResult<String> {
+pub fn get_bepinex_cache_path(arch: BinaryArch) -> AppResult<String> {
     Ok(directories::app_data_dir()?
         .join("cache")
         .join(format!("bepinex-{}.zip", arch.as_str()))
@@ -487,11 +448,11 @@ mod tests {
         };
 
         exe(0x014c);
-        assert_eq!(game_arch(&game_path), BepInExArch::X86);
+        assert_eq!(game_arch(&game_path), BinaryArch::X86);
         exe(0x8664);
-        assert_eq!(game_arch(&game_path), BepInExArch::X64);
+        assert_eq!(game_arch(&game_path), BinaryArch::X64);
 
         fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(game_arch(&game_path), BepInExArch::X64);
+        assert_eq!(game_arch(&game_path), BinaryArch::X64);
     }
 }

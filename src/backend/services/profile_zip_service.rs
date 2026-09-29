@@ -322,8 +322,7 @@ fn build_sanitized_metadata(profile_dir: &Path) -> AppResult<String> {
     metadata.remove("created_at");
     metadata.remove("total_play_time");
     metadata.remove("last_launched_at");
-    // `bepinex_installed` is passed through as-is (arch string, or a legacy
-    // bool the import-side deserializer converts).
+    metadata.remove("bepinex_installed");
 
     if !metadata.contains_key("name") {
         metadata.insert(
@@ -474,6 +473,7 @@ mod tests {
                 "id": "reactor-1",
                 "path": "C:/somewhere",
                 "name": "Reactor",
+                "bepinex_installed": "x86",
                 "mods": [
                     {"mod_id": "reactor", "version": "2.0.0", "file": "Reactor.dll", "enabled": true},
                     {"mod_id": "custom:Loose.dll", "version": "", "enabled": true}
@@ -487,6 +487,7 @@ mod tests {
 
         assert!(value.get("id").is_none());
         assert!(value.get("path").is_none());
+        assert!(value.get("bepinex_installed").is_none());
         assert_eq!(value["mods"]["reactor"], Value::String("2.0.0".into()));
         assert_eq!(
             value["mod_files"]["reactor"],

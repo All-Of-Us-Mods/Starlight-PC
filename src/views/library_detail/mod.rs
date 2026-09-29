@@ -93,7 +93,7 @@ pub struct LibraryDetailView {
 
 pub(super) enum LoadState {
     Loading,
-    Loaded(ProfileEntry),
+    Loaded(Box<ProfileEntry>),
     NotFound,
     Failed(String),
 }
@@ -144,8 +144,11 @@ impl LibraryDetailView {
                         if matches!(p.target_type, BepInExTargetType::Profile)
                             && p.target_id == id_for_events =>
                     {
-                        let done = p.stage == "complete";
+                        let done = matches!(p.stage.as_str(), "complete" | "failed");
                         let _ = this.update(cx, |this, cx| {
+                            if p.stage == "failed" {
+                                this.launch_error = Some(p.message.clone());
+                            }
                             this.bep_progress = if done { None } else { Some(p) };
                             cx.notify();
                         });
@@ -207,7 +210,7 @@ impl LibraryDetailView {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.state = match result {
-                    Ok(Some(p)) => LoadState::Loaded(p),
+                    Ok(Some(p)) => LoadState::Loaded(Box::new(p)),
                     Ok(None) => LoadState::NotFound,
                     Err(e) => LoadState::Failed(e.to_string()),
                 };
@@ -291,13 +294,23 @@ impl LibraryDetailView {
 
     fn install_bepinex(&mut self, cx: &mut Context<Self>) {
         let id = self.profile_id.clone();
-        cx.background_executor()
-            .spawn(async move {
-                if let Err(e) = profile_service::install_bepinex_for_profile(&id) {
-                    warn!("install_bepinex_for_profile failed: {e}");
-                }
-            })
-            .detach();
+        self.launch_error = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { profile_service::install_bepinex_for_profile(&id) })
+                .await;
+            if let Err(error) = result {
+                warn!("install_bepinex_for_profile failed: {error}");
+                let _ = this.update(cx, |this, cx| {
+                    this.bep_progress = None;
+                    this.launch_error = Some(error.to_string());
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     fn toggle_mod(&mut self, mod_id: String, enabled: bool, cx: &mut Context<Self>) {
@@ -514,7 +527,7 @@ impl LibraryDetailView {
         let LoadState::Loaded(profile) = &self.state else {
             return;
         };
-        let profile = profile.clone();
+        let profile = profile.as_ref().clone();
         self.launch_error = None;
         self.pending_launches += 1;
         cx.notify();
@@ -1063,13 +1076,13 @@ impl LibraryDetailView {
         theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let bep_installed = profile.bepinex_installed.is_some();
+        let bepinex_arch = profile.bepinex_runtime().installed_arch();
         let resolved = profile.launch_settings(app_settings::get(cx));
         let settings = resolved.as_ref().unwrap_or(app_settings::get(cx));
         let platform = settings.game_platform;
         let game_arch = core_service::game_arch(&settings.among_us_path);
-        let needs_bepinex = profile.needs_bepinex(game_arch);
-        let bep_incompatible = bep_installed && needs_bepinex;
+        let needs_bepinex = bepinex_arch != Some(game_arch);
+        let bep_incompatible = bepinex_arch.is_some() && needs_bepinex;
         let install_label = needs_bepinex.then(|| {
             if bep_incompatible {
                 t!("profile.reinstall_bepinex")
@@ -1164,7 +1177,7 @@ impl LibraryDetailView {
                     .to_string(),
                 ),
             )
-            .children((!bep_installed).then(|| {
+            .children(bepinex_arch.is_none().then(|| {
                 div()
                     .mt_1()
                     .flex()

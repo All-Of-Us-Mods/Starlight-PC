@@ -672,11 +672,6 @@ fn allow_multiple_game_processes(settings: &core_service::AppSettings) {
     }
 }
 
-#[cfg(any(windows, target_os = "linux"))]
-const CORECLR_FILE: &str = "coreclr.dll";
-#[cfg(target_os = "macos")]
-const CORECLR_FILE: &str = "libcoreclr.dylib";
-
 pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
     let settings = profile.launch_settings(&core_service::get_settings()?)?;
     if profile.needs_bepinex(core_service::game_arch(&settings.among_us_path)) {
@@ -687,23 +682,10 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
     let game_exe = settings.game_executable()?;
 
     let profile_path = PathBuf::from(&profile.path);
-    let bepinex_dll = profile_path
-        .join("BepInEx")
-        .join("core")
-        .join("BepInEx.Unity.IL2CPP.dll");
-    if !bepinex_dll.exists() {
-        return Err(AppError::validation(
-            "BepInEx DLL not found. Install BepInEx for this profile first.",
-        ));
-    }
-    let dotnet_dir = profile_path.join("dotnet");
-    let coreclr_path = dotnet_dir.join(CORECLR_FILE);
-    if !coreclr_path.exists() {
-        return Err(AppError::validation(format!(
-            "dotnet runtime not found at {}",
-            coreclr_path.display()
-        )));
-    }
+    let runtime = profile.bepinex_runtime();
+    let bepinex_dll = runtime.assembly_path();
+    let dotnet_dir = runtime.dotnet_dir();
+    let coreclr_path = runtime.coreclr_path();
 
     #[cfg(windows)]
     if matches!(settings.game_platform, GamePlatform::Xbox) {

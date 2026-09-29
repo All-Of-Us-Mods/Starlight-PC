@@ -1022,7 +1022,6 @@ mod tests {
             path: String::new(),
             created_at: 0,
             last_launched_at: None,
-            bepinex_installed: None,
             total_play_time: None,
             icon_mode: None,
             custom_icon_extension: None,

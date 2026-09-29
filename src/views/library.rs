@@ -488,6 +488,7 @@ impl LibraryView {
         let settings = resolved.as_ref().unwrap_or(app_settings::get(cx));
         let platform = settings.game_platform;
         let game_arch = core_service::game_arch(&settings.among_us_path);
+        let bepinex_arch = profile.bepinex_runtime().installed_arch();
         let outdated_count = profile
             .mods
             .iter()
@@ -547,8 +548,8 @@ impl LibraryView {
                             .text_color(theme.muted_foreground)
                             .child(label)
                     }))
-                    .children(profile.needs_bepinex(game_arch).then(|| {
-                        let label = match profile.bepinex_installed {
+                    .children((bepinex_arch != Some(game_arch)).then(|| {
+                        let label = match bepinex_arch {
                             None => t!("profile.bepinex_not_installed").to_string(),
                             Some(_) => t!(
                                 "profile.bepinex_incompatible",

@@ -13,6 +13,7 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use log::warn;
 
+use crate::backend::binary::BinaryArch;
 use crate::backend::events::{self, BackendEvent};
 #[cfg(unix)]
 use crate::backend::services::core_service::LinuxRunnerKind;
@@ -20,7 +21,7 @@ use crate::backend::services::core_service::LinuxRunnerKind;
 use crate::backend::services::core_service::ReleaseChannel;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
-    core_service::{self, BepInExArch, GamePlatform, ScrollbarVisibility},
+    core_service::{self, GamePlatform, ScrollbarVisibility},
     finder_service,
 };
 use crate::settings as app_settings;
@@ -112,7 +113,7 @@ fn format_bytes(bytes: u64) -> String {
 /// Build the download/clear row + status description for one BepInEx cache
 /// architecture. The cache is sized once here and reused for both the "Clear"
 /// button's visibility and the description, instead of stat-ing the file twice.
-fn cache_item(arch: BepInExArch, label: gpui_kit::SharedString) -> SettingItem {
+fn cache_item(arch: BinaryArch, label: gpui_kit::SharedString) -> SettingItem {
     let (present, status): (bool, SharedString) = match core_service::get_bepinex_cache_path(arch) {
         Ok(path) => match bepinex_service::cache_size(&path) {
             Some(size) => (
@@ -377,7 +378,7 @@ fn detect_among_us(window: &mut Window, cx: &mut App) {
     }
 }
 
-fn download_bepinex_cache(arch: BepInExArch, window: &mut Window, cx: &mut App) {
+fn download_bepinex_cache(arch: BinaryArch, window: &mut Window, cx: &mut App) {
     let url = app_settings::get(cx).bepinex_url(arch).to_string();
     let cache_path = match core_service::get_bepinex_cache_path(arch) {
         Ok(p) => p,
@@ -427,7 +428,7 @@ fn download_bepinex_cache(arch: BepInExArch, window: &mut Window, cx: &mut App) 
     .detach();
 }
 
-fn clear_bepinex_cache(arch: BepInExArch, window: &mut Window, cx: &mut App) {
+fn clear_bepinex_cache(arch: BinaryArch, window: &mut Window, cx: &mut App) {
     match core_service::get_bepinex_cache_path(arch) {
         Ok(path) => match bepinex_service::clear_cache(path, arch.as_str().to_string()) {
             Ok(()) => window.push_notification(
@@ -655,8 +656,8 @@ impl Render for SettingsView {
                         ),
                     )
                     .description(t!("settings.cache_downloads_desc").to_string()),
-                    cache_item(BepInExArch::X64, t!("settings.cache.x64").into()),
-                    cache_item(BepInExArch::X86, t!("settings.cache.x86").into()),
+                    cache_item(BinaryArch::X64, t!("settings.cache.x64").into()),
+                    cache_item(BinaryArch::X86, t!("settings.cache.x86").into()),
                 ]),
             SettingGroup::new()
                 .title(t!("settings.group.download_urls"))

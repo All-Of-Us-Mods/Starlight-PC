@@ -116,8 +116,10 @@ impl AppSettings {
 mod tests {
     #[test]
     fn linked_installation_resolves_without_changing_default() {
-        let mut settings = super::AppSettings::default();
-        settings.among_us_path = "steam".into();
+        let mut settings = super::AppSettings {
+            among_us_path: "steam".into(),
+            ..Default::default()
+        };
         let mut epic = super::GameInstallation::from_settings(&settings);
         epic.among_us_path = "epic".into();
         epic.game_platform = super::GamePlatform::Epic;
@@ -150,8 +152,10 @@ mod tests {
     fn linking_validates_and_updates_existing_folder() {
         let root = std::env::temp_dir().join(format!("slpc-installs-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        let mut settings = super::AppSettings::default();
-        settings.among_us_path = root.to_string_lossy().into_owned();
+        let mut settings = super::AppSettings {
+            among_us_path: root.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
         assert!(settings.link_current_installation().is_err());
         std::fs::write(root.join("Among Us.exe"), b"test").unwrap();
         settings.link_current_installation().unwrap();
