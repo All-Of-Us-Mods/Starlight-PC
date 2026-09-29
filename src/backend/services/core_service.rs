@@ -79,7 +79,7 @@ pub fn game_arch(among_us_path: &str) -> BepInExArch {
     read_pe_arch(&Path::new(among_us_path.trim()).join(GAME_EXE_NAME)).unwrap_or(BepInExArch::X64)
 }
 
-fn read_pe_arch(exe: &Path) -> Option<BepInExArch> {
+pub(super) fn read_pe_arch(exe: &Path) -> Option<BepInExArch> {
     let mut file = fs::File::open(exe).ok()?;
     let mut dos_header = [0u8; 0x40];
     file.read_exact(&mut dos_header).ok()?;

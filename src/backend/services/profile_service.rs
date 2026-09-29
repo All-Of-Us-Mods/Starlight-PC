@@ -1,5 +1,5 @@
 use crate::backend::error::{AppError, AppResult};
-use crate::backend::services::core_service::{BepInExArch, GamePlatform};
+use crate::backend::services::core_service::BepInExArch;
 use crate::backend::services::{bepinex_service, core_service, profile_zip_service};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -22,16 +22,6 @@ fn default_true() -> bool {
     true
 }
 
-/// Arch assumed for BepInEx installs recorded before arch tracking (legacy
-/// `bepinex_installed: true`): whatever the currently selected platform needed
-/// back then — Steam was 32-bit, Epic and Xbox 64-bit.
-fn legacy_bepinex_arch() -> BepInExArch {
-    match core_service::get_settings().map(|settings| settings.game_platform) {
-        Ok(GamePlatform::Epic | GamePlatform::Xbox) => BepInExArch::X64,
-        _ => BepInExArch::X86,
-    }
-}
-
 fn deserialize_bepinex_installed<'de, D>(deserializer: D) -> Result<Option<BepInExArch>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -45,7 +35,8 @@ where
 
     Ok(match Option::<Compat>::deserialize(deserializer)? {
         Some(Compat::Arch(arch)) => Some(arch),
-        Some(Compat::Legacy(true)) => Some(legacy_bepinex_arch()),
+        // Boolean metadata carries no architecture; resolve from files when loading.
+        Some(Compat::Legacy(true)) => None,
         Some(Compat::Legacy(false)) | None => None,
     })
 }
@@ -79,11 +70,8 @@ pub struct ProfileEntry {
     pub path: String,
     pub created_at: i64,
     pub last_launched_at: Option<i64>,
-    /// Architecture of the BepInEx build installed into this profile, or
-    /// `None` if BepInEx isn't installed. Profiles saved before arch tracking
-    /// stored a bool; a legacy `true` is read as the arch of the currently
-    /// selected platform (those installs were made with that platform's
-    /// build), a legacy `false` as `None`.
+    /// Architecture of the installed runtime, reconciled from the profile's
+    /// binaries on load. Legacy boolean metadata carries no architecture.
     #[serde(default, deserialize_with = "deserialize_bepinex_installed")]
     pub bepinex_installed: Option<BepInExArch>,
     pub total_play_time: Option<i64>,
@@ -177,8 +165,20 @@ fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> AppResult<Option<P
         ))
     })?;
     profile.path = profile_dir.to_string_lossy().to_string();
+    sync_bepinex_arch(&mut profile);
     sync_custom_mods(&mut profile);
     Ok(Some(profile))
+}
+
+/// Profile binaries, not the current store or stale metadata, define the
+/// installed build. Unknown or incomplete installs must be repaired.
+fn sync_bepinex_arch(profile: &mut ProfileEntry) {
+    let root = Path::new(&profile.path);
+    profile.bepinex_installed = root
+        .join("BepInEx/core/BepInEx.Unity.IL2CPP.dll")
+        .is_file()
+        .then(|| core_service::read_pe_arch(&root.join("dotnet/coreclr.dll")))
+        .flatten();
 }
 
 /// Reconcile the mod list with the DLLs actually present in `BepInEx/plugins`.
@@ -464,7 +464,7 @@ pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
     }
 
     // Extracting over the old build would leave its arch-only files behind.
-    if profile.bepinex_installed.is_some() {
+    {
         let profile_path = Path::new(&profile.path);
         for dir in [
             profile_path.join("dotnet"),
@@ -921,9 +921,7 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
             path: profile_path.to_string_lossy().to_string(),
             created_at: timestamp,
             last_launched_at: imported.as_ref().and_then(|item| item.last_launched_at),
-            bepinex_installed: imported
-                .as_ref()
-                .map_or(Some(legacy_bepinex_arch()), |item| item.bepinex_installed),
+            bepinex_installed: imported.as_ref().and_then(|item| item.bepinex_installed),
             total_play_time: Some(0),
             icon_mode: imported.as_ref().and_then(|item| item.icon_mode.clone()),
             custom_icon_extension: imported
@@ -974,6 +972,7 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
                 })
                 .collect(),
         };
+        sync_bepinex_arch(&mut profile);
         normalize_icon_selection(&mut profile);
         if let Err(error) = write_profile(&profile) {
             for path in &created_paths {
@@ -1058,6 +1057,78 @@ mod tests {
             file: Some(file.into()),
             enabled: true,
         }
+    }
+
+    fn write_test_pe(path: &Path, machine: u16) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut bytes = vec![0u8; 0x80];
+        bytes[..2].copy_from_slice(b"MZ");
+        bytes[0x3C..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+        bytes[0x40..0x44].copy_from_slice(b"PE\0\0");
+        bytes[0x44..0x46].copy_from_slice(&machine.to_le_bytes());
+        fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn switching_between_x64_stores_preserves_runtime_incompatibility() {
+        use crate::backend::services::core_service::{AppSettings, GamePlatform};
+        use crate::backend::services::installation_service::GameInstallation;
+        let dir = TempProfileDir::new("store-architecture");
+        let profile = profile_at(&dir, vec![]);
+        fs::create_dir_all(dir.0.join("BepInEx/core")).unwrap();
+        fs::write(
+            dir.0.join("BepInEx/core/BepInEx.Unity.IL2CPP.dll"),
+            b"managed",
+        )
+        .unwrap();
+        write_test_pe(&dir.0.join("dotnet/coreclr.dll"), 0x014c);
+        let mut metadata = serde_json::to_value(&profile).unwrap();
+        // Both old boolean metadata and stale arch metadata must use the real runtime.
+        for stored in [serde_json::json!(true), serde_json::json!("x64")] {
+            metadata["bepinex_installed"] = stored;
+            fs::write(
+                metadata_path(&dir.0),
+                serde_json::to_vec(&metadata).unwrap(),
+            )
+            .unwrap();
+            let mut loaded = parse_profile(&metadata_path(&dir.0), &dir.0)
+                .unwrap()
+                .unwrap();
+            assert_eq!(loaded.bepinex_installed, Some(BepInExArch::X86));
+            let mut settings = AppSettings::default();
+            for platform in [GamePlatform::Steam, GamePlatform::Epic] {
+                let path = dir.0.join(platform.id());
+                write_test_pe(&path.join("Among Us.exe"), 0x8664);
+                settings.among_us_path = path.to_string_lossy().into_owned();
+                settings.game_platform = platform;
+                let install = GameInstallation::from_settings(&settings);
+                loaded.installation_id = Some(install.id.clone());
+                settings.game_installations.push(install);
+                assert!(loaded.needs_bepinex_for_settings(&settings));
+                // Changing and saving the selection must not change the detected build.
+                write_profile(&loaded).unwrap();
+                loaded = parse_profile(&metadata_path(&dir.0), &dir.0)
+                    .unwrap()
+                    .unwrap();
+                assert!(loaded.needs_bepinex_for_settings(&settings));
+            }
+            write_test_pe(&dir.0.join("dotnet/coreclr.dll"), 0x8664);
+            sync_bepinex_arch(&mut loaded);
+            for install in &settings.game_installations {
+                loaded.installation_id = Some(install.id.clone());
+                assert!(!loaded.needs_bepinex_for_settings(&settings));
+            }
+            write_test_pe(&dir.0.join("dotnet/coreclr.dll"), 0x014c);
+        }
+    }
+
+    #[test]
+    fn unreadable_runtime_is_not_inferred_from_metadata() {
+        let dir = TempProfileDir::new("unknown-runtime");
+        let mut profile = profile_at(&dir, vec![]);
+        sync_bepinex_arch(&mut profile);
+        assert_eq!(profile.bepinex_installed, None);
+        assert!(profile.needs_bepinex(BepInExArch::X64));
     }
 
     #[test]
