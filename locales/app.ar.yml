@@ -273,7 +273,6 @@ titlebar:
   stop_count: "إيقاف (%{count})"
   launch: "تشغيل %{name}"
   launch_failed: "فشل التشغيل: %{error}"
-  stop_failed: "فشل الإيقاف: %{error}"
 
 update:
   available: "يتوفر Starlight %{version}."

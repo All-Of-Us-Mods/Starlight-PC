@@ -6,7 +6,7 @@ use std::fs;
 use std::path::Path;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug)]
 pub struct ModDownloadProgress {
     pub mod_id: String,
     pub progress: f64,

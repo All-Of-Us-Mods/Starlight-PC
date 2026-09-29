@@ -534,13 +534,11 @@ mod tests {
         let dependencies = vec![
             ModDependency {
                 mod_id: "optional-mod".into(),
-                name: "Optional".into(),
                 version_constraint: "*".into(),
                 dependency_type: "optional".into(),
             },
             ModDependency {
                 mod_id: "root-mod".into(),
-                name: "Root".into(),
                 version_constraint: "*".into(),
                 dependency_type: "required".into(),
             },
@@ -558,7 +556,6 @@ mod tests {
     fn pinned_batch_root_must_satisfy_incoming_constraint() {
         let dependency = ModDependency {
             mod_id: "shared-root".into(),
-            name: "Shared Root".into(),
             version_constraint: "^1.0".into(),
             dependency_type: "required".into(),
         };

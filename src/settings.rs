@@ -1,16 +1,10 @@
-//! Global mirror of the on-disk `AppSettings`.
-//!
-//! gpui-component's `Settings` widget wants `Fn(&App) -> T` value
-//! readers and `Fn(T, &mut App)` setters. Routing those through a
-//! `Context<SettingsView>` is awkward, so we keep the settings in a
-//! gpui `Global` and have closures read/write the global directly. The
-//! setter helper [`update`] also persists to disk through
-//! `core_service::update_settings`.
+//! The on-disk `AppSettings`, mirrored in a global so the Settings widget's
+//! `Fn(&App)` readers and setters can reach it.
 
 use gpui_kit::{App, Global};
 use log::warn;
 
-use crate::backend::services::core_service::{self, AppSettings, AppSettingsPatch};
+use crate::backend::services::core_service::{self, AppSettings};
 
 pub struct SettingsGlobal(pub AppSettings);
 
@@ -25,16 +19,10 @@ pub fn get(cx: &App) -> &AppSettings {
     &cx.global::<SettingsGlobal>().0
 }
 
-/// Apply `patch`, persist to disk, then write the result back to the
-/// global. Errors are logged but not surfaced to the caller — settings
-/// fields don't have a great way to report them inline.
-pub fn update(cx: &mut App, patch: AppSettingsPatch) {
-    match core_service::update_settings(patch) {
-        Ok(new_settings) => {
-            cx.set_global(SettingsGlobal(new_settings));
-        }
-        Err(e) => {
-            warn!("update_settings failed: {e}");
-        }
+/// Edit, persist, and republish the settings. Failures are only logged.
+pub fn update(cx: &mut App, edit: impl FnOnce(&mut AppSettings)) {
+    match core_service::update_settings(edit) {
+        Ok(settings) => cx.set_global(SettingsGlobal(settings)),
+        Err(e) => warn!("update_settings failed: {e}"),
     }
 }

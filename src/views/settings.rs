@@ -18,7 +18,7 @@ use crate::backend::services::core_service::LinuxRunnerKind;
 use crate::backend::services::core_service::ReleaseChannel;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
-    core_service::{self, AppSettingsPatch, BepInExArch, GamePlatform, ScrollbarVisibility},
+    core_service::{self, BepInExArch, GamePlatform, ScrollbarVisibility},
     finder_service,
 };
 use crate::settings as app_settings;
@@ -148,77 +148,19 @@ fn cache_item(arch: BepInExArch, label: gpui_kit::SharedString) -> SettingItem {
     .description(status)
 }
 
-// ---------- patch helpers (used by setter closures) ----------
-
-fn patch_among_us_path(value: SharedString, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            among_us_path: Some(value.to_string()),
-            ..Default::default()
-        },
-    );
-}
-
-fn patch_close_on_launch(value: bool, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            close_on_launch: Some(value),
-            ..Default::default()
-        },
-    );
-}
-
-fn patch_multi_instance(value: bool, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            allow_multi_instance_launch: Some(value),
-            ..Default::default()
-        },
-    );
-}
-
-fn patch_cache_bepinex(value: bool, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            cache_bepinex: Some(value),
-            ..Default::default()
-        },
-    );
-}
-
 fn patch_platform(value: SharedString, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            game_platform: GamePlatform::from_id(&value),
-            ..Default::default()
-        },
-    );
+    if let Some(platform) = GamePlatform::from_id(&value) {
+        app_settings::update(cx, |s| s.game_platform = platform);
+    }
 }
 
 fn patch_theme_name(value: SharedString, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            theme_name: Some(value.to_string()),
-            ..Default::default()
-        },
-    );
+    app_settings::update(cx, |s| s.theme_name = value.to_string());
     crate::theme::apply(cx, &value);
 }
 
 fn patch_language(value: SharedString, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            language: Some(value.to_string()),
-            ..Default::default()
-        },
-    );
+    app_settings::update(cx, |s| s.language = value.to_string());
     rust_i18n::set_locale(&value);
     // The sidebar and title bar live outside this view's tree and don't
     // observe settings, so force everything to re-render in the new locale.
@@ -226,13 +168,7 @@ fn patch_language(value: SharedString, cx: &mut App) {
 }
 
 fn patch_show_stars_background(value: bool, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            show_stars_background: Some(value),
-            ..Default::default()
-        },
-    );
+    app_settings::update(cx, |s| s.show_stars_background = value);
     // The stars layer lives in the workspace, which doesn't observe settings.
     cx.refresh_windows();
 }
@@ -243,13 +179,7 @@ fn patch_scrollbar_visibility(value: SharedString, cx: &mut App) {
         "always" => ScrollbarVisibility::Always,
         _ => ScrollbarVisibility::Scrolling,
     };
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            scrollbar_visibility: Some(visibility),
-            ..Default::default()
-        },
-    );
+    app_settings::update(cx, |s| s.scrollbar_visibility = visibility);
     crate::theme::apply_scrollbar_visibility(cx);
     cx.refresh_windows();
 }
@@ -260,33 +190,7 @@ fn patch_release_channel(value: SharedString, cx: &mut App) {
         "nightly" => ReleaseChannel::Nightly,
         _ => ReleaseChannel::Stable,
     };
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            release_channel: Some(channel),
-            ..Default::default()
-        },
-    );
-}
-
-fn patch_bepinex_url_x64(value: SharedString, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            bepinex_url_x64: Some(value.to_string()),
-            ..Default::default()
-        },
-    );
-}
-
-fn patch_bepinex_url_x86(value: SharedString, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            bepinex_url_x86: Some(value.to_string()),
-            ..Default::default()
-        },
-    );
+    app_settings::update(cx, |s| s.release_channel = channel);
 }
 
 #[cfg(unix)]
@@ -296,68 +200,7 @@ fn patch_linux_runner_kind(value: SharedString, cx: &mut App) {
         "steam" => LinuxRunnerKind::Steam,
         _ => LinuxRunnerKind::Proton,
     };
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            linux_runner_kind: Some(kind),
-            ..Default::default()
-        },
-    );
-}
-
-#[cfg(unix)]
-fn patch_linux_runner_binary(value: SharedString, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            linux_runner_binary: Some(value.to_string()),
-            ..Default::default()
-        },
-    );
-}
-
-#[cfg(unix)]
-fn patch_linux_wine_prefix(value: SharedString, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            linux_wine_prefix: Some(value.to_string()),
-            ..Default::default()
-        },
-    );
-}
-
-#[cfg(unix)]
-fn patch_linux_wine_region_info_path(value: SharedString, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            linux_wine_region_info_path: Some(value.to_string()),
-            ..Default::default()
-        },
-    );
-}
-
-#[cfg(unix)]
-fn patch_linux_proton_compat_data_path(value: SharedString, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            linux_proton_compat_data_path: Some(value.to_string()),
-            ..Default::default()
-        },
-    );
-}
-
-#[cfg(unix)]
-fn patch_linux_proton_use_steam_run(value: bool, cx: &mut App) {
-    app_settings::update(
-        cx,
-        AppSettingsPatch {
-            linux_proton_use_steam_run: Some(value),
-            ..Default::default()
-        },
-    );
+    app_settings::update(cx, |s| s.linux_runner_kind = kind);
 }
 
 // ---------- path input field (Input + Browse button, two-way bound) ----------
@@ -470,26 +313,16 @@ fn detect_linux_runtime(window: &mut Window, cx: &mut App) {
     let path_arg = (!among_us_path.trim().is_empty()).then_some(among_us_path);
     match finder_service::detect_linux_runner(path_arg) {
         Ok(detection) => {
-            let kind = match detection.runner_kind.as_str() {
-                "wine" => LinuxRunnerKind::Wine,
-                _ => LinuxRunnerKind::Proton,
-            };
-            app_settings::update(
-                cx,
-                AppSettingsPatch {
-                    linux_runner_kind: Some(kind),
-                    linux_runner_binary: Some(detection.runner_binary.unwrap_or_default()),
-                    linux_wine_prefix: Some(detection.wine_prefix.unwrap_or_default()),
-                    linux_proton_compat_data_path: Some(
-                        detection.proton_compat_data_path.unwrap_or_default(),
-                    ),
-                    linux_proton_steam_client_path: Some(
-                        detection.proton_steam_client_path.unwrap_or_default(),
-                    ),
-                    linux_proton_use_steam_run: Some(detection.proton_use_steam_run),
-                    ..Default::default()
-                },
-            );
+            app_settings::update(cx, |s| {
+                s.linux_runner_kind = detection.runner_kind;
+                s.linux_runner_binary = detection.runner_binary.unwrap_or_default();
+                s.linux_wine_prefix = detection.wine_prefix.unwrap_or_default();
+                s.linux_proton_compat_data_path =
+                    detection.proton_compat_data_path.unwrap_or_default();
+                s.linux_proton_steam_client_path =
+                    detection.proton_steam_client_path.unwrap_or_default();
+                s.linux_proton_use_steam_run = detection.proton_use_steam_run;
+            });
             window.push_notification(
                 Notification::success(t!("settings.linux.detected").to_string()),
                 cx,
@@ -509,14 +342,12 @@ fn detect_among_us(window: &mut Window, cx: &mut App) {
     match finder_service::detect_among_us_installation() {
         Ok(Some(path)) => {
             let detected_platform = finder_service::detect_game_store(&path).ok();
-            app_settings::update(
-                cx,
-                AppSettingsPatch {
-                    among_us_path: Some(path.clone()),
-                    game_platform: detected_platform,
-                    ..Default::default()
-                },
-            );
+            app_settings::update(cx, |s| {
+                s.among_us_path = path.clone();
+                if let Some(platform) = detected_platform {
+                    s.game_platform = platform;
+                }
+            });
             let msg = match detected_platform {
                 Some(p) => t!(
                     "settings.detected_store",
@@ -655,7 +486,9 @@ impl Render for SettingsView {
                             "among-us",
                             true,
                             |cx| app_settings::get(cx).among_us_path.clone().into(),
-                            patch_among_us_path,
+                            |value, cx| {
+                                app_settings::update(cx, |s| s.among_us_path = value.to_string())
+                            },
                         ),
                     )
                     .description(t!("settings.among_us_path_desc").to_string()),
@@ -696,7 +529,7 @@ impl Render for SettingsView {
                 t!("settings.close_on_launch"),
                 SettingField::switch(
                     |cx| app_settings::get(cx).close_on_launch,
-                    patch_close_on_launch,
+                    |value, cx| app_settings::update(cx, |s| s.close_on_launch = value),
                 ),
             )
             .description(t!("settings.close_on_launch_desc").to_string()),
@@ -704,7 +537,7 @@ impl Render for SettingsView {
                 t!("settings.multi_instance"),
                 SettingField::switch(
                     |cx| app_settings::get(cx).allow_multi_instance_launch,
-                    patch_multi_instance,
+                    |value, cx| app_settings::update(cx, |s| s.allow_multi_instance_launch = value),
                 ),
             )
             .description(t!("settings.multi_instance_desc").to_string()),
@@ -803,7 +636,7 @@ impl Render for SettingsView {
                         t!("settings.cache_downloads"),
                         SettingField::switch(
                             |cx| app_settings::get(cx).cache_bepinex,
-                            patch_cache_bepinex,
+                            |value, cx| app_settings::update(cx, |s| s.cache_bepinex = value),
                         ),
                     )
                     .description(t!("settings.cache_downloads_desc").to_string()),
@@ -818,14 +651,18 @@ impl Render for SettingsView {
                         t!("settings.bepinex_x64_url"),
                         SettingField::input(
                             |cx| app_settings::get(cx).bepinex_url_x64.clone().into(),
-                            patch_bepinex_url_x64,
+                            |value, cx| {
+                                app_settings::update(cx, |s| s.bepinex_url_x64 = value.to_string())
+                            },
                         ),
                     ),
                     stacked_item(
                         t!("settings.bepinex_x86_url"),
                         SettingField::input(
                             |cx| app_settings::get(cx).bepinex_url_x86.clone().into(),
-                            patch_bepinex_url_x86,
+                            |value, cx| {
+                                app_settings::update(cx, |s| s.bepinex_url_x86 = value.to_string())
+                            },
                         ),
                     ),
                 ]),
@@ -870,7 +707,9 @@ impl Render for SettingsView {
                     "linux-runner-binary",
                     false,
                     |cx| app_settings::get(cx).linux_runner_binary.clone().into(),
-                    patch_linux_runner_binary,
+                    |value, cx| {
+                        app_settings::update(cx, |s| s.linux_runner_binary = value.to_string())
+                    },
                 ),
             );
 
@@ -880,7 +719,9 @@ impl Render for SettingsView {
                     "linux-wine-prefix",
                     true,
                     |cx| app_settings::get(cx).linux_wine_prefix.clone().into(),
-                    patch_linux_wine_prefix,
+                    |value, cx| {
+                        app_settings::update(cx, |s| s.linux_wine_prefix = value.to_string())
+                    },
                 ),
             );
 
@@ -895,7 +736,11 @@ impl Render for SettingsView {
                             .clone()
                             .into()
                     },
-                    patch_linux_wine_region_info_path,
+                    |value, cx| {
+                        app_settings::update(cx, |s| {
+                            s.linux_wine_region_info_path = value.to_string()
+                        })
+                    },
                 ),
             )
             .description(t!("settings.linux.region_info_desc").to_string());
@@ -911,7 +756,11 @@ impl Render for SettingsView {
                             .clone()
                             .into()
                     },
-                    patch_linux_proton_compat_data_path,
+                    |value, cx| {
+                        app_settings::update(cx, |s| {
+                            s.linux_proton_compat_data_path = value.to_string()
+                        })
+                    },
                 ),
             )
             .description(t!("settings.linux.proton_compat_desc").to_string());
@@ -920,7 +769,7 @@ impl Render for SettingsView {
                 t!("settings.linux.steam_run"),
                 SettingField::switch(
                     |cx| app_settings::get(cx).linux_proton_use_steam_run,
-                    patch_linux_proton_use_steam_run,
+                    |value, cx| app_settings::update(cx, |s| s.linux_proton_use_steam_run = value),
                 ),
             )
             .description(t!("settings.linux.steam_run_desc").to_string());

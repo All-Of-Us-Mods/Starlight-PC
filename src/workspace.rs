@@ -116,7 +116,6 @@ pub struct Workspace {
     /// Live game-instance counts (from `GameStateChanged`); when `running_count`
     /// is non-zero the title-bar button becomes a red "Stop".
     running_count: usize,
-    stoppable_count: usize,
     /// Width the sidebar has been dragged to. Tracks the cursor live while
     /// dragging and is written back to settings on release; below
     /// [`SIDEBAR_COLLAPSE_WIDTH`] the sidebar renders as an icon rail.
@@ -201,7 +200,6 @@ impl Workspace {
                     BackendEvent::GameStateChanged(payload) => {
                         let _ = this.update(cx, |this, cx| {
                             this.running_count = payload.running_count;
-                            this.stoppable_count = payload.stoppable_running_count;
                             cx.notify();
                         });
                     }
@@ -238,7 +236,6 @@ impl Workspace {
             settings,
             last_launched: None,
             running_count: initial.running_count,
-            stoppable_count: initial.stoppable_running_count,
             sidebar_width: app_settings::get(cx).sidebar_width,
             sidebar_resizing: false,
             stars: cx.new(StarsBackground::new),
@@ -249,7 +246,6 @@ impl Workspace {
     /// auto-detect the installation in the background so launching works out
     /// of the box, and tell the user either way.
     fn first_run_detect_game(window: &mut Window, cx: &mut Context<Self>) {
-        use crate::backend::services::core_service::AppSettingsPatch;
         use crate::backend::services::finder_service;
 
         if !app_settings::get(cx).among_us_path.trim().is_empty() {
@@ -271,14 +267,12 @@ impl Workspace {
                 .await;
             let _ = window_handle.update(cx, |_, window, cx| match detection {
                 Some((path, store)) => {
-                    app_settings::update(
-                        cx,
-                        AppSettingsPatch {
-                            among_us_path: Some(path.clone()),
-                            game_platform: store,
-                            ..Default::default()
-                        },
-                    );
+                    app_settings::update(cx, |s| {
+                        s.among_us_path = path.clone();
+                        if let Some(platform) = store {
+                            s.game_platform = platform;
+                        }
+                    });
                     window.push_notification(
                         Notification::success(
                             t!("notify.among_us_detected", path = path).to_string(),
@@ -612,13 +606,7 @@ impl Workspace {
         }
         self.sidebar_resizing = false;
         let width = self.sidebar_width;
-        app_settings::update(
-            cx,
-            crate::backend::services::core_service::AppSettingsPatch {
-                sidebar_width: Some(width),
-                ..Default::default()
-            },
-        );
+        app_settings::update(cx, |s| s.sidebar_width = width);
         cx.notify();
     }
 
@@ -720,18 +708,12 @@ impl Workspace {
             } else {
                 t!("common.stop").to_string()
             };
-            let mut btn = Button::new("titlebar-launch")
+            Button::new("titlebar-launch")
                 .danger()
                 .small()
                 .icon(Icon::new(IconName::Close))
-                .label(label);
-            if self.stoppable_count == 0 {
-                // Only UWP instances are tracked — they can't be stopped here.
-                btn = btn.disabled(true);
-            } else {
-                btn = btn.on_click(cx.listener(|this, _, window, cx| this.stop_all(window, cx)));
-            }
-            btn
+                .label(label)
+                .on_click(cx.listener(|this, _, _window, cx| this.stop_all(cx)))
         } else {
             let name = self.last_launched.as_ref()?.name.clone();
             Button::new("titlebar-launch")
@@ -774,25 +756,11 @@ impl Workspace {
         .detach();
     }
 
-    /// Stop all running game instances, surfacing failures as a notification.
-    fn stop_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let window_handle = window.window_handle();
-        cx.spawn(async move |_this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async { game_runtime::stop_all_tracked_instances() })
-                .await;
-            if let Err(e) = result {
-                warn!("Title-bar stop failed: {e}");
-                let _ = window_handle.update(cx, |_, window, cx| {
-                    window.push_notification(
-                        Notification::error(t!("titlebar.stop_failed", error = e).to_string()),
-                        cx,
-                    );
-                });
-            }
-        })
-        .detach();
+    /// Stop all running game instances.
+    fn stop_all(&mut self, cx: &mut Context<Self>) {
+        cx.background_executor()
+            .spawn(async { game_runtime::stop_all_tracked_instances() })
+            .detach();
     }
 
     fn render_content(&self) -> AnyElement {

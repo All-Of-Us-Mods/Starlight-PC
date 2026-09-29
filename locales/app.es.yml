@@ -253,7 +253,6 @@ titlebar:
   stop_count: "Detener (%{count})"
   launch: "Iniciar %{name}"
   launch_failed: "Error al iniciar: %{error}"
-  stop_failed: "Error al detener: %{error}"
 update:
   available: "Starlight %{version} está disponible."
   title: Actualización disponible

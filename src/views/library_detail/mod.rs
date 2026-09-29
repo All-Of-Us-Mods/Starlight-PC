@@ -68,7 +68,6 @@ pub struct LibraryDetailView {
     export_progress: Option<f64>,
     pub(super) icon_dialog: Option<IconDialogState>,
     running_count: usize,
-    stoppable_count: usize,
     /// Launches the user has requested but that haven't shown up in a backend
     /// GameStateChanged yet (launches are serialized, and one that needs its
     /// own copy of the profile spends a moment preparing it). Added on top of
@@ -112,7 +111,6 @@ impl LibraryDetailView {
             export_progress: None,
             icon_dialog: None,
             running_count: 0,
-            stoppable_count: 0,
             pending_launches: 0,
             log_panel,
             mod_names: mod_catalog_cache::cached_names(),
@@ -160,11 +158,6 @@ impl LibraryDetailView {
                             .get(&id_for_events)
                             .copied()
                             .unwrap_or(0);
-                        let stoppable = payload
-                            .stoppable_profile_instance_counts
-                            .get(&id_for_events)
-                            .copied()
-                            .unwrap_or(0);
                         let _ = this.update(cx, |this, cx| {
                             // A real instance appearing settles one pending launch.
                             if running > this.running_count {
@@ -173,7 +166,6 @@ impl LibraryDetailView {
                                     .saturating_sub(running - this.running_count);
                             }
                             this.running_count = running;
-                            this.stoppable_count = stoppable;
                             cx.notify();
                             // Game state change ≈ new log content / mod changes.
                             this.refresh_disk_state(cx);
@@ -550,23 +542,12 @@ impl LibraryDetailView {
         // in the backend so they abort instead of spawning.
         self.pending_launches = 0;
         cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    launch_service::cancel_pending_launches(&id);
-                    game_runtime::stop_profile_instances(&id)
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Err(e) = result {
-                    warn!("stop failed: {e}");
-                    this.launch_error = Some(e.to_string());
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+        cx.background_executor()
+            .spawn(async move {
+                launch_service::cancel_pending_launches(&id);
+                game_runtime::stop_profile_instances(&id);
+            })
+            .detach();
     }
 
     /// Deleting a profile wipes its mods and logs, so it goes through a
@@ -965,10 +946,8 @@ impl LibraryDetailView {
         theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        // Pending launches count as running: Stop cancels them too.
         let running = self.running_count + self.pending_launches;
-        // Pending launches can be cancelled by Stop, so count them as
-        // stoppable too.
-        let stoppable = self.stoppable_count + self.pending_launches;
         let allow_multi = app_settings::get(cx).allow_multi_instance_launch;
 
         if installing {
@@ -1000,22 +979,17 @@ impl LibraryDetailView {
                         .on_click(cx.listener(|this, _, _window, cx| this.launch(cx))),
                 );
             } else {
-                let stop_label = if stoppable > 1 {
-                    t!("titlebar.stop_count", count = stoppable).to_string()
+                let stop_label = if running > 1 {
+                    t!("titlebar.stop_count", count = running).to_string()
                 } else {
                     t!("common.stop").to_string()
                 };
-                let mut stop_btn = Button::new("stop")
+                let stop_btn = Button::new("stop")
                     .danger()
                     .large()
                     .icon(Icon::new(IconName::Close))
-                    .label(stop_label);
-                if stoppable == 0 {
-                    // Only UWP instances — can't stop those.
-                    stop_btn = stop_btn.disabled(true);
-                } else {
-                    stop_btn = stop_btn.on_click(cx.listener(|this, _, _window, cx| this.stop(cx)));
-                }
+                    .label(stop_label)
+                    .on_click(cx.listener(|this, _, _window, cx| this.stop(cx)));
                 if allow_multi {
                     row = row.child(
                         div()

@@ -1,22 +1,19 @@
 use crate::backend::error::AppResult;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 pub const DEFAULT_API_BASE_URL: &str = "https://starlight.allofus.dev";
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Post {
     pub id: u32,
     pub title: String,
     pub author: String,
     pub content: String,
-    pub tags: Option<Vec<String>>,
-    pub created_at: i64,
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ModResponse {
-    pub status: Option<String>,
     pub id: String,
     pub name: String,
     pub description: String,
@@ -31,33 +28,28 @@ pub struct ModResponse {
     pub downloads: u64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ExternalLink {
     #[serde(rename = "type")]
     pub link_type: String,
     pub url: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ModVersion {
-    pub status: Option<String>,
-    pub name: String,
     pub version: String,
-    pub supported_platforms: Option<Vec<String>>,
-    pub downloads: u64,
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ModDependency {
     pub mod_id: String,
-    pub name: String,
     pub version_constraint: String,
     #[serde(rename = "type")]
     pub dependency_type: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct PlatformDownload {
     pub platform: String,
     pub architecture: String,
@@ -66,14 +58,8 @@ pub struct PlatformDownload {
     pub download_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ModVersionInfo {
-    pub status: Option<String>,
-    pub name: String,
-    pub version: String,
-    pub supported_platforms: Option<Vec<String>>,
-    pub downloads: u64,
-    pub created_at: i64,
     pub changelog: Option<String>,
     pub dependencies: Vec<ModDependency>,
     pub file_name: Option<String>,
@@ -84,7 +70,7 @@ pub struct ModVersionInfo {
 
 /// A community server from the Starlight servers API, addable as an in-game
 /// Among Us region via `region_service`.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Server {
     pub id: u32,
     pub name: String,
@@ -98,7 +84,7 @@ pub struct Server {
 /// Response of the optional public lobby list endpoint (`/x-api/games`) that
 /// some modded servers implement. See `hpllp013.yaml`. All fields are optional
 /// so a server returning a partial payload still deserializes.
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct GamesResult {
     #[serde(default)]
     pub games: Vec<Game>,
@@ -107,7 +93,7 @@ pub struct GamesResult {
 }
 
 /// A single active game (lobby) advertised by a server's lobby list.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Game {
     #[serde(default)]
     pub code: Option<String>,
@@ -121,8 +107,6 @@ pub struct Game {
     #[serde(default)]
     pub max_players: Option<u32>,
     #[serde(default)]
-    pub chat_lang: Option<i64>,
-    #[serde(default)]
     pub map_id: Option<u32>,
     /// Matches an `id` in the response's `regions` list.
     #[serde(default)]
@@ -133,26 +117,22 @@ pub struct Game {
 
 /// A mod a lobby requires. `id`/`version` match the Starlight catalog so they
 /// can be passed straight to the mod install pipeline.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct LobbyMod {
     #[serde(default)]
     pub id: Option<String>,
     #[serde(default)]
     pub version: Option<String>,
-    #[serde(default)]
-    pub flags: Option<i64>,
 }
 
 /// A region as described by a server's lobby list (distinct from Among Us'
 /// local `regionInfo.json` regions). Used to label a lobby's `region_id`.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct LobbyRegion {
     #[serde(default)]
     pub id: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
-    #[serde(default)]
-    pub url: Option<String>,
 }
 
 fn get_json<T: for<'de> Deserialize<'de>>(url: &str) -> AppResult<T> {
