@@ -269,11 +269,11 @@ update:
   up_to_date: Starlight is up to date.
   check_failed: "Update check failed: %{error}"
 settings:
-  multiple_installations: Multiple game installations
-  multiple_installations_desc: Show linked installation controls and the launch selector on profiles. Hiding these controls keeps saved installation choices active.
+  multiple_installations: Multiple installations
+  multiple_installations_desc: Show installation controls and profile selectors. Saved choices stay active when hidden.
   linked_installs: Linked installations
-  link_install: Link current installation
-  link_install_desc: Set the game folder, platform, and launch options in Settings, then link it. Repeat for each installation. Linking the same folder updates its saved options.
+  link_install: Link installation
+  link_install_desc: Save the current game and launch settings. Relink to update.
   unlink_install: Unlink
   page:
     game: Game

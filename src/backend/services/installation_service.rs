@@ -41,7 +41,7 @@ impl GameInstallation {
 
     pub fn label(&self) -> String {
         format!(
-            "{} — {}",
+            "{} ({})",
             self.game_platform.display_name(),
             self.among_us_path
         )
