@@ -681,7 +681,6 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
     }
     let game_exe = settings.game_executable()?;
 
-    let profile_path = PathBuf::from(&profile.path);
     let runtime = profile.bepinex_runtime();
     let bepinex_dll = runtime.assembly_path();
     let dotnet_dir = runtime.dotnet_dir();
@@ -691,7 +690,7 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
     if matches!(settings.game_platform, GamePlatform::Xbox) {
         let app_id = ensure_xbox_app_id(&settings)?;
         let game_dir = game_exe.parent().expect("game_exe has a parent");
-        xbox_service::prepare_xbox_launch(&profile_path, game_dir)?;
+        xbox_service::prepare_xbox_launch(runtime.root(), game_dir)?;
         xbox_service::launch_xbox(&app_id)?;
         if let Err(e) = crate::backend::services::profile_service::update_last_launched(&profile.id)
         {
