@@ -448,6 +448,14 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
         .ok_or_else(|| AppError::validation("Invalid game path"))?
         .to_path_buf();
 
+    #[cfg(target_os = "linux")]
+    if matches!(args.runner, LinuxRunner::Steam { .. }) {
+        super::steam_installation::validate_directory(
+            &game_dir,
+            &super::finder_service::linux_steam_roots(),
+        )?;
+    }
+
     let cancel_gen = cancel_generation(&args.profile_id);
     let _launch_guard = LAUNCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if cancel_generation(&args.profile_id) != cancel_gen {
@@ -547,6 +555,14 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
         .parent()
         .ok_or_else(|| AppError::validation("Invalid game path"))?
         .to_path_buf();
+
+    #[cfg(target_os = "linux")]
+    if matches!(args.runner, LinuxRunner::Steam { .. }) {
+        super::steam_installation::validate_directory(
+            &game_dir,
+            &super::finder_service::linux_steam_roots(),
+        )?;
+    }
 
     let _launch_guard = LAUNCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 

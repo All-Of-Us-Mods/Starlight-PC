@@ -31,12 +31,7 @@ impl LibraryDetailView {
             )
             .dropdown_menu(move |mut menu, _, _| {
                 let options = std::iter::once((None, t!("profile.default_install").to_string()))
-                    .chain(installs.iter().map(|i| {
-                        (
-                            Some(i.id.clone()),
-                            i.game_platform.display_name().to_string(),
-                        )
-                    }));
+                    .chain(installs.iter().map(|i| (Some(i.id.clone()), i.label())));
                 for (id, label) in options {
                     let view = view.clone();
                     menu = menu.item(PopupMenuItem::new(label).checked(id == selected).on_click(

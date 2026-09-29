@@ -123,6 +123,8 @@ impl LibraryDetailView {
         };
 
         view.spawn_load(cx);
+        cx.observe_global::<app_settings::SettingsGlobal>(|_, cx| cx.notify())
+            .detach();
 
         // Reload when the window regains focus, so a DLL dropped into
         // BepInEx/plugins via the file manager shows up without leaving and
@@ -957,6 +959,7 @@ impl LibraryDetailView {
         // `Some` when BepInEx must be (re)installed before launching.
         install_label: Option<Cow<'static, str>>,
         installing: bool,
+        installation_available: bool,
         theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
@@ -973,6 +976,7 @@ impl LibraryDetailView {
                     .large()
                     .icon(Icon::new(AppIcon::Download))
                     .label(label)
+                    .disabled(!installation_available)
                     .on_click(cx.listener(|this, _, _window, cx| this.install_bepinex(cx)))
                     .into_any_element(),
             )
@@ -990,6 +994,7 @@ impl LibraryDetailView {
                         .large()
                         .icon(Icon::new(IconName::Play))
                         .label(t!("lobbies.launch"))
+                        .disabled(!installation_available)
                         .on_click(cx.listener(|this, _, _window, cx| this.launch(cx))),
                 );
             } else {
@@ -1017,6 +1022,7 @@ impl LibraryDetailView {
                             .large()
                             .icon(Icon::new(IconName::Play))
                             .label(t!("profile.launch_another"))
+                            .disabled(!installation_available)
                             .on_click(cx.listener(|this, _, _window, cx| this.launch(cx))),
                     );
                 }
@@ -1078,10 +1084,14 @@ impl LibraryDetailView {
     ) -> AnyElement {
         let bepinex_arch = profile.bepinex_runtime().installed_arch();
         let resolved = profile.launch_settings(app_settings::get(cx));
-        let settings = resolved.as_ref().unwrap_or(app_settings::get(cx));
-        let platform = settings.game_platform;
-        let game_arch = core_service::game_arch(&settings.among_us_path);
-        let needs_bepinex = bepinex_arch != Some(game_arch);
+        let missing_installation = resolved.is_err();
+        let platform_name = resolved
+            .as_ref()
+            .map(|settings| settings.game_platform.display_name())
+            .unwrap_or_default();
+        let needs_bepinex = resolved.as_ref().is_ok_and(|settings| {
+            bepinex_arch != Some(core_service::game_arch(&settings.among_us_path))
+        });
         let bep_incompatible = bepinex_arch.is_some() && needs_bepinex;
         let install_label = needs_bepinex.then(|| {
             if bep_incompatible {
@@ -1091,7 +1101,13 @@ impl LibraryDetailView {
             }
         });
         let installing = self.bep_progress.is_some();
-        let primary_controls = self.render_primary_controls(install_label, installing, theme, cx);
+        let primary_controls = self.render_primary_controls(
+            install_label,
+            installing,
+            !missing_installation,
+            theme,
+            cx,
+        );
         let manage_buttons = self.render_manage_buttons(cx);
 
         let launch_err = self.launch_error.clone().map(|msg| {
@@ -1197,13 +1213,7 @@ impl LibraryDetailView {
                     .text_xs()
                     .text_color(theme.warning)
                     .child(Icon::new(IconName::TriangleAlert).xsmall())
-                    .child(
-                        t!(
-                            "profile.bepinex_incompatible",
-                            platform = platform.display_name()
-                        )
-                        .to_string(),
-                    )
+                    .child(t!("profile.bepinex_incompatible", platform = platform_name).to_string())
             }));
 
         div()
@@ -1257,17 +1267,27 @@ impl LibraryDetailView {
                     .child(title_col)
                     .children(primary_controls.map(|c| div().flex_none().child(c))),
             )
-            .when(app_settings::get(cx).show_installation_controls, |hero| {
-                hero.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(t!("profile.launch_using").to_string())
-                        .child(self.installation_picker(profile, cx)),
-                )
-            })
+            .when(
+                app_settings::get(cx).show_installation_controls || missing_installation,
+                |hero| {
+                    hero.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(t!("profile.launch_using").to_string())
+                            .child(self.installation_picker(profile, cx)),
+                    )
+                },
+            )
             .children(progress_row)
+            .children(missing_installation.then(|| {
+                Alert::error(
+                    "profile-missing-installation",
+                    t!("profile.missing_install").to_string(),
+                )
+                .small()
+            }))
             .children(launch_err)
             .children(notice)
             // Secondary profile actions live in a quiet toolbar under a

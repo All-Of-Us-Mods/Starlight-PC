@@ -1,5 +1,6 @@
 //! Settings controls for linking and unlinking game installations.
 use super::*;
+use crate::backend::services::profile_service;
 
 pub(super) fn group() -> SettingGroup {
     SettingGroup::new()
@@ -42,10 +43,22 @@ pub(super) fn group() -> SettingGroup {
                                     .child(
                                         Button::new(SharedString::from(format!("unlink-{id}")))
                                             .label(t!("settings.unlink_install"))
-                                            .on_click(move |_, _, cx| {
-                                                app_settings::update(cx, |s| {
-                                                    s.game_installations.retain(|i| i.id != id)
-                                                });
+                                            .on_click(move |_, window, cx| {
+                                                let mut settings = app_settings::get(cx).clone();
+                                                match profile_service::get_profiles().and_then(
+                                                    |profiles| {
+                                                        settings.unlink_installation(&id, &profiles)
+                                                    },
+                                                ) {
+                                                    Ok(()) => app_settings::update(cx, |s| {
+                                                        s.game_installations =
+                                                            settings.game_installations
+                                                    }),
+                                                    Err(error) => window.push_notification(
+                                                        Notification::error(error.to_string()),
+                                                        cx,
+                                                    ),
+                                                }
                                             }),
                                     )
                             }),

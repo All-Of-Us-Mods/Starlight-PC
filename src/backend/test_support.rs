@@ -30,3 +30,12 @@ pub fn write_test_pe(path: &Path, machine: u16) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, pe_bytes(machine)).unwrap();
 }
+
+pub fn write_test_runtime(root: &Path, machine: u16) {
+    let runtime = super::services::bepinex_runtime::BepInExRuntime::new(root);
+    fs::create_dir_all(runtime.core_dir()).unwrap();
+    fs::write(runtime.assembly_path(), b"managed").unwrap();
+    write_test_pe(&runtime.coreclr_path(), machine);
+    fs::write(runtime.proxy_path(), b"proxy").unwrap();
+    fs::write(runtime.config_path(), b"[General]\nenabled = true\n").unwrap();
+}

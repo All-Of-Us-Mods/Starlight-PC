@@ -110,10 +110,50 @@ impl AppSettings {
         }
         Ok(())
     }
+
+    /// Keep profile selections valid: an installation must be unused before
+    /// it can be unlinked. This also avoids rewriting read-only profiles.
+    pub fn unlink_installation(
+        &mut self,
+        id: &str,
+        profiles: &[super::profile_service::ProfileEntry],
+    ) -> AppResult<()> {
+        let users: Vec<&str> = profiles
+            .iter()
+            .filter(|profile| profile.installation_id.as_deref() == Some(id))
+            .map(|profile| profile.name.as_str())
+            .collect();
+        if !users.is_empty() {
+            return Err(AppError::validation(format!(
+                "Choose another installation for these profiles before unlinking: {}.",
+                users.join(", ")
+            )));
+        }
+        self.game_installations
+            .retain(|installation| installation.id != id);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unlinking_a_used_installation_keeps_profiles_resolvable() {
+        let mut settings = super::AppSettings::default();
+        let installation = super::GameInstallation::from_settings(&settings);
+        let id = installation.id.clone();
+        settings.game_installations.push(installation);
+        let profile = serde_json::from_value(serde_json::json!({
+            "installation_id": id, "id": "profile", "name": "Linked profile",
+            "path": "unused", "created_at": 0, "mods": []
+        }))
+        .unwrap();
+        assert!(settings.unlink_installation(&id, &[profile]).is_err());
+        assert!(settings.for_installation(Some(&id)).is_ok());
+        settings.unlink_installation(&id, &[]).unwrap();
+        assert!(settings.game_installations.is_empty());
+    }
+
     #[test]
     fn linked_installation_resolves_without_changing_default() {
         let mut settings = super::AppSettings {

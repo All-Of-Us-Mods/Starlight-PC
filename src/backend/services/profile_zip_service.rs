@@ -318,6 +318,7 @@ fn build_sanitized_metadata(profile_dir: &Path) -> AppResult<String> {
     };
 
     metadata.remove("id");
+    metadata.remove("installation_id");
     metadata.remove("path");
     metadata.remove("created_at");
     metadata.remove("total_play_time");
@@ -471,6 +472,7 @@ mod tests {
             dir.join("metadata.json"),
             br#"{
                 "id": "reactor-1",
+                "installation_id": "local-installation-id",
                 "path": "C:/somewhere",
                 "name": "Reactor",
                 "bepinex_installed": "x86",
@@ -486,6 +488,7 @@ mod tests {
         let value: Value = serde_json::from_str(&metadata).unwrap();
 
         assert!(value.get("id").is_none());
+        assert!(value.get("installation_id").is_none());
         assert!(value.get("path").is_none());
         assert!(value.get("bepinex_installed").is_none());
         assert_eq!(value["mods"]["reactor"], Value::String("2.0.0".into()));

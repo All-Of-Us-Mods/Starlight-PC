@@ -38,11 +38,21 @@ impl<'a> BepInExRuntime<'a> {
         self.dotnet_dir().join(CORECLR_FILE)
     }
 
+    pub fn proxy_path(&self) -> PathBuf {
+        self.root.join("winhttp.dll")
+    }
+
+    pub fn config_path(&self) -> PathBuf {
+        self.root.join("doorstop_config.ini")
+    }
+
     /// Inspect each time so replacing or removing files is reflected even in
     /// an existing ProfileEntry. The managed assembly alone cannot tell bitness.
+    /// An installation also needs the Doorstop proxy and its configuration.
     pub fn installed_arch(&self) -> Option<BinaryArch> {
-        self.assembly_path()
-            .is_file()
+        [self.assembly_path(), self.proxy_path(), self.config_path()]
+            .iter()
+            .all(|path| path.is_file())
             .then(|| read_pe_arch(&self.coreclr_path()))
             .flatten()
     }
@@ -70,14 +80,14 @@ impl<'a> BepInExRuntime<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::test_support::{TempDir, write_test_pe};
+    use crate::backend::test_support::{TempDir, write_test_pe, write_test_runtime};
     use std::fs;
 
     #[test]
     fn architecture_comes_from_native_runtime_and_tracks_file_changes() {
         let dir = TempDir::new("runtime-arch");
         let runtime = BepInExRuntime::new(&dir.0);
-        fs::create_dir_all(runtime.core_dir()).unwrap();
+        write_test_runtime(&dir.0, 0x8664);
         // A managed PE may advertise x86 while running on an x64 native CLR.
         write_test_pe(&runtime.assembly_path(), 0x014c);
         write_test_pe(&runtime.coreclr_path(), 0x8664);
@@ -102,11 +112,26 @@ mod tests {
 
         fs::create_dir_all(runtime.core_dir()).unwrap();
         fs::write(runtime.assembly_path(), b"managed").unwrap();
+        fs::write(runtime.proxy_path(), b"proxy").unwrap();
+        fs::write(runtime.config_path(), b"config").unwrap();
         fs::write(runtime.coreclr_path(), b"corrupt").unwrap();
         assert_eq!(runtime.installed_arch(), None);
         assert!(runtime.validate(BinaryArch::X64).is_err());
 
         write_test_pe(&runtime.coreclr_path(), 0xAA64);
         assert_eq!(runtime.installed_arch(), None);
+    }
+
+    #[test]
+    fn missing_loader_files_require_repair() {
+        let dir = TempDir::new("missing-loader");
+        let runtime = BepInExRuntime::new(&dir.0);
+        for file in [runtime.proxy_path(), runtime.config_path()] {
+            write_test_runtime(&dir.0, 0x8664);
+            assert!(!runtime.needs_install(BinaryArch::X64));
+            fs::remove_file(file).unwrap();
+            assert!(runtime.needs_install(BinaryArch::X64));
+            assert!(runtime.validate(BinaryArch::X64).is_err());
+        }
     }
 }

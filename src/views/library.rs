@@ -484,11 +484,23 @@ impl LibraryView {
         let emit_id = id.clone();
         let drop_id = id.clone();
         let accent = theme.primary;
-        let resolved = profile.launch_settings(app_settings::get(cx));
-        let settings = resolved.as_ref().unwrap_or(app_settings::get(cx));
-        let platform = settings.game_platform;
-        let game_arch = core_service::game_arch(&settings.among_us_path);
-        let bepinex_arch = profile.bepinex_runtime().installed_arch();
+        let warning = match profile.launch_settings(app_settings::get(cx)) {
+            Err(_) => Some(t!("profile.missing_install").to_string()),
+            Ok(settings) => {
+                let game_arch = core_service::game_arch(&settings.among_us_path);
+                match profile.bepinex_runtime().installed_arch() {
+                    None => Some(t!("profile.bepinex_not_installed").to_string()),
+                    Some(arch) if arch != game_arch => Some(
+                        t!(
+                            "profile.bepinex_incompatible",
+                            platform = settings.game_platform.display_name()
+                        )
+                        .to_string(),
+                    ),
+                    Some(_) => None,
+                }
+            }
+        };
         let outdated_count = profile
             .mods
             .iter()
@@ -548,17 +560,9 @@ impl LibraryView {
                             .text_color(theme.muted_foreground)
                             .child(label)
                     }))
-                    .children((bepinex_arch != Some(game_arch)).then(|| {
-                        let label = match bepinex_arch {
-                            None => t!("profile.bepinex_not_installed").to_string(),
-                            Some(_) => t!(
-                                "profile.bepinex_incompatible",
-                                platform = platform.display_name()
-                            )
-                            .to_string(),
-                        };
-                        div().text_xs().text_color(theme.warning).child(label)
-                    }))
+                    .children(
+                        warning.map(|label| div().text_xs().text_color(theme.warning).child(label)),
+                    )
                     .child(
                         div().text_xs().text_color(theme.muted_foreground).child(
                             t!(

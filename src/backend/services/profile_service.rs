@@ -140,18 +140,9 @@ fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> AppResult<Option<P
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    let mut metadata = serde_json::from_str::<serde_json::Value>(&raw).map_err(|error| {
-        AppError::parse(format!(
-            "Failed to parse profile metadata at '{}': {error}",
-            metadata_path.display()
-        ))
-    })?;
-    // Old values (including booleans) are ignored. Remove the obsolete field
-    // once on load so existing profiles also stop persisting runtime state.
-    let migrated = metadata
-        .as_object_mut()
-        .is_some_and(|metadata| metadata.remove("bepinex_installed").is_some());
-    let mut profile = serde_json::from_value::<ProfileEntry>(metadata).map_err(|error| {
+    // Obsolete runtime state and unknown fields are ignored. Reading a profile
+    // must work without write access and must not rewrite another version's data.
+    let mut profile = serde_json::from_str::<ProfileEntry>(&raw).map_err(|error| {
         AppError::parse(format!(
             "Failed to parse profile metadata at '{}': {error}",
             metadata_path.display()
@@ -159,9 +150,6 @@ fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> AppResult<Option<P
     })?;
     profile.path = profile_dir.to_string_lossy().to_string();
     sync_custom_mods(&mut profile);
-    if migrated {
-        write_profile(&profile)?;
-    }
     Ok(Some(profile))
 }
 
@@ -956,7 +944,7 @@ pub fn export_profile_zip(profile_id: &str, destination: &str) -> AppResult<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::test_support::write_test_pe;
+    use crate::backend::test_support::{write_test_pe, write_test_runtime};
 
     struct TempProfileDir(PathBuf);
 
@@ -1024,15 +1012,9 @@ mod tests {
         use crate::backend::services::installation_service::GameInstallation;
         let dir = TempProfileDir::new("store-architecture");
         let profile = profile_at(&dir, vec![]);
-        fs::create_dir_all(dir.0.join("BepInEx/core")).unwrap();
-        fs::write(
-            dir.0.join("BepInEx/core/BepInEx.Unity.IL2CPP.dll"),
-            b"managed",
-        )
-        .unwrap();
-        write_test_pe(&dir.0.join("dotnet/coreclr.dll"), 0x014c);
+        write_test_runtime(&dir.0, 0x014c);
         let mut metadata = serde_json::to_value(&profile).unwrap();
-        // Every obsolete value is ignored and removed; the binary defines the build.
+        // Obsolete values are ignored; only an explicit save removes the field.
         for stored in [
             serde_json::json!(true),
             serde_json::json!(false),
@@ -1055,7 +1037,7 @@ mod tests {
             );
             let saved: serde_json::Value =
                 serde_json::from_slice(&fs::read(metadata_path(&dir.0)).unwrap()).unwrap();
-            assert!(saved.get("bepinex_installed").is_none());
+            assert_eq!(saved, metadata);
             let mut settings = AppSettings::default();
             for platform in [GamePlatform::Steam, GamePlatform::Epic] {
                 let path = dir.0.join(platform.id());
@@ -1108,9 +1090,7 @@ mod tests {
         assert!(profile.needs_bepinex(BinaryArch::X64));
 
         let runtime = profile.bepinex_runtime();
-        fs::create_dir_all(runtime.core_dir()).unwrap();
-        fs::write(runtime.assembly_path(), b"managed").unwrap();
-        write_test_pe(&runtime.coreclr_path(), 0x014c);
+        write_test_runtime(&dir.0, 0x014c);
         assert!(profile.needs_bepinex(BinaryArch::X64));
         assert!(!profile.needs_bepinex(BinaryArch::X86));
         write_test_pe(&runtime.coreclr_path(), 0x8664);
@@ -1123,10 +1103,7 @@ mod tests {
     fn writing_profiles_never_serializes_runtime_state() {
         let dir = TempProfileDir::new("runtime-metadata");
         let profile = profile_at(&dir, vec![]);
-        let runtime = profile.bepinex_runtime();
-        fs::create_dir_all(runtime.core_dir()).unwrap();
-        fs::write(runtime.assembly_path(), b"managed").unwrap();
-        write_test_pe(&runtime.coreclr_path(), 0x014c);
+        write_test_runtime(&dir.0, 0x014c);
         write_profile(&profile).unwrap();
         let saved: serde_json::Value =
             serde_json::from_slice(&fs::read(metadata_path(&dir.0)).unwrap()).unwrap();
@@ -1148,6 +1125,34 @@ mod tests {
         .unwrap();
         assert_eq!(imported.name.as_deref(), Some("Imported"));
         assert_eq!(imported.mods.unwrap()["reactor"], "2.0.0");
+    }
+
+    #[test]
+    fn reading_legacy_metadata_requires_no_writes_and_preserves_unknown_fields() {
+        let dir = TempProfileDir::new("readonly-metadata");
+        let mut metadata = serde_json::to_value(profile_at(&dir, vec![])).unwrap();
+        metadata["bepinex_installed"] = serde_json::json!("x86");
+        metadata["future_field"] = serde_json::json!({"preserve": true});
+        let path = metadata_path(&dir.0);
+        let bytes = serde_json::to_vec(&metadata).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        // Any attempt to use the metadata writer fails, regardless of OS/ACLs.
+        fs::create_dir(path.with_extension("json.tmp")).unwrap();
+        let loaded = parse_profile(&path, &dir.0).unwrap().unwrap();
+        assert_eq!(loaded.name, "Test");
+        assert_eq!(fs::read(path).unwrap(), bytes);
+    }
+
+    #[test]
+    fn missing_installation_does_not_report_the_default_runtime_as_ready() {
+        let dir = TempProfileDir::new("missing-installation");
+        let mut profile = profile_at(&dir, vec![]);
+        profile.installation_id = Some("removed".into());
+        write_test_runtime(&dir.0, 0x8664);
+        let settings = core_service::AppSettings::default();
+        assert!(!profile.needs_bepinex(BinaryArch::X64));
+        assert!(profile.launch_settings(&settings).is_err());
+        assert!(profile.needs_bepinex_for_settings(&settings));
     }
 
     #[test]

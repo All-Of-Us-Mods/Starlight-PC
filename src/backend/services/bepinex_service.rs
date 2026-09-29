@@ -1,5 +1,6 @@
 use crate::backend::binary::BinaryArch;
 use crate::backend::error::AppResult;
+use crate::backend::services::bepinex_installation::StagedRuntime;
 use crate::backend::services::bepinex_runtime::BepInExRuntime;
 use crate::backend::services::http_download::{download_file, extract_zip};
 use log::{debug, info, warn};
@@ -110,16 +111,12 @@ pub fn ensure_installed(
         return Ok(());
     }
 
-    // Remove arch-specific files before extraction; preserve plugins and config.
-    for dir in [runtime.dotnet_dir(), runtime.core_dir()] {
-        if dir.exists() {
-            fs::remove_dir_all(&dir)?;
-        }
-    }
-
-    if let Err(error) = install_bepinex(url, runtime.root(), cache_path, profile_id)
-        .and_then(|()| runtime.validate(architecture))
-    {
+    let result = (|| -> AppResult<()> {
+        let update = StagedRuntime::new(runtime.root())?;
+        install_bepinex(url, &update.contents(), cache_path, profile_id)?;
+        update.install(architecture)
+    })();
+    if let Err(error) = result {
         emit(
             "failed",
             0.0,
@@ -254,7 +251,7 @@ pub fn cache_size(cache_path: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::test_support::{TempDir, pe_bytes, write_test_pe};
+    use crate::backend::test_support::{TempDir, pe_bytes, write_test_runtime};
     use std::io::Write;
 
     fn cached_runtime(dir: &Path, machine: Option<u16>) -> String {
@@ -264,6 +261,16 @@ mod tests {
         zip.start_file("BepInEx/core/BepInEx.Unity.IL2CPP.dll", options)
             .unwrap();
         zip.write_all(b"managed").unwrap();
+        for (path, bytes) in [
+            ("winhttp.dll", b"proxy".as_slice()),
+            (
+                "doorstop_config.ini",
+                b"[General]\nenabled = true\n".as_slice(),
+            ),
+        ] {
+            zip.start_file(path, options).unwrap();
+            zip.write_all(bytes).unwrap();
+        }
         if let Some(machine) = machine {
             let coreclr = BepInExRuntime::new(dir).coreclr_path();
             zip.start_file(
@@ -282,10 +289,7 @@ mod tests {
         let dir = TempDir::new("runtime-replacement");
         let root = dir.0.join("profile");
         let runtime = BepInExRuntime::new(&root);
-        fs::create_dir_all(runtime.dotnet_dir()).unwrap();
-        fs::create_dir_all(runtime.core_dir()).unwrap();
-        fs::write(runtime.assembly_path(), b"managed").unwrap();
-        write_test_pe(&runtime.coreclr_path(), 0x014c);
+        write_test_runtime(&root, 0x014c);
         assert_eq!(runtime.installed_arch(), Some(BinaryArch::X86));
         fs::write(runtime.dotnet_dir().join("old-arch.dll"), b"old").unwrap();
         fs::write(runtime.core_dir().join("old-arch.dll"), b"old").unwrap();
@@ -321,11 +325,15 @@ mod tests {
             let dir = TempDir::new(tag);
             let root = dir.0.join("profile");
             let runtime = BepInExRuntime::new(&root);
+            write_test_runtime(&root, 0x014c);
+            let original = fs::read(runtime.coreclr_path()).unwrap();
             let cache = cached_runtime(&dir.0, machine);
             let mut events = crate::backend::events::subscribe();
             let result = ensure_installed(&runtime, BinaryArch::X64, "unused", Some(&cache), tag);
             assert!(result.is_err());
             assert!(runtime.needs_install(BinaryArch::X64));
+            assert!(!runtime.needs_install(BinaryArch::X86));
+            assert_eq!(fs::read(runtime.coreclr_path()).unwrap(), original);
             let mut stages = Vec::new();
             while let Ok(event) = events.try_recv() {
                 if let crate::backend::events::BackendEvent::BepInExProgress(progress) = event
@@ -336,6 +344,39 @@ mod tests {
             }
             assert_eq!(stages.last().map(String::as_str), Some("failed"));
             assert!(!stages.iter().any(|stage| stage == "complete"));
+        }
+    }
+
+    #[test]
+    fn failed_download_or_invalid_zip_leaves_existing_runtime_intact() {
+        let dir = TempDir::new("failed-runtime-update");
+        let root = dir.0.join("profile");
+        write_test_runtime(&root, 0x014c);
+        let runtime = BepInExRuntime::new(&root);
+        let original = fs::read(runtime.coreclr_path()).unwrap();
+        let cache = dir.0.join("invalid.zip");
+        fs::write(&cache, b"invalid zip").unwrap();
+        let cache = cache.to_string_lossy();
+        for cache in [None, Some(cache.as_ref())] {
+            assert!(
+                ensure_installed(
+                    &runtime,
+                    BinaryArch::X64,
+                    "invalid URL",
+                    cache,
+                    "failed-update"
+                )
+                .is_err()
+            );
+            assert_eq!(runtime.installed_arch(), Some(BinaryArch::X86));
+            assert_eq!(fs::read(runtime.coreclr_path()).unwrap(), original);
+            assert!(fs::read_dir(&dir.0).unwrap().all(|entry| {
+                !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".bepinex-install-")
+            }));
         }
     }
 

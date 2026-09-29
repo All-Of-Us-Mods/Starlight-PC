@@ -1,3 +1,4 @@
+mod bepinex_installation;
 pub mod bepinex_runtime;
 pub mod bepinex_service;
 pub mod core_service;
@@ -15,6 +16,8 @@ pub mod profile_service;
 pub mod profile_shortcut_service;
 pub mod profile_zip_service;
 pub mod region_service;
+#[cfg(any(target_os = "linux", test))]
+mod steam_installation;
 #[cfg(windows)]
 pub mod update_service;
 #[cfg(windows)]
