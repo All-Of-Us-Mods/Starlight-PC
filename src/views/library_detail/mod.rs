@@ -10,6 +10,7 @@ use gpui::*;
 use log::warn;
 use rust_i18n::t;
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -958,7 +959,8 @@ impl LibraryDetailView {
     /// covers that state).
     fn render_primary_controls(
         &self,
-        bep_installed: bool,
+        // `Some` when BepInEx must be (re)installed before launching.
+        install_label: Option<Cow<'static, str>>,
         installing: bool,
         theme: &crate::theme::Theme,
         cx: &mut Context<Self>,
@@ -971,13 +973,13 @@ impl LibraryDetailView {
 
         if installing {
             None
-        } else if !bep_installed {
+        } else if let Some(label) = install_label {
             Some(
                 Button::new("install-bepinex")
                     .primary()
                     .large()
                     .icon(Icon::new(AppIcon::Download))
-                    .label(t!("profile.install_bepinex"))
+                    .label(label)
                     .on_click(cx.listener(|this, _, _window, cx| this.install_bepinex(cx)))
                     .into_any_element(),
             )
@@ -1088,11 +1090,17 @@ impl LibraryDetailView {
     ) -> AnyElement {
         let bep_installed = profile.bepinex_installed.is_some();
         let platform = app_settings::get(cx).game_platform;
-        let bep_incompatible = profile
-            .bepinex_installed
-            .is_some_and(|arch| arch != platform.bepinex_arch());
+        let needs_bepinex = profile.needs_bepinex(platform);
+        let bep_incompatible = bep_installed && needs_bepinex;
+        let install_label = needs_bepinex.then(|| {
+            if bep_incompatible {
+                t!("profile.reinstall_bepinex")
+            } else {
+                t!("profile.install_bepinex")
+            }
+        });
         let installing = self.bep_progress.is_some();
-        let primary_controls = self.render_primary_controls(bep_installed, installing, theme, cx);
+        let primary_controls = self.render_primary_controls(install_label, installing, theme, cx);
         let manage_buttons = self.render_manage_buttons(cx);
 
         let launch_err = self.launch_error.clone().map(|msg| {

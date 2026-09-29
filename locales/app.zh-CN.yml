@@ -169,6 +169,7 @@ profile:
   bepinex_not_installed: BepInEx 未安装
   bepinex_incompatible: 此 BepInEx 安装与 %{platform} 不兼容
   install_bepinex: 安装 BepInEx
+  reinstall_bepinex:
   instances_running: '%{count} 个实例正在运行'
   launch_another: 启动另一个
   open_folder: 打开文件夹

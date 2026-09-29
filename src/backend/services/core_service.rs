@@ -17,16 +17,37 @@ pub enum GamePlatform {
     Steam,
     Epic,
     Xbox,
+    Itch,
 }
 
 impl GamePlatform {
-    /// Which BepInEx build the platform's game binary needs. Steam (and
-    /// itch.io, if it's ever added) ships a 32-bit Among Us; Epic and Xbox
-    /// ship 64-bit.
+    pub const ALL: [GamePlatform; 4] = [
+        GamePlatform::Steam,
+        GamePlatform::Epic,
+        GamePlatform::Xbox,
+        GamePlatform::Itch,
+    ];
+
+    /// Stable id, matching the serialized form.
+    pub fn id(self) -> &'static str {
+        match self {
+            GamePlatform::Steam => "steam",
+            GamePlatform::Epic => "epic",
+            GamePlatform::Xbox => "xbox",
+            GamePlatform::Itch => "itch",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|platform| platform.id() == id)
+    }
+
+    /// Which BepInEx build the platform's game binary needs. Steam, Epic and
+    /// Xbox ship a 64-bit Among Us; itch.io still ships 32-bit.
     pub fn bepinex_arch(self) -> BepInExArch {
         match self {
-            GamePlatform::Steam => BepInExArch::X86,
-            GamePlatform::Epic | GamePlatform::Xbox => BepInExArch::X64,
+            GamePlatform::Steam | GamePlatform::Epic | GamePlatform::Xbox => BepInExArch::X64,
+            GamePlatform::Itch => BepInExArch::X86,
         }
     }
 
@@ -35,6 +56,7 @@ impl GamePlatform {
             GamePlatform::Steam => "Steam",
             GamePlatform::Epic => "Epic",
             GamePlatform::Xbox => "Xbox",
+            GamePlatform::Itch => "itch.io",
         }
     }
 }
@@ -157,6 +179,15 @@ pub struct AppSettings {
     /// Which releases the self-updater offers (see `update_service`).
     #[serde(default)]
     pub release_channel: ReleaseChannel,
+}
+
+impl AppSettings {
+    pub fn bepinex_url(&self, arch: BepInExArch) -> &str {
+        match arch {
+            BepInExArch::X64 => &self.bepinex_url_x64,
+            BepInExArch::X86 => &self.bepinex_url_x86,
+        }
+    }
 }
 
 impl Default for AppSettings {
@@ -462,10 +493,10 @@ fn remove_single_instance_line(contents: &str) -> Option<String> {
     removed.then_some(updated)
 }
 
-pub fn get_bepinex_cache_path(architecture: &str) -> AppResult<String> {
+pub fn get_bepinex_cache_path(arch: BepInExArch) -> AppResult<String> {
     Ok(directories::app_data_dir()?
         .join("cache")
-        .join(format!("bepinex-{architecture}.zip"))
+        .join(format!("bepinex-{}.zip", arch.as_str()))
         .to_string_lossy()
         .to_string())
 }

@@ -18,7 +18,7 @@ use crate::backend::services::core_service::LinuxRunnerKind;
 use crate::backend::services::core_service::ReleaseChannel;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
-    core_service::{self, AppSettingsPatch, GamePlatform, ScrollbarVisibility},
+    core_service::{self, AppSettingsPatch, BepInExArch, GamePlatform, ScrollbarVisibility},
     finder_service,
 };
 use crate::settings as app_settings;
@@ -110,7 +110,7 @@ fn format_bytes(bytes: u64) -> String {
 /// Build the download/clear row + status description for one BepInEx cache
 /// architecture. The cache is sized once here and reused for both the "Clear"
 /// button's visibility and the description, instead of stat-ing the file twice.
-fn cache_item(arch: &'static str, label: gpui::SharedString) -> SettingItem {
+fn cache_item(arch: BepInExArch, label: gpui::SharedString) -> SettingItem {
     let (present, status): (bool, SharedString) = match core_service::get_bepinex_cache_path(arch) {
         Ok(path) => match bepinex_service::cache_size(&path) {
             Some(size) => (
@@ -129,14 +129,14 @@ fn cache_item(arch: &'static str, label: gpui::SharedString) -> SettingItem {
                 .flex_wrap()
                 .gap_2()
                 .child(
-                    Button::new(SharedString::from(format!("cache-{arch}")))
+                    Button::new(SharedString::from(format!("cache-{}", arch.as_str())))
                         .icon(Icon::new(AppIcon::Download))
                         .label(t!("settings.cache.download"))
                         .on_click(move |_, window, cx| download_bepinex_cache(arch, window, cx)),
                 )
                 .when(present, |row| {
                     row.child(
-                        Button::new(SharedString::from(format!("clear-{arch}")))
+                        Button::new(SharedString::from(format!("clear-{}", arch.as_str())))
                             .danger()
                             .icon(Icon::new(IconName::Delete))
                             .label(t!("common.clear"))
@@ -191,15 +191,10 @@ fn patch_cache_bepinex(value: bool, cx: &mut App) {
 }
 
 fn patch_platform(value: SharedString, cx: &mut App) {
-    let platform = match value.as_ref() {
-        "epic" => GamePlatform::Epic,
-        "xbox" => GamePlatform::Xbox,
-        _ => GamePlatform::Steam,
-    };
     app_settings::update(
         cx,
         AppSettingsPatch {
-            game_platform: Some(platform),
+            game_platform: GamePlatform::from_id(&value),
             ..Default::default()
         },
     );
@@ -514,21 +509,21 @@ fn detect_among_us(window: &mut Window, cx: &mut App) {
     match finder_service::detect_among_us_installation() {
         Ok(Some(path)) => {
             let detected_platform = finder_service::detect_game_store(&path).ok();
-            let platform_enum = detected_platform.as_deref().map(|p| match p {
-                "epic" => GamePlatform::Epic,
-                "xbox" => GamePlatform::Xbox,
-                _ => GamePlatform::Steam,
-            });
             app_settings::update(
                 cx,
                 AppSettingsPatch {
                     among_us_path: Some(path.clone()),
-                    game_platform: platform_enum,
+                    game_platform: detected_platform,
                     ..Default::default()
                 },
             );
-            let msg = match detected_platform.as_deref() {
-                Some(p) => t!("settings.detected_store", store = p, path = path).to_string(),
+            let msg = match detected_platform {
+                Some(p) => t!(
+                    "settings.detected_store",
+                    store = p.display_name(),
+                    path = path
+                )
+                .to_string(),
                 None => t!("settings.detected", path = path).to_string(),
             };
             window.push_notification(Notification::success(msg), cx);
@@ -549,8 +544,8 @@ fn detect_among_us(window: &mut Window, cx: &mut App) {
     }
 }
 
-fn download_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App) {
-    let settings = app_settings::get(cx).clone();
+fn download_bepinex_cache(arch: BepInExArch, window: &mut Window, cx: &mut App) {
+    let url = app_settings::get(cx).bepinex_url(arch).to_string();
     let cache_path = match core_service::get_bepinex_cache_path(arch) {
         Ok(p) => p,
         Err(e) => {
@@ -561,29 +556,35 @@ fn download_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App)
             return;
         }
     };
-    let url = if arch == "x64" {
-        settings.bepinex_url_x64
-    } else {
-        settings.bepinex_url_x86
-    };
     let window_handle = window.window_handle();
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
             .spawn(async move {
-                bepinex_service::download_bepinex_to_cache(url, cache_path, arch.to_string())
+                bepinex_service::download_bepinex_to_cache(
+                    url,
+                    cache_path,
+                    arch.as_str().to_string(),
+                )
             })
             .await;
         let _ = window_handle.update(cx, |_, window, cx| match result {
             Ok(()) => window.push_notification(
-                Notification::success(t!("settings.cache.downloaded", arch = arch).to_string()),
+                Notification::success(
+                    t!("settings.cache.downloaded", arch = arch.as_str()).to_string(),
+                ),
                 cx,
             ),
             Err(e) => {
-                warn!("BepInEx cache download ({arch}) failed: {e}");
+                warn!("BepInEx cache download ({}) failed: {e}", arch.as_str());
                 window.push_notification(
                     Notification::error(
-                        t!("settings.cache.download_failed", arch = arch, error = e).to_string(),
+                        t!(
+                            "settings.cache.download_failed",
+                            arch = arch.as_str(),
+                            error = e
+                        )
+                        .to_string(),
                     ),
                     cx,
                 );
@@ -593,11 +594,13 @@ fn download_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App)
     .detach();
 }
 
-fn clear_bepinex_cache(arch: &'static str, window: &mut Window, cx: &mut App) {
+fn clear_bepinex_cache(arch: BepInExArch, window: &mut Window, cx: &mut App) {
     match core_service::get_bepinex_cache_path(arch) {
-        Ok(path) => match bepinex_service::clear_cache(path, arch.to_string()) {
+        Ok(path) => match bepinex_service::clear_cache(path, arch.as_str().to_string()) {
             Ok(()) => window.push_notification(
-                Notification::success(t!("settings.cache.cleared", arch = arch).to_string()),
+                Notification::success(
+                    t!("settings.cache.cleared", arch = arch.as_str()).to_string(),
+                ),
                 cx,
             ),
             Err(e) => {
@@ -673,16 +676,11 @@ impl Render for SettingsView {
                     SettingItem::new(
                         t!("settings.game_platform"),
                         SettingField::dropdown(
-                            vec![
-                                ("steam".into(), "Steam".into()),
-                                ("epic".into(), "Epic".into()),
-                                ("xbox".into(), "Xbox".into()),
-                            ],
-                            |cx| match app_settings::get(cx).game_platform {
-                                GamePlatform::Steam => "steam".into(),
-                                GamePlatform::Epic => "epic".into(),
-                                GamePlatform::Xbox => "xbox".into(),
-                            },
+                            GamePlatform::ALL
+                                .into_iter()
+                                .map(|p| (p.id().into(), p.display_name().into()))
+                                .collect(),
+                            |cx| app_settings::get(cx).game_platform.id().into(),
                             patch_platform,
                         ),
                     )
@@ -809,8 +807,8 @@ impl Render for SettingsView {
                         ),
                     )
                     .description(t!("settings.cache_downloads_desc").to_string()),
-                    cache_item("x64", t!("settings.cache.x64").into()),
-                    cache_item("x86", t!("settings.cache.x86").into()),
+                    cache_item(BepInExArch::X64, t!("settings.cache.x64").into()),
+                    cache_item(BepInExArch::X86, t!("settings.cache.x86").into()),
                 ]),
             SettingGroup::new()
                 .title(t!("settings.group.download_urls"))

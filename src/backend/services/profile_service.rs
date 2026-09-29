@@ -1,5 +1,5 @@
 use crate::backend::error::{AppError, AppResult};
-use crate::backend::services::core_service::BepInExArch;
+use crate::backend::services::core_service::{BepInExArch, GamePlatform};
 use crate::backend::services::{bepinex_service, core_service, profile_zip_service};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -23,12 +23,13 @@ fn default_true() -> bool {
 }
 
 /// Arch assumed for BepInEx installs recorded before arch tracking (legacy
-/// `bepinex_installed: true`): whatever the currently selected platform needs,
-/// since that's the platform those installs were made for.
+/// `bepinex_installed: true`): whatever the currently selected platform needed
+/// back then — Steam was 32-bit, Epic and Xbox 64-bit.
 fn legacy_bepinex_arch() -> BepInExArch {
-    core_service::get_settings()
-        .map(|settings| settings.game_platform.bepinex_arch())
-        .unwrap_or(BepInExArch::X86)
+    match core_service::get_settings().map(|settings| settings.game_platform) {
+        Ok(GamePlatform::Epic | GamePlatform::Xbox) => BepInExArch::X64,
+        _ => BepInExArch::X86,
+    }
 }
 
 fn deserialize_bepinex_installed<'de, D>(deserializer: D) -> Result<Option<BepInExArch>, D::Error>
@@ -88,6 +89,14 @@ pub struct ProfileEntry {
     pub custom_icon_extension: Option<String>,
     pub icon_mod_id: Option<String>,
     pub mods: Vec<ProfileModEntry>,
+}
+
+impl ProfileEntry {
+    /// True when BepInEx is missing or is the wrong build for `platform`'s
+    /// game binary — either way the profile can't launch until it's installed.
+    pub fn needs_bepinex(&self, platform: GamePlatform) -> bool {
+        self.bepinex_installed != Some(platform.bepinex_arch())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -433,25 +442,39 @@ fn base_file_name(file: &str) -> AppResult<&str> {
         .ok_or_else(|| AppError::validation("Invalid mod file name"))
 }
 
+/// Install the BepInEx build the current platform needs, unless the profile
+/// already has it. A profile holding the other arch's build is reinstalled in
+/// place: plugins and config stay, the arch-specific runtime is replaced.
 pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
     let mut profile = load_profile(profile_id)?;
 
     let settings = core_service::get_settings()?;
+    if !profile.needs_bepinex(settings.game_platform) {
+        return Ok(());
+    }
     let install_arch = settings.game_platform.bepinex_arch();
 
-    let bepinex_url = match install_arch {
-        BepInExArch::X64 => settings.bepinex_url_x64.clone(),
-        BepInExArch::X86 => settings.bepinex_url_x86.clone(),
-    };
+    // Extracting over the old build would leave its arch-only files behind.
+    if profile.bepinex_installed.is_some() {
+        let profile_path = Path::new(&profile.path);
+        for dir in [
+            profile_path.join("dotnet"),
+            profile_path.join("BepInEx").join("core"),
+        ] {
+            if dir.exists() {
+                fs::remove_dir_all(&dir)?;
+            }
+        }
+    }
 
     let cache_path = if settings.cache_bepinex {
-        Some(core_service::get_bepinex_cache_path(install_arch.as_str())?)
+        Some(core_service::get_bepinex_cache_path(install_arch)?)
     } else {
         None
     };
 
     bepinex_service::install_bepinex(
-        bepinex_url,
+        settings.bepinex_url(install_arch).to_string(),
         profile.path.clone(),
         cache_path,
         bepinex_service::BepInExTargetType::Profile,
@@ -1004,6 +1027,23 @@ mod tests {
             file: Some(file.into()),
             enabled: true,
         }
+    }
+
+    #[test]
+    fn needs_bepinex_when_missing_or_wrong_arch() {
+        let dir = TempProfileDir::new("needs-bepinex");
+        let mut profile = profile_at(&dir, Vec::new());
+
+        profile.bepinex_installed = None;
+        assert!(profile.needs_bepinex(GamePlatform::Steam));
+
+        profile.bepinex_installed = Some(BepInExArch::X86);
+        assert!(profile.needs_bepinex(GamePlatform::Steam));
+        assert!(!profile.needs_bepinex(GamePlatform::Itch));
+
+        profile.bepinex_installed = Some(BepInExArch::X64);
+        assert!(!profile.needs_bepinex(GamePlatform::Steam));
+        assert!(profile.needs_bepinex(GamePlatform::Itch));
     }
 
     #[test]

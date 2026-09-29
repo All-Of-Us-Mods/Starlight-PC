@@ -169,6 +169,7 @@ profile:
   bepinex_not_installed: BepInEx niet geïnstalleerd
   bepinex_incompatible: Deze BepInEx-installatie is niet compatibel met %{platform}
   install_bepinex: BepInEx installeren
+  reinstall_bepinex: BepInEx opnieuw installeren
   instances_running: "%{count} instantie(s) actief"
   launch_another: Nog een starten
   open_folder: Map openen

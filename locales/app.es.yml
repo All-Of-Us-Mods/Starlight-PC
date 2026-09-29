@@ -1,8 +1,3 @@
-# Starlight UI translations (rust-i18n v1 format: locale comes from the
-# filename suffix, e.g. app.en.yml -> "en"). English is the source of truth;
-# other locales only need the keys they translate (missing keys fall back to
-# English). Keys are namespaced by page: nav, home, explore, library, profile,
-# mod, news, lobbies, servers, settings, plus common.* shared bits.
 nav:
   home: Inicio
   explore: Explorar
@@ -169,6 +164,7 @@ profile:
   bepinex_not_installed: BepInEx no está instalado
   bepinex_incompatible: Esta instalación de BepInEx no es compatible con %{platform}
   install_bepinex: Instalar BepInEx
+  reinstall_bepinex:
   instances_running: "%{count} instancia(s) en ejecución"
   launch_another: Iniciar otra
   open_folder: Abrir carpeta

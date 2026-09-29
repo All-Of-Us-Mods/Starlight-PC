@@ -179,6 +179,7 @@ profile:
   bepinex_not_installed: BepInEx غير مثبت
   bepinex_incompatible: "نسخة BepInEx هذه غير متوافقة مع %{platform}"
   install_bepinex: تثبيت BepInEx
+  reinstall_bepinex:
   instances_running: "هناك %{count} نسخة قيد التشغيل"
   launch_another: تشغيل نسخة أخرى
   open_folder: فتح المجلد
