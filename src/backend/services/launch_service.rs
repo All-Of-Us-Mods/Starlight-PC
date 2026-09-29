@@ -665,8 +665,15 @@ fn build_linux_runner_from_settings(
     use crate::backend::services::core_service::LinuxRunnerKind;
 
     // Steam runs through the Steam client, so it needs no runner binary — only
-    // the prefix, to place the winhttp DLL override in.
+    // the prefix, to place the winhttp DLL override in. It launches Steam's own
+    // copy by app id, so it can't run a copy from any other store.
     if matches!(settings.linux_runner_kind, LinuxRunnerKind::Steam) {
+        if settings.game_platform != GamePlatform::Steam {
+            return Err(AppError::validation(format!(
+                "The Steam runner can only launch the Steam version of Among Us. Choose Wine or Proton in Settings to launch the {} version.",
+                settings.game_platform.display_name()
+            )));
+        }
         return Ok(LinuxRunner::Steam {
             compat_data_path: steam_compat_data_path(settings)?,
         });
