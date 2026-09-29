@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::backend::events::{self, BackendEvent};
-use crate::backend::services::launch_service;
 use crate::backend::services::profile_service::{self, ProfileEntry, ZipOp};
+use crate::backend::services::{core_service, launch_service};
 use crate::backend::state::game_runtime;
 use crate::backend::state::mod_catalog_cache;
 use crate::settings as app_settings;
@@ -485,6 +485,7 @@ impl LibraryView {
         let drop_id = id.clone();
         let accent = theme.primary;
         let platform = app_settings::get(cx).game_platform;
+        let game_arch = core_service::game_arch(&app_settings::get(cx).among_us_path);
         let outdated_count = profile
             .mods
             .iter()
@@ -544,7 +545,7 @@ impl LibraryView {
                             .text_color(theme.muted_foreground)
                             .child(label)
                     }))
-                    .children(profile.needs_bepinex(platform).then(|| {
+                    .children(profile.needs_bepinex(game_arch).then(|| {
                         let label = match profile.bepinex_installed {
                             None => t!("profile.bepinex_not_installed").to_string(),
                             Some(_) => t!(

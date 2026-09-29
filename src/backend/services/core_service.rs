@@ -1,7 +1,9 @@
 use crate::backend::directories;
 use crate::backend::error::AppResult;
+use crate::backend::services::launch_service::GAME_EXE_NAME;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 const DEFAULT_BEPINEX_URL_X86: &str = "https://builds.bepinex.dev/projects/bepinex_be/752/BepInEx-Unity.IL2CPP-win-x86-6.0.0-be.752%2Bdd0655f.zip";
@@ -42,15 +44,6 @@ impl GamePlatform {
         Self::ALL.into_iter().find(|platform| platform.id() == id)
     }
 
-    /// Which BepInEx build the platform's game binary needs. Steam, Epic and
-    /// Xbox ship a 64-bit Among Us; itch.io still ships 32-bit.
-    pub fn bepinex_arch(self) -> BepInExArch {
-        match self {
-            GamePlatform::Steam | GamePlatform::Epic | GamePlatform::Xbox => BepInExArch::X64,
-            GamePlatform::Itch => BepInExArch::X86,
-        }
-    }
-
     pub fn display_name(self) -> &'static str {
         match self {
             GamePlatform::Steam => "Steam",
@@ -75,6 +68,36 @@ impl BepInExArch {
             BepInExArch::X86 => "x86",
             BepInExArch::X64 => "x64",
         }
+    }
+}
+
+/// Which BepInEx build the game in `among_us_path` needs, read from the PE
+/// header of its executable — platforms have switched bitness between game
+/// updates, so the binary is the only reliable source. Falls back to x64 (what
+/// most platforms ship) when the executable can't be read.
+pub fn game_arch(among_us_path: &str) -> BepInExArch {
+    read_pe_arch(&Path::new(among_us_path.trim()).join(GAME_EXE_NAME)).unwrap_or(BepInExArch::X64)
+}
+
+fn read_pe_arch(exe: &Path) -> Option<BepInExArch> {
+    let mut file = fs::File::open(exe).ok()?;
+    let mut dos_header = [0u8; 0x40];
+    file.read_exact(&mut dos_header).ok()?;
+    if &dos_header[..2] != b"MZ" {
+        return None;
+    }
+    let pe_offset = u32::from_le_bytes(dos_header[0x3C..0x40].try_into().ok()?);
+    file.seek(SeekFrom::Start(pe_offset.into())).ok()?;
+    // "PE\0\0" signature, then the COFF header's machine field.
+    let mut pe_header = [0u8; 6];
+    file.read_exact(&mut pe_header).ok()?;
+    if &pe_header[..4] != b"PE\0\0" {
+        return None;
+    }
+    match u16::from_le_bytes([pe_header[4], pe_header[5]]) {
+        0x014c => Some(BepInExArch::X86),
+        0x8664 => Some(BepInExArch::X64),
+        _ => None,
     }
 }
 
@@ -438,5 +461,29 @@ mod tests {
             remove_single_instance_line("build-guid=abc\nfoo=bar\n"),
             None
         );
+    }
+
+    #[test]
+    fn game_arch_reads_pe_machine() {
+        let dir = std::env::temp_dir().join(format!("starlight-pe-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let game_path = dir.to_string_lossy().to_string();
+
+        let exe = |machine: u16| {
+            let mut bytes = vec![0u8; 0x80];
+            bytes[..2].copy_from_slice(b"MZ");
+            bytes[0x3C..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+            bytes[0x40..0x44].copy_from_slice(b"PE\0\0");
+            bytes[0x44..0x46].copy_from_slice(&machine.to_le_bytes());
+            fs::write(dir.join(GAME_EXE_NAME), bytes).unwrap();
+        };
+
+        exe(0x014c);
+        assert_eq!(game_arch(&game_path), BepInExArch::X86);
+        exe(0x8664);
+        assert_eq!(game_arch(&game_path), BepInExArch::X64);
+
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(game_arch(&game_path), BepInExArch::X64);
     }
 }

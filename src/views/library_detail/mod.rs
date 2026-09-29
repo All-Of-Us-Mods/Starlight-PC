@@ -19,11 +19,11 @@ use std::sync::{Arc, Mutex};
 use crate::backend::api;
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_service::{BepInExProgress, BepInExTargetType};
-use crate::backend::services::launch_service;
 use crate::backend::services::mod_install_service::{self, InstallModInput};
 use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry, ZipOp};
 #[cfg(windows)]
 use crate::backend::services::profile_shortcut_service;
+use crate::backend::services::{core_service, launch_service};
 use crate::backend::state::game_runtime;
 use crate::backend::state::mod_catalog_cache;
 use crate::settings as app_settings;
@@ -1064,7 +1064,8 @@ impl LibraryDetailView {
     ) -> AnyElement {
         let bep_installed = profile.bepinex_installed.is_some();
         let platform = app_settings::get(cx).game_platform;
-        let needs_bepinex = profile.needs_bepinex(platform);
+        let game_arch = core_service::game_arch(&app_settings::get(cx).among_us_path);
+        let needs_bepinex = profile.needs_bepinex(game_arch);
         let bep_incompatible = bep_installed && needs_bepinex;
         let install_label = needs_bepinex.then(|| {
             if bep_incompatible {
