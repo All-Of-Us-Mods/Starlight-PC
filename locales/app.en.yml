@@ -64,7 +64,7 @@ library:
   stop_all: "Stop all (%{count})"
   load_failed: "Failed to load profiles: %{error}"
   empty: No profiles yet. Click "Create Profile" to make one, or drop an exported profile .zip here.
-  setup_banner: Among Us path isn't configured — profiles can't launch yet.
+  setup_banner: Among Us path isn't configured; profiles can't launch yet.
   open_settings: Open Settings
   card_stats: "%{mods} mods · %{played} played"
   last_launched: "Last launched %{when}"
@@ -234,7 +234,7 @@ linux:
   proton_compat_hint: Set the Proton compat data path in Settings → Linux runtime (Auto-detect can find it)
 notify:
   among_us_detected: "Among Us detected at %{path}"
-  among_us_not_found: "Couldn't find Among Us automatically — set its folder in Settings → Game before launching."
+  among_us_not_found: "Couldn't find Among Us automatically; set its folder in Settings → Game before launching."
 migrate:
   offer: "Found %{count} profile(s) from the previous Starlight version. Migrate them to this installation?"
   title: Migrate profiles
@@ -343,7 +343,7 @@ settings:
     steam_run: Wrap Proton in steam-run
     steam_run_desc: Launch Proton via steam-run (NixOS/non-FHS systems). Disable to run the Proton binary directly.
   release_channel: Release channel
-  release_channel_desc: Stable ships tested releases. Nightly builds every night from the latest code — newer features, rougher edges.
+  release_channel_desc: Stable ships tested releases. Nightly builds every night from the latest code; newer features, rougher edges.
   channel_stable: Stable
   channel_nightly: Nightly
   check_for_updates: Check for updates
