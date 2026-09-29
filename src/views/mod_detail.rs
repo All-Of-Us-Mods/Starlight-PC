@@ -372,11 +372,12 @@ impl ModDetailView {
         });
 
         // A freshly created profile never has BepInEx yet.
+        let platform = crate::settings::get(cx).game_platform;
         let needs_bepinex = existing_profile_id.as_ref().is_none_or(|profile_id| {
             self.profiles
                 .iter()
                 .find(|p| &p.id == profile_id)
-                .is_none_or(|p| p.bepinex_installed.is_none())
+                .is_none_or(|p| p.needs_bepinex(platform))
         });
         if let Some(panel) = self.install.as_mut() {
             panel.status = InstallStatus::Installing {
@@ -434,9 +435,7 @@ impl ModDetailView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    if needs_bepinex {
-                        profile_service::install_bepinex_for_profile(&profile_id_for_task)?;
-                    }
+                    profile_service::install_bepinex_for_profile(&profile_id_for_task)?;
                     mod_install_service::install_mods_for_profile(&profile_id_for_task, &items)?;
                     // A profile created for this install takes the mod's icon.
                     // Cosmetic only, so a failure here doesn't fail the install.

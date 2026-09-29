@@ -169,6 +169,7 @@ profile:
   bepinex_not_installed: BepInEx not installed
   bepinex_incompatible: This BepInEx install is incompatible with %{platform}
   install_bepinex: Install BepInEx
+  reinstall_bepinex: Reinstall BepInEx
   instances_running: "%{count} instance(s) running"
   launch_another: Launch another
   open_folder: Open Folder

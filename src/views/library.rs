@@ -508,6 +508,7 @@ impl LibraryView {
         let emit_id = id.clone();
         let drop_id = id.clone();
         let accent = theme.primary;
+        let platform = app_settings::get(cx).game_platform;
         let outdated_count = profile
             .mods
             .iter()
@@ -564,11 +565,16 @@ impl LibraryView {
                         };
                         div().text_xs().text_color(theme.text_muted).child(label)
                     }))
-                    .children(profile.bepinex_installed.is_none().then(|| {
-                        div()
-                            .text_xs()
-                            .text_color(theme.warning)
-                            .child(t!("profile.bepinex_not_installed").to_string())
+                    .children(profile.needs_bepinex(platform).then(|| {
+                        let label = match profile.bepinex_installed {
+                            None => t!("profile.bepinex_not_installed").to_string(),
+                            Some(_) => t!(
+                                "profile.bepinex_incompatible",
+                                platform = platform.display_name()
+                            )
+                            .to_string(),
+                        };
+                        div().text_xs().text_color(theme.warning).child(label)
                     }))
                     .child(
                         div().text_xs().text_color(theme.text_muted).child(

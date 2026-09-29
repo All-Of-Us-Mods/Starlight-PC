@@ -724,15 +724,16 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
     };
     let required_mods = &dialog.lobby.game.mods;
     let no_mods: Vec<ProfileModEntry> = Vec::new();
+    let platform = crate::settings::get(cx).game_platform;
 
     let mut option_rows: Vec<AnyElement> = this
         .profiles
         .iter()
         .map(|p| {
-            let bep_subtitle = if p.bepinex_installed.is_some() {
-                t!("lobbies.modded_profile").to_string()
-            } else {
+            let bep_subtitle = if p.needs_bepinex(platform) {
                 t!("lobbies.bepinex_will_install").to_string()
+            } else {
+                t!("lobbies.modded_profile").to_string()
             };
             let preview = preview_mod_installs(required_mods, &p.mods);
             let (detail, detail_color) = install_summary(&preview, &theme);
@@ -1150,9 +1151,7 @@ fn launch_into_lobby_for_profile(
     server_host: &str,
     server_port: u16,
 ) -> AppResult<String> {
-    if profile.bepinex_installed.is_none() {
-        profile_service::install_bepinex_for_profile(&profile.id)?;
-    }
+    profile_service::install_bepinex_for_profile(&profile.id)?;
 
     let mut skipped = versionless;
     let mut failed = 0usize;
