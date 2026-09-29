@@ -16,7 +16,7 @@ use crate::backend::api::{
 };
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::{
-    core_service::{self, BepInExArch, GamePlatform},
+    core_service::{self, BepInExArch},
     mod_download_service, profile_service,
 };
 
@@ -292,11 +292,11 @@ fn pick_platform_target(
     platforms: &[PlatformDownload],
     fallback_file_name: Option<&str>,
     fallback_checksum: Option<&str>,
-    game_platform: &GamePlatform,
+    game_arch: BepInExArch,
     mod_id: &str,
     version: &str,
 ) -> Option<DownloadTarget> {
-    let arch_fallbacks: &[&str] = match game_platform.bepinex_arch() {
+    let arch_fallbacks: &[&str] = match game_arch {
         BepInExArch::X64 => &["x64", "x86"],
         BepInExArch::X86 => &["x86"],
     };
@@ -338,14 +338,14 @@ fn resolve_download_target(
     mod_id: &str,
     version: &str,
     version_info: &ModVersionInfo,
-    game_platform: &GamePlatform,
+    game_arch: BepInExArch,
 ) -> AppResult<DownloadTarget> {
     if let Some(platforms) = version_info.platforms.as_ref().filter(|p| !p.is_empty())
         && let Some(target) = pick_platform_target(
             platforms,
             version_info.file_name.as_deref(),
             version_info.checksum.as_deref(),
-            game_platform,
+            game_arch,
             mod_id,
             version,
         )
@@ -377,7 +377,7 @@ pub fn install_mods_for_profile(
     mods: &[InstallModInput],
 ) -> AppResult<Vec<InstalledModResult>> {
     let settings = core_service::get_settings()?;
-    let game_platform = settings.game_platform;
+    let game_arch = core_service::game_arch(&settings.among_us_path);
 
     let profile = profile_service::get_profile_by_id(profile_id)?
         .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))?;
@@ -421,20 +421,19 @@ pub fn install_mods_for_profile(
 
     for item in mods {
         let info = api::fetch_mod_version_info(&item.mod_id, &item.version)?;
-        let target =
-            match resolve_download_target(&item.mod_id, &item.version, &info, &game_platform) {
-                Ok(t) => t,
-                Err(e) => {
-                    rollback(
-                        &profile_path,
-                        profile_id,
-                        &downloaded,
-                        &persisted,
-                        &previous,
-                    );
-                    return Err(e);
-                }
-            };
+        let target = match resolve_download_target(&item.mod_id, &item.version, &info, game_arch) {
+            Ok(t) => t,
+            Err(e) => {
+                rollback(
+                    &profile_path,
+                    profile_id,
+                    &downloaded,
+                    &persisted,
+                    &previous,
+                );
+                return Err(e);
+            }
+        };
 
         let destination = plugins_dir.join(&target.file_name);
         if let Err(e) = mod_download_service::download_mod(
