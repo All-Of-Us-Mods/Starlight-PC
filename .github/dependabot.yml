@@ -6,6 +6,13 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
+      # gpui-kit pins an exact gpui-pre snapshot, and reqwest_client must sit
+      # on that same snapshot, so they only ever move together. Listed first:
+      # a dependency joins the first group that matches it.
+      gpui:
+        patterns:
+          - "gpui-kit"
+          - "gpui-pre-*"
       # One PR for the routine churn; majors still come in on their own,
       # since those are the ones that need code changes.
       cargo-minor-and-patch:

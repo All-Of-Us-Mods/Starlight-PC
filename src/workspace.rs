@@ -1,5 +1,5 @@
-use gpui::prelude::FluentBuilder as _;
-use gpui::*;
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
 use log::warn;
 use rust_i18n::t;
 
@@ -9,7 +9,6 @@ use crate::backend::services::launch_service;
 use crate::backend::services::profile_service::{self, ProfileEntry};
 use crate::backend::state::game_runtime;
 use crate::settings as app_settings;
-use crate::theme::{self, ThemeExt};
 use crate::ui::icon::AppIcon;
 use crate::ui::stars_background::StarsBackground;
 use crate::views::explore::ExploreView;
@@ -21,12 +20,13 @@ use crate::views::mod_detail::{ModDetailEvent, ModDetailView};
 use crate::views::news_detail::NewsDetailView;
 use crate::views::servers::ServersView;
 use crate::views::settings::SettingsView;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::notification::Notification;
-use gpui_component::sidebar::{
+use gpui_kit::component::ActiveTheme;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::notification::Notification;
+use gpui_kit::component::sidebar::{
     Sidebar, SidebarCollapsible, SidebarHeader, SidebarMenu, SidebarMenuItem,
 };
-use gpui_component::{Disableable, Icon, IconName, Sizable, TitleBar, WindowExt};
+use gpui_kit::component::{Disableable, Icon, IconName, Sizable, TitleBar, WindowExt};
 
 /// Icon-rail width — matches gpui-component's own collapsed sidebar width, so
 /// the rail and the element inside it agree.
@@ -61,7 +61,7 @@ pub enum Tab {
 }
 
 impl Tab {
-    fn label(self) -> gpui::SharedString {
+    fn label(self) -> gpui_kit::SharedString {
         match self {
             Tab::Home => t!("nav.home").into(),
             Tab::Explore => t!("nav.explore").into(),
@@ -531,7 +531,11 @@ impl Workspace {
     /// fills the rail we size here — giving it an explicit pixel width instead
     /// would route it through gpui-component's 200ms width transition, which
     /// can't keep up with a drag.
-    fn render_sidebar(&self, theme: &theme::Theme, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_sidebar(
+        &self,
+        theme: &gpui_kit::component::Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let width = sidebar_layout_width(self.sidebar_width);
 
         div()
@@ -865,14 +869,8 @@ impl Workspace {
 }
 
 impl Render for Workspace {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        // gpui-component requires the window's root view to mount these
-        // layers; without them, modals / sheets / notifications won't
-        // render anywhere.
-        let sheet_layer = gpui_component::Root::render_sheet_layer(window, cx);
-        let dialog_layer = gpui_component::Root::render_dialog_layer(window, cx);
-        let notification_layer = gpui_component::Root::render_notification_layer(window, cx);
 
         let show_stars = app_settings::get(cx).show_stars_background;
 
@@ -881,8 +879,7 @@ impl Render for Workspace {
             .flex_col()
             .size_full()
             .relative()
-            .font_family(theme::FONT_FAMILY)
-            .text_color(theme.text)
+            .text_color(theme.foreground)
             .text_size(px(14.0))
             .bg(theme.background)
             // Mouse "back"/"forward" side buttons navigate like a browser.
@@ -928,9 +925,6 @@ impl Render for Workspace {
                             .child(self.render_content()),
                     ),
             )
-            .children(sheet_layer)
-            .children(dialog_layer)
-            .children(notification_layer)
             // Last child so it sits above the page while a drag is in flight.
             .when(self.sidebar_resizing, |el| {
                 el.child(self.render_sidebar_resize_capture(cx))

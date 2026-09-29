@@ -1,10 +1,10 @@
-use gpui::*;
+use gpui_kit::*;
 
 use crate::backend::api::{self, ModResponse};
-use crate::theme::Theme;
 use crate::ui::icon::AppIcon;
-use gpui_component::Icon;
-use gpui_component::skeleton::Skeleton;
+use gpui_kit::component::Icon;
+use gpui_kit::component::Theme;
+use gpui_kit::component::skeleton::Skeleton;
 use rust_i18n::t;
 
 pub const MOD_CARD_HEIGHT: f32 = 160.0;
@@ -34,7 +34,7 @@ pub fn mod_card(
         .h(px(MOD_CARD_HEIGHT))
         .rounded_lg()
         .overflow_hidden()
-        .bg(theme.sidebar_background)
+        .bg(theme.secondary)
         .border_1()
         .border_color(theme.border)
         .cursor_pointer()
@@ -45,7 +45,7 @@ pub fn mod_card(
                 .h_full()
                 .flex_none()
                 .object_fit(ObjectFit::Contain)
-                .bg(theme.hover),
+                .bg(theme.accent),
         )
         .child(
             div()
@@ -67,7 +67,7 @@ pub fn mod_card(
                         .mt_0p5()
                         .truncate()
                         .text_sm()
-                        .text_color(theme.text_muted)
+                        .text_color(theme.muted_foreground)
                         .child(t!("common.by_author", author = m.author).to_string()),
                 )
                 .child(
@@ -77,7 +77,7 @@ pub fn mod_card(
                         .line_clamp(2)
                         .text_sm()
                         .line_height(px(20.0))
-                        .text_color(theme.text_muted)
+                        .text_color(theme.muted_foreground)
                         .child(m.description.clone()),
                 )
                 .child(
@@ -108,7 +108,7 @@ pub fn mod_card_skeleton(width: Option<Pixels>, theme: &Theme) -> Div {
         .h(px(MOD_CARD_HEIGHT))
         .rounded_lg()
         .overflow_hidden()
-        .bg(theme.sidebar_background)
+        .bg(theme.secondary)
         .border_1()
         .border_color(theme.border)
         .child(Skeleton::new().w(px(MOD_CARD_IMAGE_SIZE)).h_full())

@@ -1,5 +1,4 @@
-use gpui::*;
-use gpui_component::{
+use gpui_kit::component::{
     Disableable as _, Icon, IconName, Sizable as _, WindowExt,
     alert::Alert,
     button::{Button, ButtonVariants, Toggle, ToggleVariants as _},
@@ -13,6 +12,7 @@ use gpui_component::{
     tag::Tag,
     text::TextView,
 };
+use gpui_kit::*;
 use std::borrow::Cow;
 
 use crate::ui::icon::AppIcon;
@@ -26,10 +26,10 @@ use crate::backend::services::{
     mod_install_service::{self, InstallModInput, ResolvedDependency},
     profile_service::{self, ProfileEntry, ProfileIconSelection},
 };
-use crate::theme::ThemeExt;
 use crate::ui::format;
 use crate::ui::mod_card::format_count;
 use crate::views::{page_root, section_label};
+use gpui_kit::component::ActiveTheme;
 
 pub struct ModDetailView {
     state: LoadState,
@@ -647,7 +647,7 @@ impl Render for ModDetailView {
                                 .h(px(176.0))
                                 .object_fit(ObjectFit::Contain)
                                 .rounded_lg()
-                                .bg(theme.hover)
+                                .bg(theme.accent)
                                 .border_1()
                                 .border_color(theme.border),
                         ),
@@ -667,7 +667,7 @@ impl Render for ModDetailView {
                             .child(
                                 div()
                                     .text_sm()
-                                    .text_color(theme.text_muted)
+                                    .text_color(theme.muted_foreground)
                                     .child(t!("common.by_author", author = m.author).to_string()),
                             ),
                     )
@@ -680,7 +680,7 @@ impl Render for ModDetailView {
                             .justify_center()
                             .text_sm()
                             .gap_4()
-                            .text_color(theme.text_muted)
+                            .text_color(theme.muted_foreground)
                             .child(
                                 t!("mod.downloads", count = format_count(m.downloads)).to_string(),
                             )
@@ -705,7 +705,7 @@ impl Render for ModDetailView {
                         div()
                             .text_sm()
                             .line_height(px(22.0))
-                            .text_color(theme.text_muted)
+                            .text_color(theme.muted_foreground)
                             .child(m.description.clone()),
                     )
                     .child(Separator::horizontal())
@@ -719,7 +719,7 @@ impl Render for ModDetailView {
                                 div()
                                     .text_sm()
                                     .line_height(px(22.0))
-                                    .text_color(theme.text)
+                                    .text_color(theme.foreground)
                                     .child(TextView::markdown("mod-long-description", description)),
                             )
                     }))
@@ -730,7 +730,7 @@ impl Render for ModDetailView {
                                 .flex_col()
                                 .gap_2()
                                 .rounded_lg()
-                                .bg(theme.hover)
+                                .bg(theme.accent)
                                 .p_3()
                                 .child(section_label(t!("mod.changelog"), &theme))
                                 .child(
@@ -763,7 +763,7 @@ impl Render for ModDetailView {
                     .children(m.license.clone().map(|license| {
                         div()
                             .text_xs()
-                            .text_color(theme.text_muted)
+                            .text_color(theme.muted_foreground)
                             .child(t!("mod.licensed_under", license = license).to_string())
                     }))
                     .into_any_element()
@@ -781,14 +781,14 @@ fn render_install_panel(
     panel: &InstallPanel,
     profiles: &[ProfileEntry],
     versions: &[ModVersion],
-    theme: &crate::theme::Theme,
+    theme: &gpui_kit::component::Theme,
     cx: &mut Context<ModDetailView>,
 ) -> AnyElement {
     let status_row = match &panel.status {
         InstallStatus::Resolving => Some(
             div()
                 .text_xs()
-                .text_color(theme.text_muted)
+                .text_color(theme.muted_foreground)
                 .child(t!("mod.resolving").to_string())
                 .into_any_element(),
         ),
@@ -800,7 +800,7 @@ fn render_install_panel(
                 .child(
                     div()
                         .text_xs()
-                        .text_color(theme.text_muted)
+                        .text_color(theme.muted_foreground)
                         .child(message.clone()),
                 )
                 .child(Progress::new("install-progress").value(*progress))
@@ -889,7 +889,7 @@ fn render_install_panel(
             .child(
                 div()
                     .text_xs()
-                    .text_color(theme.text_muted)
+                    .text_color(theme.muted_foreground)
                     .child(t!("mod.created_on_install").to_string()),
             )
     });
@@ -934,7 +934,7 @@ fn render_install_panel(
             .child(
                 div()
                     .text_xs()
-                    .text_color(theme.text_muted)
+                    .text_color(theme.muted_foreground)
                     .pl_6()
                     .child(if already {
                         t!("mod.dep_already_installed", detail = detail).to_string()
@@ -967,7 +967,7 @@ fn render_install_panel(
         .rounded_lg()
         .border_1()
         .border_color(theme.border)
-        .bg(theme.hover)
+        .bg(theme.accent)
         .child(section_label(t!("mod.install_into"), theme))
         .child(div().flex().flex_wrap().gap_2().children(profile_chips))
         .children(new_profile_row)
@@ -989,7 +989,7 @@ fn render_install_panel(
             None
         } else {
             Some(
-                div().text_xs().text_color(theme.text_muted).child(
+                div().text_xs().text_color(theme.muted_foreground).child(
                     t!(
                         "mod.unresolved",
                         count = panel.unresolved.len(),

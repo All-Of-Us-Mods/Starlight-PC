@@ -1,15 +1,15 @@
-use gpui::*;
+use gpui_kit::*;
 use rust_i18n::t;
 
 use crate::backend::api::{self, ModResponse};
-use crate::theme::ThemeExt;
 use crate::ui::mod_card::{self, MOD_CARD_HEIGHT};
-use gpui_component::Selectable;
-use gpui_component::alert::Alert;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::pagination::Pagination;
-use gpui_component::{Icon, IconName};
+use gpui_kit::component::ActiveTheme;
+use gpui_kit::component::Selectable;
+use gpui_kit::component::alert::Alert;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::pagination::Pagination;
+use gpui_kit::component::{Icon, IconName};
 
 const MIN_CARD_WIDTH: f32 = 360.0;
 const MAX_GRID_COLUMNS: u32 = 4;
@@ -35,7 +35,7 @@ enum SortBy {
 }
 
 impl SortBy {
-    fn label(self) -> gpui::SharedString {
+    fn label(self) -> gpui_kit::SharedString {
         match self {
             SortBy::Downloads => t!("explore.sort.downloads").into(),
             SortBy::Updated => t!("explore.sort.updated").into(),
@@ -61,7 +61,7 @@ enum TypeFilter {
 }
 
 impl TypeFilter {
-    fn label(self) -> gpui::SharedString {
+    fn label(self) -> gpui_kit::SharedString {
         match self {
             TypeFilter::All => t!("explore.type.all").into(),
             TypeFilter::AllClients => t!("explore.type.all_clients").into(),
@@ -232,7 +232,7 @@ impl ExploreView {
 
     fn mod_card(
         m: &ModResponse,
-        theme: &crate::theme::Theme,
+        theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = SharedString::from(format!("explore-{}", m.id));
@@ -311,7 +311,7 @@ impl Render for ExploreView {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_color(theme.text_muted)
+                        .text_color(theme.muted_foreground)
                         .child(t!("explore.no_mods").to_string())
                         .into_any_element()
                 } else {
@@ -375,7 +375,7 @@ impl Render for ExploreView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(theme.text_muted)
+                    .text_color(theme.muted_foreground)
                     .child(t!("explore.type_label")),
             )
             .child(self.type_pill("type-all", TypeFilter::All, cx))

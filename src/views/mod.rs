@@ -8,8 +8,8 @@ pub mod news_detail;
 pub mod servers;
 pub mod settings;
 
-use crate::theme::Theme;
-use gpui::*;
+use gpui_kit::component::Theme;
+use gpui_kit::*;
 
 /// Shared outer container for every top-level page: full-size vertical flex
 /// with the app font, base text color/size, and the standard page padding
@@ -21,8 +21,7 @@ pub fn page_root(id: &'static str, theme: &Theme) -> Stateful<Div> {
         .flex()
         .flex_col()
         .size_full()
-        .font_family(crate::theme::FONT_FAMILY)
-        .text_color(theme.text)
+        .text_color(theme.foreground)
         .text_size(px(14.0))
         .p_8()
         .pt(px(48.0))
@@ -33,6 +32,6 @@ pub fn section_label(text: impl Into<SharedString>, theme: &Theme) -> impl IntoE
     div()
         .text_xs()
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme.text_muted)
+        .text_color(theme.muted_foreground)
         .child(text.into())
 }

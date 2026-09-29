@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use gpui::{prelude::FluentBuilder as _, *};
+use gpui_kit::{prelude::FluentBuilder as _, *};
 use log::warn;
 use rust_i18n::t;
 
@@ -19,17 +19,17 @@ use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEn
 use crate::backend::services::{launch_service, region_service};
 use crate::backend::state::game_runtime::{self, GameStatePayload};
 use crate::backend::state::mod_catalog_cache;
-use crate::theme::{Theme, ThemeExt};
 use crate::views::{page_root, section_label};
-use gpui_component::alert::Alert;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::clipboard::Clipboard;
-use gpui_component::dialog::{DialogAction, DialogClose, DialogFooter};
-use gpui_component::radio::Radio;
-use gpui_component::scroll::ScrollableElement as _;
-use gpui_component::skeleton::Skeleton;
-use gpui_component::tag::Tag;
-use gpui_component::{Disableable, Icon, IconName, Sizable, WindowExt};
+use gpui_kit::component::alert::Alert;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::clipboard::Clipboard;
+use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
+use gpui_kit::component::radio::Radio;
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::skeleton::Skeleton;
+use gpui_kit::component::tag::Tag;
+use gpui_kit::component::{ActiveTheme, Theme};
+use gpui_kit::component::{Disableable, Icon, IconName, Sizable, WindowExt};
 
 /// How often the lobby list re-polls every enabled region.
 const REFRESH_INTERVAL_SECS: u64 = 12;
@@ -581,7 +581,7 @@ impl LobbiesView {
             .into_any_element(),
             LoadState::Loaded(rows) if rows.is_empty() => div()
                 .text_sm()
-                .text_color(theme.text_muted)
+                .text_color(theme.muted_foreground)
                 .child(t!("lobbies.empty").to_string())
                 .into_any_element(),
             LoadState::Loaded(rows) => div()
@@ -639,7 +639,7 @@ impl LobbiesView {
             .px_3()
             .py_2()
             .rounded_lg()
-            .bg(theme.sidebar_background)
+            .bg(theme.secondary)
             .border_1()
             .border_color(theme.border)
             .child(
@@ -669,7 +669,7 @@ impl LobbiesView {
                                 div()
                                     .min_w_0()
                                     .truncate()
-                                    .text_color(theme.text_muted)
+                                    .text_color(theme.muted_foreground)
                                     .child(host),
                             ),
                     )
@@ -677,7 +677,7 @@ impl LobbiesView {
                         div()
                             .truncate()
                             .text_xs()
-                            .text_color(theme.text_muted)
+                            .text_color(theme.muted_foreground)
                             .child(meta_line),
                     )
                     .when(!game.mods.is_empty(), |s| {
@@ -769,7 +769,7 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
     let mut items: Vec<AnyElement> = vec![
         div()
             .text_xs()
-            .text_color(theme.text_muted)
+            .text_color(theme.muted_foreground)
             .child(t!("lobbies.region", region = dialog.lobby.region_label).to_string())
             .into_any_element(),
         section_label(t!("lobbies.profile"), &theme).into_any_element(),
@@ -787,7 +787,7 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
         items.push(
             div()
                 .text_xs()
-                .text_color(theme.text_muted)
+                .text_color(theme.muted_foreground)
                 .child(t!("lobbies.no_mods_required").to_string())
                 .into_any_element(),
         );
@@ -865,7 +865,7 @@ fn render_target_option(
         .border_1()
         .border_color(border)
         .cursor_pointer()
-        .hover(|s| s.bg(theme.hover))
+        .hover(|s| s.bg(theme.accent))
         .on_click(move |_, _window, cx| on_row_click(cx))
         .child(
             Radio::new(SharedString::from(format!("{id}-radio")))
@@ -888,7 +888,7 @@ fn render_target_option(
                     div()
                         .truncate()
                         .text_xs()
-                        .text_color(theme.text_muted)
+                        .text_color(theme.muted_foreground)
                         .child(subtitle.to_string()),
                 )
                 .when(!detail.is_empty(), |s| {
@@ -932,7 +932,7 @@ impl Render for LobbiesView {
                                 s.child(
                                     div()
                                         .text_xs()
-                                        .text_color(theme.text_muted)
+                                        .text_color(theme.muted_foreground)
                                         .child(t!("lobbies.refreshing").to_string()),
                                 )
                             }),
@@ -940,7 +940,7 @@ impl Render for LobbiesView {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(theme.text_muted)
+                            .text_color(theme.muted_foreground)
                             .child(t!("lobbies.description").to_string()),
                     ),
             )
@@ -1006,7 +1006,7 @@ fn render_mod_chip(lobby_mod: &LobbyMod, theme: &Theme) -> AnyElement {
             .into_any_element(),
         _ => Icon::new(IconName::File)
             .size(px(12.0))
-            .text_color(theme.text_muted)
+            .text_color(theme.muted_foreground)
             .into_any_element(),
     };
 
@@ -1018,7 +1018,7 @@ fn render_mod_chip(lobby_mod: &LobbyMod, theme: &Theme) -> AnyElement {
             div()
                 .max_w(px(160.0))
                 .truncate()
-                .text_color(theme.text_muted)
+                .text_color(theme.muted_foreground)
                 .child(label),
         )
         .into_any_element()
@@ -1102,7 +1102,7 @@ fn install_summary(preview: &ModInstallPreview, theme: &Theme) -> (String, Hsla)
     if preview.unavailable > 0 {
         parts.push(t!("lobbies.not_in_catalog", count = preview.unavailable).to_string());
     }
-    (parts.join(" · "), theme.text_muted)
+    (parts.join(" · "), theme.muted_foreground)
 }
 
 /// Map id → Among Us map name (see `MapNames.cs`). Map names are game

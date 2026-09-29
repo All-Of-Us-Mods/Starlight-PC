@@ -1,7 +1,6 @@
 use std::rc::Rc;
 
-use gpui::{prelude::FluentBuilder as _, *};
-use gpui_component::{
+use gpui_kit::component::{
     AxisExt as _, Icon, IconName, Sizable as _, WindowExt,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
@@ -9,6 +8,7 @@ use gpui_component::{
     scroll::ScrollableElement as _,
     setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
 };
+use gpui_kit::{prelude::FluentBuilder as _, *};
 use log::warn;
 
 use crate::backend::events::{self, BackendEvent};
@@ -22,8 +22,8 @@ use crate::backend::services::{
     finder_service,
 };
 use crate::settings as app_settings;
-use crate::theme::ThemeExt;
 use crate::ui::icon::AppIcon;
+use gpui_kit::component::ActiveTheme;
 use rust_i18n::t;
 
 type PathSetter = Rc<dyn Fn(SharedString, &mut App)>;
@@ -110,7 +110,7 @@ fn format_bytes(bytes: u64) -> String {
 /// Build the download/clear row + status description for one BepInEx cache
 /// architecture. The cache is sized once here and reused for both the "Clear"
 /// button's visibility and the description, instead of stat-ing the file twice.
-fn cache_item(arch: BepInExArch, label: gpui::SharedString) -> SettingItem {
+fn cache_item(arch: BepInExArch, label: gpui_kit::SharedString) -> SettingItem {
     let (present, status): (bool, SharedString) = match core_service::get_bepinex_cache_path(arch) {
         Ok(path) => match bepinex_service::cache_size(&path) {
             Some(size) => (
@@ -994,7 +994,7 @@ impl Render for SettingsView {
         let about_page =
             SettingPage::new(t!("settings.page.about")).group(SettingGroup::new().items(vec![
                 SettingItem::render(|_, _window, cx| {
-                    let theme = cx.global::<crate::theme::Theme>().clone();
+                    let theme = cx.theme().clone();
                     div()
                         .flex()
                         .flex_col()
@@ -1015,9 +1015,9 @@ impl Render for SettingsView {
                                         .px_2()
                                         .py_0p5()
                                         .rounded_full()
-                                        .bg(theme.hover)
+                                        .bg(theme.accent)
                                         .text_xs()
-                                        .text_color(theme.text_muted)
+                                        .text_color(theme.muted_foreground)
                                         .child(concat!("v", env!("CARGO_PKG_VERSION"))),
                                 ),
                         )
@@ -1027,14 +1027,14 @@ impl Render for SettingsView {
                                 .items_center()
                                 .gap_2()
                                 .text_sm()
-                                .text_color(theme.text_muted)
+                                .text_color(theme.muted_foreground)
                                 .child("♡ 2026 All Of Us Mods")
                                 .child("|")
                                 .child(
                                     div()
                                         .id("about-license-link")
                                         .cursor_pointer()
-                                        .hover(|s| s.text_color(theme.text))
+                                        .hover(|s| s.text_color(theme.foreground))
                                         .child(t!("settings.license"))
                                         .on_click(|_, _, cx| {
                                             cx.open_url("https://www.gnu.org/licenses/gpl-3.0.html")

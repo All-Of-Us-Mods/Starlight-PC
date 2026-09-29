@@ -1,13 +1,13 @@
 use chrono::{DateTime, Local};
-use gpui::*;
-use gpui_component::scroll::ScrollableElement as _;
-use gpui_component::separator::Separator;
-use gpui_component::text::TextView;
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::separator::Separator;
+use gpui_kit::component::text::TextView;
+use gpui_kit::*;
 use rust_i18n::t;
 
 use crate::backend::api::Post;
-use crate::theme::ThemeExt;
 use crate::views::{page_root, section_label};
+use gpui_kit::component::ActiveTheme;
 
 pub struct NewsDetailView {
     post: Post,
@@ -61,7 +61,7 @@ impl Render for NewsDetailView {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(theme.text_muted)
+                            .text_color(theme.muted_foreground)
                             .child(t!("news.posted_by", author = self.post.author).to_string()),
                     )
                     .child(Separator::horizontal())
@@ -70,7 +70,7 @@ impl Render for NewsDetailView {
                         div()
                             .text_sm()
                             .line_height(px(22.0))
-                            .text_color(theme.text)
+                            .text_color(theme.foreground)
                             .child(TextView::markdown(
                                 "news-content",
                                 self.post.content.clone(),

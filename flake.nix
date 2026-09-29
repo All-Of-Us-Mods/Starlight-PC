@@ -54,17 +54,13 @@
 
           # Vendored with fetchCargoVendor, which pulls crates from static.crates.io;
           # the crates.io API endpoint rejects curl's default user agent.
-          cargoHash = "sha256-EVd7hR5kab08rjh4D6NRHORiC18WEJJfgdNfrhSkCr8=";
+          cargoHash = "sha256-mdHnbWyRPEUr97FVuaLf2IxbGJ6u+C+gRELhjhbcSkg=";
 
           nativeBuildInputs =
             [ pkgs.makeWrapper ]
             ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
 
           buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxLibs;
-
-          preBuild = ''
-            ln -sfn gpui-component-assets-0.5.1 "$NIX_BUILD_TOP/$(stripHash "$cargoDeps")/assets"
-          '';
 
           doCheck = false;
 

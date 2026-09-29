@@ -5,18 +5,14 @@
 //! Starlight palettes are written there on startup, the directory is watched
 //! so edits apply live, and the active theme is remembered by name in
 //! settings.
-//!
-//! [`Theme`] is a small projection of the active gpui-component palette,
-//! kept because the app's own views read a handful of named colors rather
-//! than the full component color set.
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use gpui::*;
-use gpui_component::{
-    Theme as ComponentTheme, ThemeColor, ThemeConfig, ThemeRegistry, scroll::ScrollbarMode,
+use gpui_kit::component::{
+    Theme as ComponentTheme, ThemeConfig, ThemeRegistry, scroll::ScrollbarMode,
 };
+use gpui_kit::*;
 use log::warn;
 
 use crate::backend::services::core_service::ScrollbarVisibility;
@@ -27,43 +23,6 @@ const BUNDLED_FILE_NAME: &str = "starlight.json";
 
 /// Theme applied when settings name a theme that isn't installed.
 pub const DEFAULT_THEME_NAME: &str = "Starlight Zinc";
-
-#[derive(Clone)]
-pub struct Theme {
-    pub background: Hsla,
-    pub sidebar_background: Hsla,
-    pub primary: Hsla,
-    pub text: Hsla,
-    pub text_muted: Hsla,
-    pub border: Hsla,
-    pub hover: Hsla,
-    /// Status colors for inline error / success / warning text.
-    pub danger: Hsla,
-    pub success: Hsla,
-    pub warning: Hsla,
-}
-
-impl Global for Theme {}
-
-impl Theme {
-    /// Project the active gpui-component palette onto the names the app's
-    /// views use. Cards and panels ride on `secondary`, hover surfaces on
-    /// `accent` — the two roles those colors already play in the components.
-    fn from_colors(colors: &ThemeColor) -> Self {
-        Self {
-            background: colors.background,
-            sidebar_background: colors.secondary,
-            primary: colors.primary,
-            text: colors.foreground,
-            text_muted: colors.muted_foreground,
-            border: colors.border,
-            hover: colors.accent,
-            danger: colors.danger,
-            success: colors.success,
-            warning: colors.warning,
-        }
-    }
-}
 
 /// Where user theme files live. Users can drop any gpui-component theme JSON
 /// here; it shows up in the theme picker without a restart.
@@ -150,10 +109,9 @@ pub fn apply(cx: &mut App, name: &str) {
 
 /// Post-process a freshly applied theme: keep the window chrome transparent
 /// unless the theme asked for its own (the workspace paints the background
-/// and the starfield behind the sidebar and title bar), then republish the
-/// app palette and repaint.
+/// and the starfield behind the sidebar and title bar), then repaint.
 fn finish_apply(cx: &mut App, config: &Rc<ThemeConfig>) {
-    let transparent = gpui::transparent_black();
+    let transparent = gpui_kit::transparent_black();
     let theme = ComponentTheme::global_mut(cx);
 
     if config.colors.sidebar.is_none() {
@@ -165,8 +123,6 @@ fn finish_apply(cx: &mut App, config: &Rc<ThemeConfig>) {
         theme.tokens.title_bar = transparent.into();
     }
 
-    let palette = Theme::from_colors(&theme.colors);
-    cx.set_global(palette);
     // Scrollbars paint from gpui-component's Base layer, which keeps its own copy
     // of the theme; `apply_config` alone leaves it on the previous palette.
     ComponentTheme::sync_base(cx);
@@ -184,29 +140,9 @@ pub fn apply_scrollbar_visibility(cx: &mut App) {
     ComponentTheme::set_scrollbar_mode(mode, cx);
 }
 
-pub const FONT_FAMILY: &str = ".SystemUIFont";
-
-pub trait ThemeExt {
-    fn theme(&self) -> &Theme;
-}
-
-impl<'a, V> ThemeExt for Context<'a, V> {
-    fn theme(&self) -> &Theme {
-        self.global::<Theme>()
-    }
-}
-
-// Dialog and sheet builders run with a bare `App` (they're re-invoked by the
-// window's dialog layer, not from a view's render), so they need this too.
-impl ThemeExt for App {
-    fn theme(&self) -> &Theme {
-        self.global::<Theme>()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    // Deliberately not `use super::*`: that pulls in `gpui::*`, whose `test`
+    // Deliberately not `use super::*`: that pulls in `gpui_kit::*`, whose `test`
     // attribute macro would shadow the built-in `#[test]`.
     use super::{BUNDLED_THEMES, DEFAULT_THEME_NAME};
 

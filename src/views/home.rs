@@ -1,13 +1,13 @@
-use gpui::*;
+use gpui_kit::*;
 use rust_i18n::t;
 
 use crate::backend::api::{self, ModResponse, Post};
-use crate::theme::ThemeExt;
 use crate::ui::mod_card;
-use gpui_component::alert::Alert;
-use gpui_component::button::Button;
-use gpui_component::scroll::ScrollableElement as _;
-use gpui_component::skeleton::Skeleton;
+use gpui_kit::component::ActiveTheme;
+use gpui_kit::component::alert::Alert;
+use gpui_kit::component::button::Button;
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::skeleton::Skeleton;
 
 #[derive(Clone, Debug)]
 pub enum HomeEvent {
@@ -89,7 +89,7 @@ fn failed_row(id: &'static str, message: &str, cx: &mut Context<HomeView>) -> An
         .into_any_element()
 }
 
-fn section_title(text: gpui::SharedString) -> impl IntoElement {
+fn section_title(text: gpui_kit::SharedString) -> impl IntoElement {
     div()
         .text_lg()
         .font_weight(FontWeight::SEMIBOLD)
@@ -107,7 +107,7 @@ fn carousel(id: &'static str, items: Vec<AnyElement>) -> impl IntoElement {
         .children(items)
 }
 
-fn news_card_skeleton(theme: &crate::theme::Theme) -> impl IntoElement {
+fn news_card_skeleton(theme: &gpui_kit::component::Theme) -> impl IntoElement {
     div()
         .w(px(NEWS_CARD_WIDTH))
         .flex_shrink_0()
@@ -116,7 +116,7 @@ fn news_card_skeleton(theme: &crate::theme::Theme) -> impl IntoElement {
         .gap_2()
         .p_4()
         .rounded_lg()
-        .bg(theme.sidebar_background)
+        .bg(theme.secondary)
         .border_1()
         .border_color(theme.border)
         .child(Skeleton::new().w_2_3().h_4().rounded_md())
@@ -125,7 +125,11 @@ fn news_card_skeleton(theme: &crate::theme::Theme) -> impl IntoElement {
         .child(Skeleton::new().w_5_6().h_3().rounded_md())
 }
 
-fn news_card(post: &Post, theme: &crate::theme::Theme, cx: &mut Context<HomeView>) -> AnyElement {
+fn news_card(
+    post: &Post,
+    theme: &gpui_kit::component::Theme,
+    cx: &mut Context<HomeView>,
+) -> AnyElement {
     let post_for_click = post.clone();
     div()
         .id(SharedString::from(format!("news-{}", post.id)))
@@ -136,7 +140,7 @@ fn news_card(post: &Post, theme: &crate::theme::Theme, cx: &mut Context<HomeView
         .w(px(NEWS_CARD_WIDTH))
         .flex_shrink_0()
         .rounded_lg()
-        .bg(theme.sidebar_background)
+        .bg(theme.secondary)
         .border_1()
         .border_color(theme.border)
         .cursor_pointer()
@@ -153,13 +157,13 @@ fn news_card(post: &Post, theme: &crate::theme::Theme, cx: &mut Context<HomeView
         .child(
             div()
                 .text_xs()
-                .text_color(theme.text_muted)
+                .text_color(theme.muted_foreground)
                 .child(t!("common.by_author", author = post.author).to_string()),
         )
         .child(
             div()
                 .text_sm()
-                .text_color(theme.text_muted)
+                .text_color(theme.muted_foreground)
                 .child(post.content.chars().take(140).collect::<String>()),
         )
         .into_any_element()
@@ -168,7 +172,7 @@ fn news_card(post: &Post, theme: &crate::theme::Theme, cx: &mut Context<HomeView
 impl HomeView {
     fn mod_card(
         m: &ModResponse,
-        theme: &crate::theme::Theme,
+        theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = SharedString::from(format!("trending-{}", m.id));

@@ -5,14 +5,14 @@
 //! panel by adding the entity as a child element. All filter state and the
 //! `code_editor`-mode input live inside the panel.
 
-use gpui::*;
-use gpui_component::Sizable as _;
-use gpui_component::button::{Toggle, ToggleVariants as _};
-use gpui_component::clipboard::Clipboard;
-use gpui_component::input::{Editor, EditorState, Input, InputEvent, InputState};
+use gpui_kit::component::Sizable as _;
+use gpui_kit::component::button::{Toggle, ToggleVariants as _};
+use gpui_kit::component::clipboard::Clipboard;
+use gpui_kit::component::input::{Editor, EditorState, Input, InputEvent, InputState};
+use gpui_kit::*;
 use rust_i18n::t;
 
-use crate::theme::ThemeExt;
+use gpui_kit::component::ActiveTheme;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LogLevel {
@@ -249,7 +249,7 @@ impl Render for LogPanel {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(t!("log.latest").to_string()),
                     )
-                    .child(div().text_xs().text_color(theme.text_muted).child(
+                    .child(div().text_xs().text_color(theme.muted_foreground).child(
                         t!("log.lines", kept = kept_count, total = total_count).to_string(),
                     )),
             )
