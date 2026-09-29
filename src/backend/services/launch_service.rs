@@ -193,6 +193,25 @@ fn steam_alongside_command() -> AppResult<Command> {
     Ok(cmd)
 }
 
+/// Whether Steam is running the game. Waits out a Steam launch that is still
+/// starting: launching again in that window would be ignored by Steam.
+#[cfg(target_os = "linux")]
+fn steam_game_running(cancelled: impl Fn() -> bool) -> bool {
+    let started = std::time::Instant::now();
+    loop {
+        if game_runtime::steam_proton().is_some() {
+            return true;
+        }
+        if !game_runtime::steam_launch_pending()
+            || cancelled()
+            || started.elapsed() > std::time::Duration::from_secs(120)
+        {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
 /// A host path as the game sees it: under wine the Unix root is drive `Z:`.
 fn game_path(path: &str) -> String {
     if cfg!(target_os = "linux") && path.starts_with('/') {
@@ -207,7 +226,6 @@ fn prepare_linux_winhttp_proxy(game_dir: &Path, profile_path: &str) -> AppResult
     let profile_dir = PathBuf::from(profile_path);
     let src_dll = profile_dir.join("winhttp.dll");
     let dst_dll = game_dir.join("winhttp.dll");
-    let dst_ini = game_dir.join("doorstop_config.ini");
 
     if !src_dll.exists() {
         return Err(AppError::validation(
@@ -222,24 +240,6 @@ fn prepare_linux_winhttp_proxy(game_dir: &Path, profile_path: &str) -> AppResult
         fs::rename(&temporary_dll, &dst_dll)?;
     }
 
-    if dst_ini.exists() {
-        fs::remove_file(dst_ini)?;
-    }
-
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn cleanup_linux_doorstop_files(game_dir: &Path) -> AppResult<()> {
-    let dll_path = game_dir.join("winhttp.dll");
-    let ini_path = game_dir.join("doorstop_config.ini");
-
-    if dll_path.exists() {
-        fs::remove_file(dll_path)?;
-    }
-    if ini_path.exists() {
-        fs::remove_file(ini_path)?;
-    }
     Ok(())
 }
 
@@ -458,10 +458,16 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     // The Steam client runs the first instance (online play and audio need
     // it); later ones replay its launch below.
     #[cfg(target_os = "linux")]
-    if let LinuxRunner::Steam { compat_data_path } = &args.runner
-        && game_runtime::steam_proton().is_none()
-    {
-        return launch_modded_via_steam(&args, &game_dir, compat_data_path);
+    if let LinuxRunner::Steam { compat_data_path } = &args.runner {
+        let cancelled = || cancel_generation(&args.profile_id) != cancel_gen;
+        let steam_running = steam_game_running(cancelled);
+        if cancelled() {
+            info!("launch cancelled while queued: profile={}", args.profile_id);
+            return Ok(());
+        }
+        if !steam_running {
+            return launch_modded_via_steam(&args, &game_dir, compat_data_path);
+        }
     }
 
     let profile_dir = PathBuf::from(&args.profile_path);
@@ -542,8 +548,10 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
         .ok_or_else(|| AppError::validation("Invalid game path"))?
         .to_path_buf();
 
+    let _launch_guard = LAUNCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     #[cfg(target_os = "linux")]
-    if matches!(args.runner, LinuxRunner::Steam { .. }) && game_runtime::steam_proton().is_none() {
+    if matches!(args.runner, LinuxRunner::Steam { .. }) && !steam_game_running(|| false) {
         clear_doorstop_ini(&game_dir)?;
         let mut cmd = Command::new("steam");
         cmd.arg("-applaunch").arg(STEAM_APP_ID);
@@ -551,9 +559,6 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
         game_runtime::register_steam_launch(None);
         return Ok(());
     }
-
-    #[cfg(target_os = "linux")]
-    cleanup_linux_doorstop_files(&game_dir)?;
 
     let mut cmd = build_game_command(
         &args.game_exe,

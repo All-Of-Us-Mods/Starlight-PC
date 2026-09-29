@@ -160,6 +160,14 @@ pub fn register_launched_process(
     register(profile_id, launch, id, Process::Spawned(child));
 }
 
+/// Whether a launch handed to the Steam client is starting or running.
+#[cfg(target_os = "linux")]
+pub fn steam_launch_pending() -> bool {
+    instances()
+        .iter()
+        .any(|i| matches!(i.process, Process::Steam { .. }))
+}
+
 /// Steam runs one instance of the game itself, so this replaces any earlier one.
 #[cfg(target_os = "linux")]
 pub fn register_steam_launch(profile_id: Option<String>) {
