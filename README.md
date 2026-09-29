@@ -36,7 +36,7 @@ cargo check --all-targets && cargo clippy --all-targets -- -D warnings && cargo 
 ## Tech Stack
 
 - **UI**: [GPUI](https://www.gpui.rs/) (the Rust UI framework from [Zed](https://zed.dev/))
-- **Components**: [gpui-component](https://github.com/longbridge/gpui-component)
+- **Components**: [GPUI Kit](https://github.com/longbridge/gpui-kit)
 - **HTTP**: [reqwest](https://github.com/seanmonstar/reqwest) (with rustls)
 
 ## Disclaimer

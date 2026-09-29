@@ -9,23 +9,13 @@ edition = "2024"
 rust-version = "1.92.0"
 
 [dependencies]
-# Tracks Zed's main branch; the exact commit lives in Cargo.lock. gpui-component
-# below must resolve to the same gpui, so update the two together
-# (`cargo update`) rather than one at a time.
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
-  "font-kit",
-  "runtime_shaders",
-  "x11",
-  "wayland",
-] }
-reqwest_client = { git = "https://github.com/zed-industries/zed" }
-# Tracks gpui-component's main branch, again pinned by Cargo.lock. It must
-# agree with the gpui above on a single gpui version.
-gpui-component = { git = "https://github.com/longbridge/gpui-component", features = [
-  "tree-sitter-markdown",
-] }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+# The whole UI stack: gpui-kit pins a gpui-pre snapshot and re-exports GPUI
+# (`gpui_kit::*`), the styled components (`gpui_kit::component`) and the
+# default icons (`gpui_kit::assets`).
+gpui-kit = { version = "0.7", features = ["tree-sitter-markdown"] }
+# GPUI's HTTP client, for remote images. Must sit on the exact gpui-pre
+# snapshot gpui-kit pins, so bump the two together.
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.7" }
 tree-sitter = "0.26"
 tree-sitter-md = "0.5"
 rust-i18n = "4.2"

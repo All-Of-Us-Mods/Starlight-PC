@@ -19,10 +19,10 @@
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use gpui::*;
+use gpui_kit::*;
 
 use crate::ui::icon::AppIcon;
-use gpui_component::IconNamed;
+use gpui_kit::component::IconNamed;
 
 /// Upstream's star color (Tailwind amber-400).
 const STAR_COLOR: u32 = 0xfbbf24;

@@ -5,8 +5,8 @@
 
 mod icon_dialog;
 
-use gpui::prelude::FluentBuilder as _;
-use gpui::*;
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
 use log::warn;
 use rust_i18n::t;
 
@@ -27,23 +27,23 @@ use crate::backend::services::profile_shortcut_service;
 use crate::backend::state::game_runtime;
 use crate::backend::state::mod_catalog_cache;
 use crate::settings as app_settings;
-use crate::theme::ThemeExt;
 use crate::ui::file_drop;
 use crate::ui::format;
 use crate::ui::icon::AppIcon;
 use crate::ui::log_panel::LogPanel;
 use crate::ui::profile_icon::profile_icon;
 use crate::views::page_root;
-use gpui_component::alert::Alert;
-use gpui_component::avatar::Avatar;
-use gpui_component::button::{Button, ButtonVariant, ButtonVariants};
-use gpui_component::dialog::{DialogAction, DialogButtonProps, DialogClose, DialogFooter};
-use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::progress::Progress;
-use gpui_component::scroll::ScrollableElement as _;
-use gpui_component::skeleton::Skeleton;
-use gpui_component::switch::Switch;
-use gpui_component::{Disableable, Icon, IconName, Sizable, WindowExt};
+use gpui_kit::component::ActiveTheme;
+use gpui_kit::component::alert::Alert;
+use gpui_kit::component::avatar::Avatar;
+use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants};
+use gpui_kit::component::dialog::{DialogAction, DialogButtonProps, DialogClose, DialogFooter};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::progress::Progress;
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::skeleton::Skeleton;
+use gpui_kit::component::switch::Switch;
+use gpui_kit::component::{Disableable, Icon, IconName, Sizable, WindowExt};
 
 use icon_dialog::IconDialogState;
 
@@ -928,7 +928,7 @@ impl Render for LibraryDetailView {
             .gap_4()
             // Dropping plugin .dlls anywhere on the page adds them to this profile.
             .drag_over::<ExternalPaths>({
-                let hover = theme.hover;
+                let hover = theme.accent;
                 move |style, _, _, _| style.bg(hover)
             })
             .on_drop(cx.listener(|this, dropped: &ExternalPaths, _window, cx| {
@@ -943,7 +943,7 @@ impl Render for LibraryDetailView {
                     .flex_col()
                     .gap_1()
                     .child(
-                        div().text_sm().text_color(theme.text_muted).child(
+                        div().text_sm().text_color(theme.muted_foreground).child(
                             t!("profile.exporting", percent = format!("{p:.0}")).to_string(),
                         ),
                     )
@@ -962,7 +962,7 @@ impl LibraryDetailView {
         // `Some` when BepInEx must be (re)installed before launching.
         install_label: Option<Cow<'static, str>>,
         installing: bool,
-        theme: &crate::theme::Theme,
+        theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let running = self.running_count + self.pending_launches;
@@ -1020,7 +1020,7 @@ impl LibraryDetailView {
                     row = row.child(
                         div()
                             .text_sm()
-                            .text_color(theme.text_muted)
+                            .text_color(theme.muted_foreground)
                             .child(t!("profile.instances_running", count = running).to_string()),
                     );
                     row = row.child(
@@ -1085,7 +1085,7 @@ impl LibraryDetailView {
     fn render_hero(
         &self,
         profile: &ProfileEntry,
-        theme: &crate::theme::Theme,
+        theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let bep_installed = profile.bepinex_installed.is_some();
@@ -1129,7 +1129,7 @@ impl LibraryDetailView {
                 .child(
                     div()
                         .text_sm()
-                        .text_color(theme.text_muted)
+                        .text_color(theme.muted_foreground)
                         .child(format!("{} — {:.0}%", p.message, p.progress)),
                 )
                 .child(Progress::new("bep-progress").value(p.progress as f32))
@@ -1173,12 +1173,12 @@ impl LibraryDetailView {
                             Icon::new(AppIcon::Pencil)
                                 .small()
                                 .flex_none()
-                                .text_color(theme.text_muted),
+                                .text_color(theme.muted_foreground),
                         )
                     }),
             )
             .child(
-                div().text_sm().text_color(theme.text_muted).child(
+                div().text_sm().text_color(theme.muted_foreground).child(
                     t!(
                         "profile.played",
                         time = format::play_time(profile.total_play_time)
@@ -1221,7 +1221,7 @@ impl LibraryDetailView {
             .gap_4()
             .p_5()
             .rounded_lg()
-            .bg(theme.sidebar_background)
+            .bg(theme.secondary)
             .border_1()
             .border_color(theme.border)
             .child(
@@ -1284,7 +1284,7 @@ impl LibraryDetailView {
     fn render_mods_section(
         &self,
         profile: &ProfileEntry,
-        theme: &crate::theme::Theme,
+        theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mod_names = self.mod_names.clone();
@@ -1314,9 +1314,9 @@ impl LibraryDetailView {
                     let display_for_confirm = display.clone();
                     let is_last = ix + 1 == profile.mods.len();
                     let name_color = if m.enabled {
-                        theme.text
+                        theme.foreground
                     } else {
-                        theme.text_muted
+                        theme.muted_foreground
                     };
                     let mod_id = m.mod_id.clone();
                     let enabled = m.enabled;
@@ -1349,7 +1349,7 @@ impl LibraryDetailView {
                             .gap_1()
                             .flex_none()
                             .text_sm()
-                            .text_color(theme.text_muted)
+                            .text_color(theme.muted_foreground)
                             .child(version_label)
                             .child(Icon::new(IconName::ArrowRight).xsmall())
                             .child(
@@ -1362,12 +1362,12 @@ impl LibraryDetailView {
                         None => div()
                             .flex_none()
                             .text_sm()
-                            .text_color(theme.text_muted)
+                            .text_color(theme.muted_foreground)
                             .child(version_label)
                             .into_any_element(),
                     };
                     let mut row = div().flex().items_center().gap_3().px_3().py_2().hover({
-                        let hover_bg = theme.hover;
+                        let hover_bg = theme.accent;
                         move |s| s.bg(hover_bg)
                     });
                     if !is_last {
@@ -1440,7 +1440,7 @@ impl LibraryDetailView {
                     .px_3()
                     .py_2()
                     .text_sm()
-                    .text_color(theme.text_muted)
+                    .text_color(theme.muted_foreground)
                     .child(t!("profile.no_mods").to_string())
                     .into_any_element()
             } else {
@@ -1501,7 +1501,7 @@ impl LibraryDetailView {
                 .child(
                     div()
                         .rounded_lg()
-                        .bg(theme.sidebar_background)
+                        .bg(theme.secondary)
                         .border_1()
                         .border_color(theme.border)
                         // Clip row hover backgrounds to the rounded corners.
@@ -1514,7 +1514,7 @@ impl LibraryDetailView {
 
     fn render_danger_zone(
         &self,
-        theme: &crate::theme::Theme,
+        theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let delete_controls = Button::new("delete-profile")
@@ -1534,7 +1534,7 @@ impl LibraryDetailView {
             .child(
                 div()
                     .rounded_lg()
-                    .bg(theme.sidebar_background)
+                    .bg(theme.secondary)
                     .border_1()
                     .border_color(theme.danger.alpha(0.45))
                     .px_4()
@@ -1557,7 +1557,7 @@ impl LibraryDetailView {
                             .child(
                                 div()
                                     .text_sm()
-                                    .text_color(theme.text_muted)
+                                    .text_color(theme.muted_foreground)
                                     .child(t!("profile.delete_this_profile_desc").to_string()),
                             ),
                     )

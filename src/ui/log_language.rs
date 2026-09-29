@@ -11,7 +11,7 @@
 //!   a `shortcut_link` whose `link_text` we match against `Error`, `Warning`,
 //!   etc. via `#match?` predicates.
 
-use gpui_component::highlighter::{LanguageConfig, LanguageRegistry};
+use gpui_kit::component::highlighter::{LanguageConfig, LanguageRegistry};
 
 /// Highlights for the inline grammar — the per-log-level coloring lives here.
 ///

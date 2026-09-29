@@ -7,7 +7,7 @@
 //! setter helper [`update`] also persists to disk through
 //! `core_service::update_settings`.
 
-use gpui::{App, Global};
+use gpui_kit::{App, Global};
 use log::warn;
 
 use crate::backend::services::core_service::{self, AppSettings, AppSettingsPatch};

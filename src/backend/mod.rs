@@ -7,7 +7,7 @@ pub mod services;
 pub mod single_instance;
 pub mod state;
 
-use gpui::App;
+use gpui_kit::App;
 use log::debug;
 
 /// Attach a default log-only subscriber to the event bus. Views that care

@@ -1,4 +1,4 @@
-use gpui::*;
+use gpui_kit::*;
 use log::warn;
 use rust_i18n::t;
 
@@ -6,18 +6,18 @@ use crate::backend::api::{self, Server};
 use crate::backend::deeplink::ServerLink;
 use crate::backend::error::AppResult;
 use crate::backend::services::region_service::{self, RegionInfo};
-use crate::theme::ThemeExt;
 use crate::ui::icon::AppIcon;
 use crate::views::{page_root, section_label};
-use gpui_component::alert::Alert;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::checkbox::Checkbox;
-use gpui_component::dialog::{DialogAction, DialogClose, DialogFooter};
-use gpui_component::form::{field, v_form};
-use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::scroll::ScrollableElement as _;
-use gpui_component::skeleton::Skeleton;
-use gpui_component::{Icon, IconName, Sizable, WindowExt};
+use gpui_kit::component::ActiveTheme;
+use gpui_kit::component::alert::Alert;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
+use gpui_kit::component::form::{field, v_form};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::skeleton::Skeleton;
+use gpui_kit::component::{Icon, IconName, Sizable, WindowExt};
 
 pub struct ServersView {
     state: LoadState,
@@ -504,11 +504,15 @@ impl ServersView {
         })
     }
 
-    fn render_installed(&self, theme: &crate::theme::Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn render_installed(
+        &self,
+        theme: &gpui_kit::component::Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(info) = self.regions.as_ref() else {
             return div()
                 .text_sm()
-                .text_color(theme.text_muted)
+                .text_color(theme.muted_foreground)
                 .child(
                     self.regions_error
                         .clone()
@@ -520,7 +524,7 @@ impl ServersView {
         if info.regions.is_empty() {
             return div()
                 .text_sm()
-                .text_color(theme.text_muted)
+                .text_color(theme.muted_foreground)
                 .child(t!("servers.no_regions").to_string())
                 .into_any_element();
         }
@@ -541,7 +545,7 @@ impl ServersView {
                 .px_3()
                 .py_2()
                 .rounded_lg()
-                .bg(theme.sidebar_background)
+                .bg(theme.secondary)
                 .border_1()
                 .border_color(theme.border)
                 .child(
@@ -561,7 +565,7 @@ impl ServersView {
                             div()
                                 .truncate()
                                 .text_xs()
-                                .text_color(theme.text_muted)
+                                .text_color(theme.muted_foreground)
                                 .child(target),
                         ),
                 )
@@ -597,7 +601,11 @@ impl ServersView {
             .into_any_element()
     }
 
-    fn render_available(&self, theme: &crate::theme::Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn render_available(
+        &self,
+        theme: &gpui_kit::component::Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         match &self.state {
             LoadState::Loading => div()
                 .flex()
@@ -633,7 +641,7 @@ impl ServersView {
                 )
                 .into_any_element(),
             LoadState::Loaded(servers) if servers.is_empty() => div()
-                .text_color(theme.text_muted)
+                .text_color(theme.muted_foreground)
                 .child(t!("servers.none_available").to_string())
                 .into_any_element(),
             LoadState::Loaded(servers) => {
@@ -643,7 +651,7 @@ impl ServersView {
                 if available.is_empty() {
                     return div()
                         .text_sm()
-                        .text_color(theme.text_muted)
+                        .text_color(theme.muted_foreground)
                         .child(t!("servers.all_added").to_string())
                         .into_any_element();
                 }
@@ -656,7 +664,7 @@ impl ServersView {
                         .px_3()
                         .py_2()
                         .rounded_lg()
-                        .bg(theme.sidebar_background)
+                        .bg(theme.secondary)
                         .border_1()
                         .border_color(theme.border)
                         .child(
@@ -675,7 +683,7 @@ impl ServersView {
                                     div()
                                         .truncate()
                                         .text_xs()
-                                        .text_color(theme.text_muted)
+                                        .text_color(theme.muted_foreground)
                                         .child(
                                             t!(
                                                 "servers.by_address",
@@ -732,7 +740,7 @@ impl Render for ServersView {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(theme.text_muted)
+                            .text_color(theme.muted_foreground)
                             .child(t!("servers.description").to_string()),
                     ),
             )

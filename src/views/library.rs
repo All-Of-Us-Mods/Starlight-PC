@@ -1,4 +1,4 @@
-use gpui::*;
+use gpui_kit::*;
 use log::warn;
 use rust_i18n::t;
 
@@ -11,19 +11,19 @@ use crate::backend::services::profile_service::{self, ProfileEntry, ZipOp};
 use crate::backend::state::game_runtime;
 use crate::backend::state::mod_catalog_cache;
 use crate::settings as app_settings;
-use crate::theme::ThemeExt;
 use crate::ui::file_drop::DroppedFiles;
 use crate::ui::format;
 use crate::ui::icon::AppIcon;
 use crate::ui::profile_icon::profile_icon;
-use gpui_component::alert::Alert;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::dialog::{DialogAction, DialogClose, DialogFooter};
-use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::progress::Progress;
-use gpui_component::scroll::ScrollableElement as _;
-use gpui_component::skeleton::Skeleton;
-use gpui_component::{Disableable, Icon, IconName, WindowExt};
+use gpui_kit::component::ActiveTheme;
+use gpui_kit::component::alert::Alert;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::progress::Progress;
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::skeleton::Skeleton;
+use gpui_kit::component::{Disableable, Icon, IconName, WindowExt};
 
 #[derive(Clone, Debug)]
 pub enum LibraryEvent {
@@ -501,7 +501,7 @@ impl LibraryView {
     fn render_profile_card(
         &self,
         profile: &ProfileEntry,
-        theme: &crate::theme::Theme,
+        theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let id = profile.id.clone();
@@ -527,11 +527,11 @@ impl LibraryView {
             .gap_3()
             .p_4()
             .rounded_lg()
-            .bg(theme.sidebar_background)
+            .bg(theme.secondary)
             .border_1()
             .border_color(theme.border)
             .cursor_pointer()
-            .hover(|s| s.bg(theme.hover))
+            .hover(|s| s.bg(theme.accent))
             // Dropping a .dll here installs it into this profile.
             .drag_over::<ExternalPaths>(move |style, _, _, _| style.border_color(accent))
             .on_drop(
@@ -563,7 +563,10 @@ impl LibraryView {
                         } else {
                             t!("profile.updates_available", count = outdated_count).to_string()
                         };
-                        div().text_xs().text_color(theme.text_muted).child(label)
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(label)
                     }))
                     .children(profile.needs_bepinex(platform).then(|| {
                         let label = match profile.bepinex_installed {
@@ -577,7 +580,7 @@ impl LibraryView {
                         div().text_xs().text_color(theme.warning).child(label)
                     }))
                     .child(
-                        div().text_xs().text_color(theme.text_muted).child(
+                        div().text_xs().text_color(theme.muted_foreground).child(
                             t!(
                                 "library.card_stats",
                                 mods = profile.mods.len(),
@@ -587,7 +590,7 @@ impl LibraryView {
                         ),
                     )
                     .child(
-                        div().text_xs().text_color(theme.text_muted).child(
+                        div().text_xs().text_color(theme.muted_foreground).child(
                             t!(
                                 "library.last_launched",
                                 when = format::last_launched(profile.last_launched_at),
@@ -599,14 +602,14 @@ impl LibraryView {
     }
 }
 
-fn profile_card_skeleton(theme: &crate::theme::Theme) -> impl IntoElement {
+fn profile_card_skeleton(theme: &gpui_kit::component::Theme) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
         .gap_2()
         .p_4()
         .rounded_lg()
-        .bg(theme.sidebar_background)
+        .bg(theme.secondary)
         .border_1()
         .border_color(theme.border)
         .child(Skeleton::new().w_2_3().h_5().rounded_md())
@@ -636,7 +639,7 @@ impl Render for LibraryView {
             )
             .into_any_element(),
             LoadState::Loaded(profiles) if profiles.is_empty() => div()
-                .text_color(theme.text_muted)
+                .text_color(theme.muted_foreground)
                 .child(t!("library.empty").to_string())
                 .into_any_element(),
             LoadState::Loaded(profiles) => {
@@ -687,7 +690,7 @@ impl Render for LibraryView {
             // Dropping an exported profile .zip anywhere on the page imports it.
             // Cards handle their own drops first (the listener consumes the drag).
             .drag_over::<ExternalPaths>({
-                let hover = theme.hover;
+                let hover = theme.accent;
                 move |style, _, _, _| style.bg(hover)
             })
             .on_drop(cx.listener(|this, dropped: &ExternalPaths, _window, cx| {
@@ -713,7 +716,7 @@ impl Render for LibraryView {
                     .flex_col()
                     .gap_1()
                     .child(
-                        div().text_sm().text_color(theme.text_muted).child(
+                        div().text_sm().text_color(theme.muted_foreground).child(
                             t!("library.importing", percent = format!("{p:.0}")).to_string(),
                         ),
                     )

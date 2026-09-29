@@ -1,15 +1,15 @@
 //! App-specific icons and the asset source that embeds them.
 //!
-//! Use `gpui_component::IconName` first; only reach for `AppIcon` when no
+//! Use `gpui_kit::component::IconName` first; only reach for `AppIcon` when no
 //! built-in icon fits (sidebar nav glyphs, etc.). `AppIcon` implements
-//! [`gpui_component::IconNamed`], so it's interchangeable with the
+//! [`gpui_kit::component::IconNamed`], so it's interchangeable with the
 //! built-in `IconName` anywhere `impl Into<Icon>` is accepted.
 
 use std::borrow::Cow;
 
-use gpui::{AssetSource, Result, SharedString};
-use gpui_component::IconNamed;
-use gpui_component_assets::Assets as ComponentAssets;
+use gpui_kit::assets::Assets as ComponentAssets;
+use gpui_kit::component::IconNamed;
+use gpui_kit::{AssetSource, Result, SharedString};
 
 #[derive(Clone, Copy)]
 pub enum AppIcon {

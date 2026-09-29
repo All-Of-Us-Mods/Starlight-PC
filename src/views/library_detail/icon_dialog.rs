@@ -2,21 +2,21 @@
 //! state hangs off [`LibraryDetailView`], and the dialog is opened on the
 //! window's dialog layer while `icon_dialog` is `Some`.
 
-use gpui::*;
-use gpui_component::alert::Alert;
-use gpui_component::avatar::Avatar;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::dialog::{DialogAction, DialogClose, DialogFooter};
-use gpui_component::radio::Radio;
-use gpui_component::scroll::ScrollableElement as _;
-use gpui_component::tab::TabBar;
-use gpui_component::{Icon, IconName, Sizable as _, WindowExt};
+use gpui_kit::component::alert::Alert;
+use gpui_kit::component::avatar::Avatar;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
+use gpui_kit::component::radio::Radio;
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::tab::TabBar;
+use gpui_kit::component::{Icon, IconName, Sizable as _, WindowExt};
+use gpui_kit::*;
 use rust_i18n::t;
 
 use super::{LibraryDetailView, LoadState};
 use crate::backend::api;
 use crate::backend::services::profile_service::{self, ProfileIconSelection};
-use crate::theme::ThemeExt;
+use gpui_kit::component::ActiveTheme;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum IconDialogMode {
@@ -265,7 +265,7 @@ fn icon_dialog_body(view: &Entity<LibraryDetailView>, cx: &App) -> AnyElement {
     let body: AnyElement = match mode {
         IconDialogMode::Default => div()
             .text_sm()
-            .text_color(theme.text_muted)
+            .text_color(theme.muted_foreground)
             .child(t!("icon.default_desc").to_string())
             .into_any_element(),
         IconDialogMode::Custom => {
@@ -280,13 +280,13 @@ fn icon_dialog_body(view: &Entity<LibraryDetailView>, cx: &App) -> AnyElement {
             } else if has_existing {
                 div()
                     .text_sm()
-                    .text_color(theme.text_muted)
+                    .text_color(theme.muted_foreground)
                     .child(t!("icon.using_existing").to_string())
                     .into_any_element()
             } else {
                 div()
                     .text_sm()
-                    .text_color(theme.text_muted)
+                    .text_color(theme.muted_foreground)
                     .child(t!("icon.formats").to_string())
                     .into_any_element()
             };
@@ -323,7 +323,7 @@ fn icon_dialog_body(view: &Entity<LibraryDetailView>, cx: &App) -> AnyElement {
             if mods.is_empty() {
                 div()
                     .text_sm()
-                    .text_color(theme.text_muted)
+                    .text_color(theme.muted_foreground)
                     .child(t!("icon.no_mods").to_string())
                     .into_any_element()
             } else {
@@ -368,7 +368,7 @@ fn icon_dialog_body(view: &Entity<LibraryDetailView>, cx: &App) -> AnyElement {
                                 theme.border
                             })
                             .cursor_pointer()
-                            .hover(|s| s.bg(theme.hover))
+                            .hover(|s| s.bg(theme.accent))
                             .on_click(move |_, _window, cx| on_row_click(cx))
                             .child(
                                 Radio::new(SharedString::from(format!("icon-mod-{mod_id}-radio")))

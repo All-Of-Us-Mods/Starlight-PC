@@ -2,7 +2,7 @@
 // log output. Diagnostics survive via the log file (see `init_logging`).
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
-use gpui::*;
+use gpui_kit::*;
 
 // Registers the app's `locales/` directory as a translation backend (merged
 // with gpui-component's built-ins via `extend!` below). English is the source
@@ -14,7 +14,6 @@ use gpui::*;
 // nested deeper than two segments, scattering them into bogus locales.
 rust_i18n::i18n!("locales", fallback = "en");
 
-mod app;
 mod backend;
 mod settings;
 mod theme;
@@ -24,6 +23,9 @@ mod workspace;
 
 use backend::deeplink::{self, DeepLink};
 use backend::single_instance;
+
+// `rust_i18n::extend!` names the crate whose translations it merges.
+use gpui_kit::component as gpui_component;
 
 actions!(starlight, [Quit]);
 
@@ -152,15 +154,14 @@ fn main() {
         reqwest_client::ReqwestClient::user_agent("Starlight").expect("http client"),
     );
 
-    gpui_platform::application()
+    gpui_kit::application()
         .with_assets(ui::icon::EmbeddedAssets)
         .with_http_client(http)
         .run(move |cx: &mut App| {
             // Merge our locale overrides into gpui-component's translations
             // before any component renders. Must run exactly once.
             rust_i18n::extend!(gpui_component);
-            gpui_component::init(cx);
-            gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
+            gpui_kit::init(cx);
             ui::log_language::register();
             // Settings first — the theme preset and language come from them.
             settings::init(cx);
@@ -195,9 +196,9 @@ fn main() {
                     size(px(1024.), px(768.)),
                     cx,
                 ))),
-                titlebar: Some(gpui::TitlebarOptions {
+                titlebar: Some(gpui_kit::TitlebarOptions {
                     title: Some("Starlight".into()),
-                    ..gpui_component::TitleBar::title_bar_options()
+                    ..gpui_kit::component::TitleBar::title_bar_options()
                 }),
                 // Keep the window from shrinking small enough that the nav +
                 // settings sidebars crowd the content off-screen.
@@ -216,12 +217,12 @@ fn main() {
                 ..Default::default()
             };
 
-            cx.open_window(options, |window, cx| {
-                let workspace = cx.new(|cx| workspace::Workspace::new(window, cx));
-                let workspace_view: AnyView = workspace.into();
-                cx.new(|cx| gpui_component::Root::new(workspace_view, window, cx))
+            // Mounts the workspace under gpui-kit's `Root`, which also draws
+            // the dialog, sheet and notification layers.
+            gpui_kit::open_window(options, cx, |window, cx| {
+                cx.new(|cx| workspace::Workspace::new(window, cx))
             })
-            .unwrap();
+            .expect("failed to open the main window");
 
             // The workspace is already subscribed to the bus, so a link we
             // opened with reaches it exactly like one forwarded by a second

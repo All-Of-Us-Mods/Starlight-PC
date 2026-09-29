@@ -1,11 +1,11 @@
-use gpui::prelude::FluentBuilder as _;
-use gpui::*;
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
 use std::path::PathBuf;
 
 use crate::backend::api;
 use crate::backend::services::profile_service::ProfileEntry;
-use gpui_component::avatar::Avatar;
-use gpui_component::{Icon, IconName, Sizable as _};
+use gpui_kit::component::avatar::Avatar;
+use gpui_kit::component::{Icon, IconName, Sizable as _};
 
 /// The profile's icon at `size` px: its custom image, the thumbnail of the mod
 /// it borrows its icon from, or the default placeholder. Square rather than
