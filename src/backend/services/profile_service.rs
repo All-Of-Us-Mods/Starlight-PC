@@ -1,5 +1,5 @@
 use crate::backend::error::{AppError, AppResult};
-use crate::backend::services::core_service::BepInExArch;
+use crate::backend::services::core_service::{BepInExArch, GamePlatform};
 use crate::backend::services::{bepinex_service, core_service, profile_zip_service};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -23,12 +23,13 @@ fn default_true() -> bool {
 }
 
 /// Arch assumed for BepInEx installs recorded before arch tracking (legacy
-/// `bepinex_installed: true`): whatever the currently selected platform needs,
-/// since that's the platform those installs were made for.
+/// `bepinex_installed: true`): whatever the currently selected platform needed
+/// back then — Steam was 32-bit, Epic and Xbox 64-bit.
 fn legacy_bepinex_arch() -> BepInExArch {
-    core_service::get_settings()
-        .map(|settings| settings.game_platform.bepinex_arch())
-        .unwrap_or(BepInExArch::X86)
+    match core_service::get_settings().map(|settings| settings.game_platform) {
+        Ok(GamePlatform::Epic | GamePlatform::Xbox) => BepInExArch::X64,
+        _ => BepInExArch::X86,
+    }
 }
 
 fn deserialize_bepinex_installed<'de, D>(deserializer: D) -> Result<Option<BepInExArch>, D::Error>
@@ -439,19 +440,14 @@ pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
     let settings = core_service::get_settings()?;
     let install_arch = settings.game_platform.bepinex_arch();
 
-    let bepinex_url = match install_arch {
-        BepInExArch::X64 => settings.bepinex_url_x64.clone(),
-        BepInExArch::X86 => settings.bepinex_url_x86.clone(),
-    };
-
     let cache_path = if settings.cache_bepinex {
-        Some(core_service::get_bepinex_cache_path(install_arch.as_str())?)
+        Some(core_service::get_bepinex_cache_path(install_arch)?)
     } else {
         None
     };
 
     bepinex_service::install_bepinex(
-        bepinex_url,
+        settings.bepinex_url(install_arch).to_string(),
         profile.path.clone(),
         cache_path,
         bepinex_service::BepInExTargetType::Profile,

@@ -16,7 +16,7 @@ use crate::backend::api::{
 };
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::{
-    core_service::{self, GamePlatform},
+    core_service::{self, BepInExArch, GamePlatform},
     mod_download_service, profile_service,
 };
 
@@ -296,9 +296,9 @@ fn pick_platform_target(
     mod_id: &str,
     version: &str,
 ) -> Option<DownloadTarget> {
-    let arch_fallbacks: &[&str] = match game_platform {
-        GamePlatform::Epic => &["x64", "x86"],
-        _ => &["x86"],
+    let arch_fallbacks: &[&str] = match game_platform.bepinex_arch() {
+        BepInExArch::X64 => &["x64", "x86"],
+        BepInExArch::X86 => &["x86"],
     };
     let preferred = arch_fallbacks.iter().find_map(|arch| {
         platforms

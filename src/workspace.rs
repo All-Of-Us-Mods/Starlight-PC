@@ -249,7 +249,7 @@ impl Workspace {
     /// auto-detect the installation in the background so launching works out
     /// of the box, and tell the user either way.
     fn first_run_detect_game(window: &mut Window, cx: &mut Context<Self>) {
-        use crate::backend::services::core_service::{AppSettingsPatch, GamePlatform};
+        use crate::backend::services::core_service::AppSettingsPatch;
         use crate::backend::services::finder_service;
 
         if !app_settings::get(cx).among_us_path.trim().is_empty() {
@@ -271,16 +271,11 @@ impl Workspace {
                 .await;
             let _ = window_handle.update(cx, |_, window, cx| match detection {
                 Some((path, store)) => {
-                    let platform = store.as_deref().map(|p| match p {
-                        "epic" => GamePlatform::Epic,
-                        "xbox" => GamePlatform::Xbox,
-                        _ => GamePlatform::Steam,
-                    });
                     app_settings::update(
                         cx,
                         AppSettingsPatch {
                             among_us_path: Some(path.clone()),
-                            game_platform: platform,
+                            game_platform: store,
                             ..Default::default()
                         },
                     );

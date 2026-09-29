@@ -1,5 +1,5 @@
 use crate::backend::error::{AppError, AppResult};
-use crate::backend::services::core_service;
+use crate::backend::services::core_service::{self, GamePlatform};
 use crate::backend::services::profile_instance_service;
 use crate::backend::services::profile_service::ProfileEntry;
 #[cfg(windows)]
@@ -79,7 +79,7 @@ pub struct LaunchModdedArgs {
     pub bepinex_dll: String,
     pub dotnet_dir: String,
     pub coreclr_path: String,
-    pub platform: String,
+    pub platform: GamePlatform,
     /// Whether an already-running instance of this profile may push this
     /// launch onto its own copy of the profile directory. Off when
     /// multi-instance launching is disabled — then a second launch just runs
@@ -93,7 +93,7 @@ pub struct LaunchModdedArgs {
 #[serde(rename_all = "camelCase")]
 pub struct LaunchVanillaArgs {
     pub game_exe: String,
-    pub platform: String,
+    pub platform: GamePlatform,
     #[cfg(target_os = "linux")]
     pub runner: LinuxRunner,
 }
@@ -214,10 +214,10 @@ fn cleanup_linux_doorstop_files(game_dir: &Path) -> AppResult<()> {
 /// verbatim, so our locally spawned copy authenticates like a normal Epic
 /// launch.
 #[cfg(windows)]
-fn attach_epic_launch_args(cmd: &mut Command, platform: &str) -> AppResult<()> {
+fn attach_epic_launch_args(cmd: &mut Command, platform: GamePlatform) -> AppResult<()> {
     use std::os::windows::process::CommandExt as _;
 
-    if platform != "epic" {
+    if platform != GamePlatform::Epic {
         return Ok(());
     }
 
@@ -229,7 +229,7 @@ fn attach_epic_launch_args(cmd: &mut Command, platform: &str) -> AppResult<()> {
 /// Epic auth-argument capture needs the Epic launcher, which only exists on
 /// Windows. Elsewhere the game launches without auth arguments.
 #[cfg(not(windows))]
-fn attach_epic_launch_args(_cmd: &mut Command, _platform: &str) -> AppResult<()> {
+fn attach_epic_launch_args(_cmd: &mut Command, _platform: GamePlatform) -> AppResult<()> {
     Ok(())
 }
 
@@ -549,7 +549,7 @@ fn spawn_modded(
         cmd.env("WINEDLLOVERRIDES", "winhttp=n,b");
     }
 
-    attach_epic_launch_args(&mut cmd, &args.platform)?;
+    attach_epic_launch_args(&mut cmd, args.platform)?;
     launch_process(cmd, Some(args.profile_id.clone()), instance)
 }
 
@@ -587,7 +587,7 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
     cmd.current_dir(&game_dir)
         .args(["--doorstop-enabled", "false"]);
 
-    attach_epic_launch_args(&mut cmd, &args.platform)?;
+    attach_epic_launch_args(&mut cmd, args.platform)?;
     launch_process(cmd, None, LaunchInstance::default())
 }
 
@@ -612,20 +612,13 @@ pub fn launch_vanilla_from_settings() -> AppResult<()> {
     }
 
     #[cfg(windows)]
-    if matches!(settings.game_platform, core_service::GamePlatform::Xbox) {
+    if matches!(settings.game_platform, GamePlatform::Xbox) {
         let app_id = ensure_xbox_app_id(&settings)?;
         xbox_service::cleanup_xbox_files(game_exe.parent().expect("game_exe has a parent"))?;
         return xbox_service::launch_xbox(&app_id);
     }
 
-    let platform = match settings.game_platform {
-        core_service::GamePlatform::Steam => "steam",
-        core_service::GamePlatform::Epic => "epic",
-        core_service::GamePlatform::Xbox => "xbox",
-    }
-    .to_string();
-
-    if matches!(settings.game_platform, core_service::GamePlatform::Steam) {
+    if matches!(settings.game_platform, GamePlatform::Steam) {
         ensure_steam_appid_file(game_exe.parent().expect("game_exe has a parent"));
     }
 
@@ -634,7 +627,7 @@ pub fn launch_vanilla_from_settings() -> AppResult<()> {
 
     launch_vanilla(LaunchVanillaArgs {
         game_exe: game_exe.to_string_lossy().to_string(),
-        platform,
+        platform: settings.game_platform,
         #[cfg(target_os = "linux")]
         runner,
     })
@@ -747,7 +740,7 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
     }
 
     #[cfg(windows)]
-    if matches!(settings.game_platform, core_service::GamePlatform::Xbox) {
+    if matches!(settings.game_platform, GamePlatform::Xbox) {
         let app_id = ensure_xbox_app_id(&settings)?;
         let game_dir = game_exe.parent().expect("game_exe has a parent");
         xbox_service::prepare_xbox_launch(&profile_path, game_dir)?;
@@ -763,14 +756,7 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
         return Ok(());
     }
 
-    let platform = match settings.game_platform {
-        core_service::GamePlatform::Steam => "steam",
-        core_service::GamePlatform::Epic => "epic",
-        core_service::GamePlatform::Xbox => "xbox",
-    }
-    .to_string();
-
-    if matches!(settings.game_platform, core_service::GamePlatform::Steam) {
+    if matches!(settings.game_platform, GamePlatform::Steam) {
         ensure_steam_appid_file(game_exe.parent().expect("game_exe has a parent"));
     }
 
@@ -796,7 +782,7 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
         bepinex_dll: bepinex_dll.to_string_lossy().to_string(),
         dotnet_dir: dotnet_dir.to_string_lossy().to_string(),
         coreclr_path: coreclr_path.to_string_lossy().to_string(),
-        platform,
+        platform: settings.game_platform,
         // A launch that lands on an already-running profile only gets its own
         // copy of it when multiple instances are allowed.
         allow_instance_copy: settings.allow_multi_instance_launch,

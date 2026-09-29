@@ -1,4 +1,5 @@
 use crate::backend::error::{AppError, AppResult};
+use crate::backend::services::core_service::GamePlatform;
 use log::{debug, info, warn};
 use std::path::{Path, PathBuf};
 
@@ -10,6 +11,8 @@ const AMONG_US_EXE: &str = "Among Us.exe";
 const AMONG_US_STEAM_APP_ID: &str = "945360";
 const EPIC_FOLDER: &str = "Among Us_Data/StreamingAssets/aa/EGS";
 const XBOX_FOLDER: &str = "Among Us_Data/StreamingAssets/aa/Win10";
+/// The itch app keeps its install receipt here.
+const ITCH_FOLDER: &str = ".itch";
 
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, serde::Serialize)]
@@ -40,6 +43,10 @@ fn is_epic_installation(path: &Path) -> bool {
 
 fn is_xbox_installation(path: &Path) -> bool {
     path.join(XBOX_FOLDER).is_dir()
+}
+
+fn is_itch_installation(path: &Path) -> bool {
+    path.join(ITCH_FOLDER).is_dir()
 }
 
 #[cfg(target_os = "windows")]
@@ -400,7 +407,7 @@ pub fn get_among_us_paths() -> Vec<PathBuf> {
     Vec::new()
 }
 
-pub fn detect_game_store(path: &str) -> AppResult<String> {
+pub fn detect_game_store(path: &str) -> AppResult<GamePlatform> {
     let path = PathBuf::from(path);
 
     if !verify_among_us_directory(&path) {
@@ -411,15 +418,17 @@ pub fn detect_game_store(path: &str) -> AppResult<String> {
     }
 
     let platform = if is_epic_installation(&path) {
-        "epic"
+        GamePlatform::Epic
     } else if is_xbox_installation(&path) {
-        "xbox"
+        GamePlatform::Xbox
+    } else if is_itch_installation(&path) {
+        GamePlatform::Itch
     } else {
-        "steam"
+        GamePlatform::Steam
     };
 
-    debug!("Detected platform '{}' for path: {:?}", platform, path);
-    Ok(platform.to_string())
+    debug!("Detected platform {platform:?} for path: {path:?}");
+    Ok(platform)
 }
 
 #[cfg(target_os = "linux")]
