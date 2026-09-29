@@ -95,10 +95,12 @@ pub fn next_instance_id() -> u64 {
 }
 
 /// Tags a spawned launch's processes so Stop can find them once wine has
-/// moved them out of our process tree. Unity ignores unknown arguments.
+/// moved them out of our process tree. Unity ignores unknown arguments. The
+/// session part keeps games that outlived an earlier Starlight run apart.
 #[cfg(target_os = "linux")]
 pub fn instance_arg(id: u64) -> String {
-    format!("--starlight-instance={id}")
+    static SESSION: LazyLock<String> = LazyLock::new(|| uuid::Uuid::new_v4().simple().to_string());
+    format!("--starlight-instance={}-{id}", *SESSION)
 }
 
 #[derive(Clone, Debug, Default)]
