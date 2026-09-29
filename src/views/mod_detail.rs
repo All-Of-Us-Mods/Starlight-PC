@@ -23,7 +23,6 @@ use crate::backend::api::{self, ModResponse, ModVersion, ModVersionInfo};
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::{
     bepinex_service::BepInExTargetType,
-    core_service,
     mod_install_service::{self, InstallModInput, ResolvedDependency},
     profile_service::{self, ProfileEntry, ProfileIconSelection},
 };
@@ -373,12 +372,11 @@ impl ModDetailView {
         });
 
         // A freshly created profile never has BepInEx yet.
-        let game_arch = core_service::game_arch(&crate::settings::get(cx).among_us_path);
         let needs_bepinex = existing_profile_id.as_ref().is_none_or(|profile_id| {
             self.profiles
                 .iter()
                 .find(|p| &p.id == profile_id)
-                .is_none_or(|p| p.needs_bepinex(game_arch))
+                .is_none_or(|p| p.needs_bepinex_for_settings(crate::settings::get(cx)))
         });
         if let Some(panel) = self.install.as_mut() {
             panel.status = InstallStatus::Installing {
@@ -1018,6 +1016,7 @@ mod tests {
 
     fn named(name: &str) -> ProfileEntry {
         ProfileEntry {
+            installation_id: None,
             id: name.into(),
             name: name.into(),
             path: String::new(),

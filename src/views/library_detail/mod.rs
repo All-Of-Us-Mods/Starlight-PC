@@ -4,6 +4,7 @@
 //! always happens on the background executor; this module only orchestrates.
 
 mod icon_dialog;
+mod installation_picker;
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -1063,8 +1064,10 @@ impl LibraryDetailView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let bep_installed = profile.bepinex_installed.is_some();
-        let platform = app_settings::get(cx).game_platform;
-        let game_arch = core_service::game_arch(&app_settings::get(cx).among_us_path);
+        let resolved = profile.launch_settings(app_settings::get(cx));
+        let settings = resolved.as_ref().unwrap_or(app_settings::get(cx));
+        let platform = settings.game_platform;
+        let game_arch = core_service::game_arch(&settings.among_us_path);
         let needs_bepinex = profile.needs_bepinex(game_arch);
         let bep_incompatible = bep_installed && needs_bepinex;
         let install_label = needs_bepinex.then(|| {
@@ -1241,6 +1244,16 @@ impl LibraryDetailView {
                     .child(title_col)
                     .children(primary_controls.map(|c| div().flex_none().child(c))),
             )
+            .when(app_settings::get(cx).show_installation_controls, |hero| {
+                hero.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(t!("profile.launch_using").to_string())
+                        .child(self.installation_picker(profile, cx)),
+                )
+            })
             .children(progress_row)
             .children(launch_err)
             .children(notice)

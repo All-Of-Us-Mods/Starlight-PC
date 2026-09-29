@@ -1,3 +1,5 @@
+mod installations;
+
 use std::rc::Rc;
 
 use gpui_kit::component::{
@@ -476,7 +478,7 @@ impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let game_groups = vec![
+        let mut game_groups = vec![
             SettingGroup::new()
                 .title(t!("settings.group.installation"))
                 .items(vec![
@@ -518,8 +520,21 @@ impl Render for SettingsView {
                         ),
                     )
                     .description(t!("settings.game_platform_desc").to_string()),
+                    SettingItem::new(
+                        t!("settings.multiple_installations"),
+                        SettingField::switch(
+                            |cx| app_settings::get(cx).show_installation_controls,
+                            |value, cx| {
+                                app_settings::update(cx, |s| s.show_installation_controls = value)
+                            },
+                        ),
+                    )
+                    .description(t!("settings.multiple_installations_desc").to_string()),
                 ]),
         ];
+        if app_settings::get(cx).show_installation_controls {
+            game_groups.push(installations::group());
+        }
         let game_page = SettingPage::new(t!("settings.page.game"))
             .default_open(true)
             .groups(game_groups);

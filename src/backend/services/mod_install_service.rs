@@ -377,10 +377,11 @@ pub fn install_mods_for_profile(
     mods: &[InstallModInput],
 ) -> AppResult<Vec<InstalledModResult>> {
     let settings = core_service::get_settings()?;
-    let game_arch = core_service::game_arch(&settings.among_us_path);
 
     let profile = profile_service::get_profile_by_id(profile_id)?
         .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))?;
+    let settings = profile.launch_settings(&settings)?;
+    let game_arch = core_service::game_arch(&settings.among_us_path);
     let profile_path = profile.path.clone();
 
     // Updating a disabled mod would currently replace its manifest entry with

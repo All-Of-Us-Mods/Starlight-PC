@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 use winreg::{RegKey, enums::*};
 
-const AMONG_US_EXE: &str = "Among Us.exe";
+use super::installation_service::GAME_EXE_NAME;
 #[cfg(target_os = "linux")]
 const AMONG_US_STEAM_APP_ID: &str = "945360";
 const EPIC_FOLDER: &str = "Among Us_Data/StreamingAssets/aa/EGS";
@@ -28,7 +28,7 @@ pub struct LinuxRunnerDetection {
 }
 
 fn verify_among_us_directory(path: &Path) -> bool {
-    path.is_dir() && path.join(AMONG_US_EXE).is_file()
+    path.is_dir() && path.join(GAME_EXE_NAME).is_file()
 }
 
 #[cfg(target_os = "windows")]

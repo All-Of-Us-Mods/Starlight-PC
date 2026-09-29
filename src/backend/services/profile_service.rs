@@ -72,6 +72,8 @@ impl ProfileModEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileEntry {
+    #[serde(default)]
+    pub installation_id: Option<String>,
     pub id: String,
     pub name: String,
     pub path: String,
@@ -92,6 +94,19 @@ pub struct ProfileEntry {
 }
 
 impl ProfileEntry {
+    pub fn launch_settings(
+        &self,
+        settings: &core_service::AppSettings,
+    ) -> AppResult<core_service::AppSettings> {
+        settings.for_installation(self.installation_id.as_deref())
+    }
+
+    pub fn needs_bepinex_for_settings(&self, settings: &core_service::AppSettings) -> bool {
+        self.launch_settings(settings)
+            .map(|settings| self.needs_bepinex(core_service::game_arch(&settings.among_us_path)))
+            .unwrap_or(true)
+    }
+
     /// True when BepInEx is missing or isn't the `game_arch` build —
     /// either way the profile can't launch until it's installed.
     pub fn needs_bepinex(&self, game_arch: BepInExArch) -> bool {
@@ -400,6 +415,7 @@ pub fn create_profile(name: &str) -> AppResult<ProfileEntry> {
     fs::create_dir_all(&profile_path)?;
 
     let profile = ProfileEntry {
+        installation_id: None,
         id: profile_id,
         name: trimmed.to_string(),
         path: profile_path.to_string_lossy().to_string(),
@@ -441,7 +457,7 @@ fn base_file_name(file: &str) -> AppResult<&str> {
 pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
     let mut profile = load_profile(profile_id)?;
 
-    let settings = core_service::get_settings()?;
+    let settings = profile.launch_settings(&core_service::get_settings()?)?;
     let install_arch = core_service::game_arch(&settings.among_us_path);
     if !profile.needs_bepinex(install_arch) {
         return Ok(());
@@ -486,6 +502,13 @@ pub fn delete_profile(profile_id: &str) -> AppResult<()> {
         fs::remove_dir_all(path)?;
     }
     Ok(())
+}
+
+pub fn set_installation(profile_id: &str, installation_id: Option<String>) -> AppResult<()> {
+    core_service::get_settings()?.for_installation(installation_id.as_deref())?;
+    let mut profile = load_profile(profile_id)?;
+    profile.installation_id = installation_id;
+    write_profile(&profile)
 }
 
 pub fn rename_profile(profile_id: &str, new_name: &str) -> AppResult<()> {
@@ -892,6 +915,7 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
         let unique_name = make_unique_profile_name(&requested_name, &profiles);
 
         let mut profile = ProfileEntry {
+            installation_id: None,
             id: profile_id,
             name: unique_name.clone(),
             path: profile_path.to_string_lossy().to_string(),
@@ -997,8 +1021,22 @@ mod tests {
         }
     }
 
+    #[test]
+    fn profile_installation_selection_round_trips_and_defaults_for_old_profiles() {
+        let dir = TempProfileDir::new("installation-selection");
+        let mut profile = profile_at(&dir, vec![]);
+        profile.installation_id = Some("epic-install".into());
+        let mut json = serde_json::to_value(&profile).unwrap();
+        let restored: ProfileEntry = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(restored.installation_id.as_deref(), Some("epic-install"));
+        json.as_object_mut().unwrap().remove("installation_id");
+        let legacy: ProfileEntry = serde_json::from_value(json).unwrap();
+        assert!(legacy.installation_id.is_none());
+    }
+
     fn profile_at(dir: &TempProfileDir, mods: Vec<ProfileModEntry>) -> ProfileEntry {
         ProfileEntry {
+            installation_id: None,
             id: "test".into(),
             name: "Test".into(),
             path: dir.0.to_string_lossy().to_string(),

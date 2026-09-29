@@ -4,6 +4,7 @@ pub mod core_service;
 pub mod epic_launch_service;
 pub mod finder_service;
 pub mod http_download;
+pub mod installation_service;
 pub mod launch_service;
 pub mod migration_service;
 pub mod mod_download_service;

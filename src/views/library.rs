@@ -484,8 +484,10 @@ impl LibraryView {
         let emit_id = id.clone();
         let drop_id = id.clone();
         let accent = theme.primary;
-        let platform = app_settings::get(cx).game_platform;
-        let game_arch = core_service::game_arch(&app_settings::get(cx).among_us_path);
+        let resolved = profile.launch_settings(app_settings::get(cx));
+        let settings = resolved.as_ref().unwrap_or(app_settings::get(cx));
+        let platform = settings.game_platform;
+        let game_arch = core_service::game_arch(&settings.among_us_path);
         let outdated_count = profile
             .mods
             .iter()

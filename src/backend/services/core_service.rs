@@ -1,6 +1,6 @@
+use super::installation_service::{GAME_EXE_NAME, GameInstallation};
 use crate::backend::directories;
 use crate::backend::error::AppResult;
-use crate::backend::services::launch_service::GAME_EXE_NAME;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
@@ -48,7 +48,7 @@ impl GamePlatform {
         match self {
             GamePlatform::Steam => "Steam",
             GamePlatform::Epic => "Epic",
-            GamePlatform::Xbox => "Xbox",
+            GamePlatform::Xbox => "Microsoft Store / Xbox",
             GamePlatform::Itch => "itch.io",
         }
     }
@@ -158,6 +158,11 @@ pub enum LinuxRunnerKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
+    /// Show the optional linked-install management and profile selection UI.
+    #[serde(default)]
+    pub show_installation_controls: bool,
+    #[serde(default)]
+    pub game_installations: Vec<GameInstallation>,
     pub bepinex_url_x86: String,
     pub bepinex_url_x64: String,
     pub among_us_path: String,
@@ -216,6 +221,8 @@ impl AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            show_installation_controls: false,
+            game_installations: Vec::new(),
             bepinex_url_x86: DEFAULT_BEPINEX_URL_X86.to_string(),
             bepinex_url_x64: DEFAULT_BEPINEX_URL_X64.to_string(),
             among_us_path: String::new(),
@@ -425,6 +432,7 @@ pub fn get_bepinex_cache_path(arch: BepInExArch) -> AppResult<String> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]

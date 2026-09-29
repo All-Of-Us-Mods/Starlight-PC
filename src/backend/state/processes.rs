@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
 
-use crate::backend::services::launch_service::{GAME_EXE_NAME, STEAM_APP_ID};
+use crate::backend::services::installation_service::GAME_EXE_NAME;
+use crate::backend::services::launch_service::STEAM_APP_ID;
 
 fn processes() -> Vec<(i32, Vec<OsString>)> {
     std::fs::read_dir("/proc")

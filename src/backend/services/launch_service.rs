@@ -575,20 +575,7 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
 
 pub fn launch_vanilla_from_settings() -> AppResult<()> {
     let settings = core_service::get_settings()?;
-    let game_path = settings.among_us_path.trim();
-    if game_path.is_empty() {
-        return Err(AppError::validation(
-            "Among Us path is not set. Configure it in Settings.",
-        ));
-    }
-
-    let game_exe = PathBuf::from(game_path).join(GAME_EXE_NAME);
-    if !game_exe.exists() {
-        return Err(AppError::validation(format!(
-            "{GAME_EXE_NAME} not found at {}",
-            game_exe.display()
-        )));
-    }
+    let game_exe = settings.game_executable()?;
 
     #[cfg(windows)]
     if matches!(settings.game_platform, GamePlatform::Xbox) {
@@ -685,29 +672,19 @@ fn allow_multiple_game_processes(settings: &core_service::AppSettings) {
     }
 }
 
-pub const GAME_EXE_NAME: &str = "Among Us.exe";
-
 #[cfg(any(windows, target_os = "linux"))]
 const CORECLR_FILE: &str = "coreclr.dll";
 #[cfg(target_os = "macos")]
 const CORECLR_FILE: &str = "libcoreclr.dylib";
 
 pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
-    let settings = core_service::get_settings()?;
-    let game_path = settings.among_us_path.trim();
-    if game_path.is_empty() {
+    let settings = profile.launch_settings(&core_service::get_settings()?)?;
+    if profile.needs_bepinex(core_service::game_arch(&settings.among_us_path)) {
         return Err(AppError::validation(
-            "Among Us path is not set. Configure it in Settings.",
+            "Install BepInEx for the selected installation before launching.",
         ));
     }
-
-    let game_exe = PathBuf::from(game_path).join(GAME_EXE_NAME);
-    if !game_exe.exists() {
-        return Err(AppError::validation(format!(
-            "{GAME_EXE_NAME} not found at {}",
-            game_exe.display()
-        )));
-    }
+    let game_exe = settings.game_executable()?;
 
     let profile_path = PathBuf::from(&profile.path);
     let bepinex_dll = profile_path
