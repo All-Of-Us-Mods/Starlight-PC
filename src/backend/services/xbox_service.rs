@@ -10,7 +10,7 @@
 //!
 //! Simplified from upstream: launched UWP instances aren't tracked as running
 //! processes (there's no `Child` handle for them), so they don't show up in
-//! the title bar's running/stoppable counts.
+//! the title bar's running count.
 
 use crate::backend::error::{AppError, AppResult};
 use log::debug;

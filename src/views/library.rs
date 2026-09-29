@@ -23,7 +23,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::skeleton::Skeleton;
-use gpui_kit::component::{Disableable, Icon, IconName, WindowExt};
+use gpui_kit::component::{Icon, IconName, WindowExt};
 
 #[derive(Clone, Debug)]
 pub enum LibraryEvent {
@@ -39,7 +39,6 @@ pub struct LibraryView {
     create_dialog: Option<Entity<InputState>>,
     error: Option<String>,
     running_count: usize,
-    stoppable_count: usize,
     /// 0–100 while a profile import is running; `None` otherwise.
     import_progress: Option<f64>,
     /// Bumped per profile-list load. Concurrent work (a mixed drop installs a
@@ -65,7 +64,6 @@ impl LibraryView {
             create_dialog: None,
             error: None,
             running_count: initial.running_count,
-            stoppable_count: initial.stoppable_running_count,
             import_progress: None,
             load_generation: 0,
             latest_mod_versions: mod_catalog_cache::cached_latest_versions(),
@@ -84,7 +82,6 @@ impl LibraryView {
                     BackendEvent::GameStateChanged(payload) => {
                         let _ = this.update(cx, |this, cx| {
                             this.running_count = payload.running_count;
-                            this.stoppable_count = payload.stoppable_running_count;
                             cx.notify();
                         });
                     }
@@ -413,26 +410,13 @@ impl LibraryView {
     }
 
     fn stop_all(&mut self, cx: &mut Context<Self>) {
-        self.error = None;
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async { game_runtime::stop_all_tracked_instances() })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Err(e) = result {
-                    warn!("stop all failed: {e}");
-                    this.error = Some(t!("titlebar.stop_failed", error = e).to_string());
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+        cx.background_executor()
+            .spawn(async { game_runtime::stop_all_tracked_instances() })
+            .detach();
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let running = self.running_count;
-        let stoppable = self.stoppable_count;
 
         let launch_or_stop = if running == 0 {
             Button::new("launch-vanilla")
@@ -447,19 +431,11 @@ impl LibraryView {
             } else {
                 t!("common.stop").to_string()
             };
-            let mut btn = Button::new("stop-all")
+            Button::new("stop-all")
                 .danger()
                 .icon(Icon::new(IconName::Close))
-                .label(label);
-            if stoppable == 0 {
-                // Only UWP instances tracked — can't stop those from here.
-                btn = btn.disabled(true);
-            } else {
-                btn = btn.on_click(cx.listener(|this, _, _window, cx| {
-                    this.stop_all(cx);
-                }));
-            }
-            btn
+                .label(label)
+                .on_click(cx.listener(|this, _, _window, cx| this.stop_all(cx)))
         };
 
         div()

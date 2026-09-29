@@ -1,5 +1,7 @@
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::core_service::GamePlatform;
+#[cfg(target_os = "linux")]
+use crate::backend::services::core_service::LinuxRunnerKind;
 use log::{debug, info, warn};
 use std::path::{Path, PathBuf};
 
@@ -15,10 +17,9 @@ const XBOX_FOLDER: &str = "Among Us_Data/StreamingAssets/aa/Win10";
 const ITCH_FOLDER: &str = ".itch";
 
 #[cfg(target_os = "linux")]
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct LinuxRunnerDetection {
-    pub runner_kind: String,
+    pub runner_kind: LinuxRunnerKind,
     pub runner_binary: Option<String>,
     pub wine_prefix: Option<String>,
     pub proton_compat_data_path: Option<String>,
@@ -335,13 +336,13 @@ fn build_linux_detection(
         .or_else(linux_wine_prefix);
 
     let (runner_kind, runner_binary) = match (proton_binary, wine_binary) {
-        (Some(p), _) => ("proton", Some(p)),
-        (None, Some(w)) => ("wine", Some(w)),
-        (None, None) => ("proton", None),
+        (Some(p), _) => (LinuxRunnerKind::Proton, Some(p)),
+        (None, Some(w)) => (LinuxRunnerKind::Wine, Some(w)),
+        (None, None) => (LinuxRunnerKind::Proton, None),
     };
 
     LinuxRunnerDetection {
-        runner_kind: runner_kind.to_string(),
+        runner_kind,
         runner_binary: runner_binary.map(|p| p.to_string_lossy().to_string()),
         wine_prefix: wine_prefix.map(|p| p.to_string_lossy().to_string()),
         proton_compat_data_path: compat_data.map(|p| p.to_string_lossy().to_string()),

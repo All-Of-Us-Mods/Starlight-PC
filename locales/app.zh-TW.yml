@@ -258,7 +258,6 @@ titlebar:
   stop_count: "停止 (%{count})"
   launch: "啟動 %{name}"
   launch_failed: "啟動失敗：%{error}"
-  stop_failed: "停止失敗：%{error}"
 update:
   available: "Starlight %{version} 已有可用更新。"
   title: 有可用更新

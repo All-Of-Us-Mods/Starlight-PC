@@ -218,31 +218,6 @@ impl Default for AppSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct AppSettingsPatch {
-    pub bepinex_url_x86: Option<String>,
-    pub bepinex_url_x64: Option<String>,
-    pub among_us_path: Option<String>,
-    pub close_on_launch: Option<bool>,
-    pub allow_multi_instance_launch: Option<bool>,
-    pub game_platform: Option<GamePlatform>,
-    pub cache_bepinex: Option<bool>,
-    pub xbox_app_id: Option<Option<String>>,
-    pub linux_runner_kind: Option<LinuxRunnerKind>,
-    pub linux_runner_binary: Option<String>,
-    pub linux_wine_prefix: Option<String>,
-    pub linux_wine_region_info_path: Option<String>,
-    pub linux_proton_compat_data_path: Option<String>,
-    pub linux_proton_steam_client_path: Option<String>,
-    pub linux_proton_use_steam_run: Option<bool>,
-    pub theme_name: Option<String>,
-    pub language: Option<String>,
-    pub show_stars_background: Option<bool>,
-    pub scrollbar_visibility: Option<ScrollbarVisibility>,
-    pub sidebar_width: Option<f32>,
-    pub release_channel: Option<ReleaseChannel>,
-}
-
 fn settings_path() -> AppResult<PathBuf> {
     Ok(directories::app_data_dir()?.join(SETTINGS_FILE_NAME))
 }
@@ -371,86 +346,10 @@ pub fn get_settings() -> AppResult<AppSettings> {
     Ok(AppSettings::default())
 }
 
-pub fn update_settings(patch: AppSettingsPatch) -> AppResult<AppSettings> {
+pub fn update_settings(edit: impl FnOnce(&mut AppSettings)) -> AppResult<AppSettings> {
     let mut settings = get_settings()?;
-    let enabling_multi_instance = patch.allow_multi_instance_launch == Some(true);
-    let changing_among_us_path = patch.among_us_path.is_some();
-
-    if let Some(value) = patch.bepinex_url_x86 {
-        settings.bepinex_url_x86 = value;
-    }
-    if let Some(value) = patch.bepinex_url_x64 {
-        settings.bepinex_url_x64 = value;
-    }
-    if let Some(value) = patch.among_us_path {
-        settings.among_us_path = value;
-    }
-    if let Some(value) = patch.close_on_launch {
-        settings.close_on_launch = value;
-    }
-    if let Some(value) = patch.allow_multi_instance_launch {
-        settings.allow_multi_instance_launch = value;
-    }
-    if let Some(value) = patch.game_platform {
-        settings.game_platform = value;
-    }
-    if let Some(value) = patch.cache_bepinex {
-        settings.cache_bepinex = value;
-    }
-    if let Some(value) = patch.xbox_app_id {
-        settings.xbox_app_id = value;
-    }
-    if let Some(value) = patch.linux_runner_kind {
-        settings.linux_runner_kind = value;
-    }
-    if let Some(value) = patch.linux_runner_binary {
-        settings.linux_runner_binary = value;
-    }
-    if let Some(value) = patch.linux_wine_prefix {
-        settings.linux_wine_prefix = value;
-    }
-    if let Some(value) = patch.linux_wine_region_info_path {
-        settings.linux_wine_region_info_path = value;
-    }
-    if let Some(value) = patch.linux_proton_compat_data_path {
-        settings.linux_proton_compat_data_path = value;
-    }
-    if let Some(value) = patch.linux_proton_steam_client_path {
-        settings.linux_proton_steam_client_path = value;
-    }
-    if let Some(value) = patch.linux_proton_use_steam_run {
-        settings.linux_proton_use_steam_run = value;
-    }
-    if let Some(value) = patch.theme_name {
-        settings.theme_name = value;
-    }
-    if let Some(value) = patch.language {
-        settings.language = value;
-    }
-    if let Some(value) = patch.show_stars_background {
-        settings.show_stars_background = value;
-    }
-    if let Some(value) = patch.scrollbar_visibility {
-        settings.scrollbar_visibility = value;
-    }
-    if let Some(value) = patch.sidebar_width {
-        settings.sidebar_width = value;
-    }
-    if let Some(value) = patch.release_channel {
-        settings.release_channel = value;
-    }
-
-    // Unity refuses to start a second process when this boot.config entry is
-    // present. Remove it when multi-instance launching is enabled so the
-    // setting works for the user's actual game installation rather than only
-    // changing Starlight's launch behavior.
-    if settings.allow_multi_instance_launch && (enabling_multi_instance || changing_among_us_path) {
-        remove_single_instance_from_boot_config(&settings.among_us_path)?;
-    }
-
-    let path = settings_path()?;
-    write_settings_to_file(&path, &settings)?;
-
+    edit(&mut settings);
+    write_settings_to_file(&settings_path()?, &settings)?;
     Ok(settings)
 }
 

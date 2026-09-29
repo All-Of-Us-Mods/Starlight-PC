@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gpui_kit::component::{
-    Theme as ComponentTheme, ThemeConfig, ThemeRegistry, scroll::ScrollbarMode,
+    Theme as ComponentTheme, ThemeConfig, ThemeMode, ThemeRegistry, scroll::ScrollbarMode,
 };
 use gpui_kit::*;
 use log::warn;
@@ -50,6 +50,8 @@ fn install_bundled_themes(dir: &Path) {
 }
 
 pub fn init(cx: &mut App) {
+    // Loads the default dark syntax highlighting; our themes don't define one.
+    ComponentTheme::change(ThemeMode::Dark, None, cx);
     let dir = themes_dir();
     install_bundled_themes(&dir);
 

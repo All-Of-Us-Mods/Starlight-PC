@@ -99,18 +99,11 @@ impl ProfileEntry {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "mode", rename_all = "lowercase")]
+#[derive(Debug, Clone)]
 pub enum ProfileIconSelection {
     Default,
-    Custom {
-        bytes: Vec<u8>,
-        extension: String,
-    },
-    Mod {
-        #[serde(rename = "modId")]
-        mod_id: String,
-    },
+    Custom { bytes: Vec<u8>, extension: String },
+    Mod { mod_id: String },
 }
 
 fn now_millis() -> i64 {

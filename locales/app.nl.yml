@@ -258,7 +258,6 @@ titlebar:
   stop_count: "Stoppen (%{count})"
   launch: "%{name} starten"
   launch_failed: "Starten mislukt: %{error}"
-  stop_failed: "Stoppen mislukt: %{error}"
 update:
   available: "Starlight %{version} is beschikbaar."
   title: Update beschikbaar

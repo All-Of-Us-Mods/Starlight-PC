@@ -4,15 +4,13 @@ use log::{debug, info, warn};
 use std::fs;
 use std::path::Path;
 
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug)]
 pub enum BepInExTargetType {
     Profile,
     Cache,
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct BepInExProgress {
     pub stage: String,
     pub progress: f64,

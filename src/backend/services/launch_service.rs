@@ -6,23 +6,16 @@ use crate::backend::services::profile_service::ProfileEntry;
 use crate::backend::services::xbox_service;
 use crate::backend::state::game_runtime::{self, LaunchInstance};
 use log::{debug, info, warn};
-use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Serializes modded launches from prep through spawn, so two launches fired
-/// in quick succession can't pick the same instance slot or race each other's
-/// preparation of the shared game directory. Instances themselves don't wait
-/// for each other: each extra concurrent launch of a profile runs from its own
-/// copy of the profile (see [`profile_instance_service`]), which is what keeps
-/// the BepInEx state they'd otherwise fight over separate.
+/// Held from prep through spawn so concurrent launches can't claim the same
+/// instance slot or race over the shared game directory.
 static LAUNCH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Per-profile cancellation counter. A queued launch records the value when it
-/// starts waiting on [`LAUNCH_LOCK`]; if [`cancel_pending_launches`] has bumped
-/// it by the time the lock is acquired, the launch aborts instead of spawning.
-/// Lets the Stop button cancel launches still waiting to be prepared.
+/// Bumped by Stop; a launch queued on [`LAUNCH_LOCK`] aborts if its profile's
+/// generation changed while it waited.
 static CANCEL_GENERATIONS: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<String, u64>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
@@ -36,8 +29,6 @@ fn cancel_generation(profile_id: &str) -> u64 {
         .unwrap_or(0)
 }
 
-/// Cancel any launches for `profile_id` still queued behind the launch lock.
-/// They abort (without spawning) when they reach the front of the queue.
 pub fn cancel_pending_launches(profile_id: &str) {
     *CANCEL_GENERATIONS
         .lock()
@@ -47,8 +38,7 @@ pub fn cancel_pending_launches(profile_id: &str) {
 }
 
 #[cfg(target_os = "linux")]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[derive(Debug, Clone)]
 pub enum LinuxRunner {
     Wine {
         binary: String,
@@ -56,22 +46,15 @@ pub enum LinuxRunner {
     },
     Proton {
         binary: String,
-        #[serde(rename = "compatDataPath")]
         compat_data_path: String,
-        #[serde(rename = "steamClientPath")]
         steam_client_path: String,
-        #[serde(rename = "useSteamRun")]
         use_steam_run: bool,
     },
-    /// Launch through the Steam client instead of running Proton ourselves.
     Steam {
-        #[serde(rename = "compatDataPath")]
         compat_data_path: String,
     },
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct LaunchModdedArgs {
     pub game_exe: String,
     pub profile_id: String,
@@ -80,17 +63,11 @@ pub struct LaunchModdedArgs {
     pub dotnet_dir: String,
     pub coreclr_path: String,
     pub platform: GamePlatform,
-    /// Whether an already-running instance of this profile may push this
-    /// launch onto its own copy of the profile directory. Off when
-    /// multi-instance launching is disabled — then a second launch just runs
-    /// from the profile like the first.
     pub allow_instance_copy: bool,
     #[cfg(target_os = "linux")]
     pub runner: LinuxRunner,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct LaunchVanillaArgs {
     pub game_exe: String,
     pub platform: GamePlatform,
@@ -149,24 +126,95 @@ fn build_game_command(
                     Command::new(binary)
                 };
 
+                // Not `waitforexitandrun`: it waits for the running instance's
+                // wineserver to exit first.
                 cmd.env("STEAM_COMPAT_DATA_PATH", compat_data_path)
                     .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_client_path)
                     .env("WINEPREFIX", format!("{compat_data_path}/pfx"))
-                    .arg("waitforexitandrun")
+                    .arg("run")
                     .arg(game_exe);
                 cmd
             }
-            // Steam launches branch to `steam -applaunch` before reaching here.
-            LinuxRunner::Steam { .. } => unreachable!("Steam launches via steam -applaunch"),
+            // The first Steam instance goes through `steam -applaunch`.
+            LinuxRunner::Steam { .. } => steam_alongside_command()?,
         };
 
         Ok(cmd)
     }
 }
 
+/// Steam won't launch an app twice, so further instances rerun Steam's own
+/// Proton process (same container and environment, so online play and audio
+/// keep working) with `run` in place of `waitforexitandrun`.
 #[cfg(target_os = "linux")]
-fn to_wine_path(path: &str) -> String {
-    if path.starts_with('/') {
+fn steam_alongside_command() -> AppResult<Command> {
+    let proton = game_runtime::steam_proton().ok_or_else(|| {
+        AppError::process("The Among Us instance Steam started has already exited.")
+    })?;
+    let mut argv = proton.argv.into_iter().map(|arg| {
+        if arg == "waitforexitandrun" {
+            "run".into()
+        } else {
+            arg
+        }
+    });
+    let program = argv
+        .next()
+        .ok_or_else(|| AppError::process("Steam's Proton command line is empty."))?;
+    let mut env = proton.env;
+    match env.iter_mut().find(|(key, _)| key == "WINEDLLOVERRIDES") {
+        Some((_, overrides)) => overrides.push(";winhttp=n,b"),
+        None => env.push(("WINEDLLOVERRIDES".into(), "winhttp=n,b".into())),
+    }
+
+    let mut cmd = if proton.sandboxed {
+        // nsenter keeps our environment (Steam's preloads an overlay our
+        // libraries can't satisfy); `env -i` passes Steam's on inside.
+        let mut cmd = Command::new("nsenter");
+        cmd.arg(format!("--target={}", proton.pid));
+        if proton.own_user_namespace {
+            cmd.args(["--user", "--preserve-credentials"]);
+        }
+        cmd.args(["--mount", "--root", "--wd", "--", "env", "-i"]);
+        for (key, value) in env {
+            let mut pair = key;
+            pair.push("=");
+            pair.push(value);
+            cmd.arg(pair);
+        }
+        cmd.arg(program);
+        cmd
+    } else {
+        let mut cmd = Command::new(program);
+        cmd.env_clear().envs(env);
+        cmd
+    };
+    cmd.args(argv);
+    Ok(cmd)
+}
+
+/// Whether Steam is running the game. Waits out a Steam launch that is still
+/// starting: launching again in that window would be ignored by Steam.
+#[cfg(target_os = "linux")]
+fn steam_game_running(cancelled: impl Fn() -> bool) -> bool {
+    let started = std::time::Instant::now();
+    loop {
+        if game_runtime::steam_proton().is_some() {
+            return true;
+        }
+        if !game_runtime::steam_launch_pending()
+            || cancelled()
+            || started.elapsed() > std::time::Duration::from_secs(120)
+        {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
+/// A host path as the game sees it: under wine the Unix root is drive `Z:`.
+fn game_path(path: &str) -> String {
+    if cfg!(target_os = "linux") && path.starts_with('/') {
         format!("Z:{}", path.replace('/', "\\"))
     } else {
         path.to_string()
@@ -178,7 +226,6 @@ fn prepare_linux_winhttp_proxy(game_dir: &Path, profile_path: &str) -> AppResult
     let profile_dir = PathBuf::from(profile_path);
     let src_dll = profile_dir.join("winhttp.dll");
     let dst_dll = game_dir.join("winhttp.dll");
-    let dst_ini = game_dir.join("doorstop_config.ini");
 
     if !src_dll.exists() {
         return Err(AppError::validation(
@@ -186,33 +233,18 @@ fn prepare_linux_winhttp_proxy(game_dir: &Path, profile_path: &str) -> AppResult
         ));
     }
 
-    fs::copy(&src_dll, &dst_dll)?;
-
-    if dst_ini.exists() {
-        fs::remove_file(dst_ini)?;
+    // A running instance has this DLL mapped; never truncate it in place.
+    if fs::read(&dst_dll).ok() != Some(fs::read(&src_dll)?) {
+        let temporary_dll = game_dir.join("winhttp.dll.starlight-tmp");
+        fs::copy(&src_dll, &temporary_dll)?;
+        fs::rename(&temporary_dll, &dst_dll)?;
     }
 
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
-fn cleanup_linux_doorstop_files(game_dir: &Path) -> AppResult<()> {
-    let dll_path = game_dir.join("winhttp.dll");
-    let ini_path = game_dir.join("doorstop_config.ini");
-
-    if dll_path.exists() {
-        fs::remove_file(dll_path)?;
-    }
-    if ini_path.exists() {
-        fs::remove_file(ini_path)?;
-    }
-    Ok(())
-}
-
-/// Borrow auth arguments from an Epic-launcher-started instance (see
-/// [`crate::backend::services::epic_launch_service`]) and append them
-/// verbatim, so our locally spawned copy authenticates like a normal Epic
-/// launch.
+/// Borrows auth arguments from an Epic-launcher-started instance so our copy
+/// authenticates like a normal Epic launch.
 #[cfg(windows)]
 fn attach_epic_launch_args(cmd: &mut Command, platform: GamePlatform) -> AppResult<()> {
     use std::os::windows::process::CommandExt as _;
@@ -226,15 +258,11 @@ fn attach_epic_launch_args(cmd: &mut Command, platform: GamePlatform) -> AppResu
     Ok(())
 }
 
-/// Epic auth-argument capture needs the Epic launcher, which only exists on
-/// Windows. Elsewhere the game launches without auth arguments.
 #[cfg(not(windows))]
 fn attach_epic_launch_args(_cmd: &mut Command, _platform: GamePlatform) -> AppResult<()> {
     Ok(())
 }
 
-/// Resolve the Xbox app id, caching it in settings so the PowerShell lookup
-/// only runs once.
 #[cfg(windows)]
 fn ensure_xbox_app_id(settings: &core_service::AppSettings) -> AppResult<String> {
     if let Some(app_id) = settings
@@ -247,10 +275,7 @@ fn ensure_xbox_app_id(settings: &core_service::AppSettings) -> AppResult<String>
     }
 
     let app_id = xbox_service::get_xbox_app_id()?;
-    core_service::update_settings(core_service::AppSettingsPatch {
-        xbox_app_id: Some(Some(app_id.clone())),
-        ..Default::default()
-    })?;
+    core_service::update_settings(|s| s.xbox_app_id = Some(app_id.clone()))?;
     Ok(app_id)
 }
 
@@ -264,15 +289,16 @@ fn launch_process(
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
+    let id = game_runtime::next_instance_id();
+    #[cfg(target_os = "linux")]
+    cmd.arg(game_runtime::instance_arg(id));
     let child = cmd
         .spawn()
         .map_err(|e| AppError::process(format!("Failed to launch game: {e}")))?;
-    game_runtime::register_launched_process(child, profile_id, instance)
+    game_runtime::register_launched_process(id, child, profile_id, instance);
+    Ok(())
 }
 
-/// Pick the directory this launch runs from: the profile itself when no
-/// instance of it is running, otherwise a fresh copy in the lowest free slot.
-/// Runs under [`LAUNCH_LOCK`] so concurrent launches can't claim the same slot.
 fn prepare_launch_dir(args: &LaunchModdedArgs) -> AppResult<(PathBuf, LaunchInstance)> {
     let profile_dir = PathBuf::from(&args.profile_path);
     if !args.allow_instance_copy {
@@ -295,9 +321,6 @@ fn prepare_launch_dir(args: &LaunchModdedArgs) -> AppResult<(PathBuf, LaunchInst
     ))
 }
 
-/// Rebase a path that sits inside the profile directory onto the directory
-/// this launch actually runs from (an instance copy mirrors the profile's
-/// layout, so the tail of the path is unchanged).
 fn rebase_into_launch_dir(path: &str, profile_dir: &Path, launch_dir: &Path) -> String {
     Path::new(path)
         .strip_prefix(profile_dir)
@@ -307,13 +330,9 @@ fn rebase_into_launch_dir(path: &str, profile_dir: &Path, launch_dir: &Path) -> 
         .to_string()
 }
 
-/// Among Us' Steam app id.
-const STEAM_APP_ID: &str = "945360";
+pub const STEAM_APP_ID: &str = "945360";
 
-/// Drop a `steam_appid.txt` next to the game so Steamworks can identify the app
-/// when the game isn't started by the Steam client itself (modded launches run
-/// the exe directly). Steam-only; other platforms ignore the file. Best-effort:
-/// a read-only game dir shouldn't block the launch.
+/// Lets Steamworks identify the app when the Steam client didn't start the exe.
 fn ensure_steam_appid_file(game_dir: &Path) {
     let path = game_dir.join("steam_appid.txt");
     if fs::read_to_string(&path).is_ok_and(|s| s.trim() == STEAM_APP_ID) {
@@ -324,9 +343,8 @@ fn ensure_steam_appid_file(game_dir: &Path) {
     }
 }
 
-/// Write a Doorstop `doorstop_config.ini` into the game dir. Used by the
-/// Steam-launch path, where we can't pass `--doorstop-*` args on the command
-/// line — Doorstop reads this file at startup instead. Paths are wine paths.
+/// `steam -applaunch` can't pass `--doorstop-*` arguments, so Steam launches
+/// configure Doorstop through this file.
 #[cfg(target_os = "linux")]
 fn write_doorstop_ini(
     game_dir: &Path,
@@ -347,9 +365,6 @@ fn write_doorstop_ini(
     Ok(())
 }
 
-/// Write a disabled `doorstop_config.ini` so a vanilla Steam launch can't
-/// inject mods even when the winhttp.dll proxy is still present (the Steam
-/// launch option loads it unconditionally).
 #[cfg(target_os = "linux")]
 fn clear_doorstop_ini(game_dir: &Path) -> AppResult<()> {
     fs::write(
@@ -359,9 +374,6 @@ fn clear_doorstop_ini(game_dir: &Path) -> AppResult<()> {
     Ok(())
 }
 
-/// Spawn `steam -applaunch` and reap the short-lived invoker in the background.
-/// Steam reparents the actual game, so we don't track this child — running
-/// state is watched separately via [`game_runtime::register_steam_launch`].
 #[cfg(target_os = "linux")]
 fn spawn_steam(mut cmd: Command) -> AppResult<()> {
     use std::os::unix::process::CommandExt;
@@ -375,16 +387,9 @@ fn spawn_steam(mut cmd: Command) -> AppResult<()> {
     Ok(())
 }
 
-/// Wine loads its own builtin `winhttp` unless told the game directory's
-/// native copy wins, so the Doorstop proxy needs a DLL override. Launches we
-/// spawn ourselves pass one in `WINEDLLOVERRIDES`, but `steam -applaunch` only
-/// forwards a request to a Steam client that already has its own environment —
-/// so for Steam launches the override has to live where that client's Proton
-/// will read it anyway: the prefix registry.
-///
-/// Appends its own section rather than editing the existing one; wine merges
-/// duplicate sections on load and rewrites the file canonically on shutdown,
-/// after which the value is simply already there.
+/// The Doorstop proxy needs wine to prefer the native `winhttp`. Launches we
+/// spawn set `WINEDLLOVERRIDES`; `steam -applaunch` can't, so the override goes
+/// in the prefix registry. Wine merges the duplicate section on load.
 #[cfg(target_os = "linux")]
 fn ensure_winhttp_dll_override(compat_data_path: &str) -> AppResult<()> {
     const OVERRIDE: &str = r#""winhttp"="native,builtin""#;
@@ -401,9 +406,7 @@ fn ensure_winhttp_dll_override(compat_data_path: &str) -> AppResult<()> {
         return Ok(());
     }
 
-    // Swap the registry in rather than writing over it: a write that failed
-    // partway would leave the prefix itself truncated, which costs the user
-    // far more than this launch.
+    // A partial write would corrupt the prefix, so swap the file in.
     let temporary_path = user_reg.with_extension("reg.tmp");
     fs::write(
         &temporary_path,
@@ -414,11 +417,6 @@ fn ensure_winhttp_dll_override(compat_data_path: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// Modded launch handed to the Steam client instead of running Proton
-/// ourselves. Steam owns the process, so Steamworks initializes (online play)
-/// and the game runs inside the Steam Linux Runtime (audio). Doorstop config
-/// goes through `doorstop_config.ini` since `steam -applaunch` can't forward
-/// `--doorstop-*` args.
 #[cfg(target_os = "linux")]
 fn launch_modded_via_steam(
     args: &LaunchModdedArgs,
@@ -429,16 +427,17 @@ fn launch_modded_via_steam(
     ensure_winhttp_dll_override(compat_data_path)?;
     write_doorstop_ini(
         game_dir,
-        &to_wine_path(&args.bepinex_dll),
-        &to_wine_path(&args.dotnet_dir),
-        &to_wine_path(&args.coreclr_path),
+        &game_path(&args.bepinex_dll),
+        &game_path(&args.dotnet_dir),
+        &game_path(&args.coreclr_path),
     )?;
 
     let mut cmd = Command::new("steam");
     cmd.arg("-applaunch").arg(STEAM_APP_ID);
     spawn_steam(cmd)?;
 
-    game_runtime::register_steam_launch(Some(args.profile_id.clone()))
+    game_runtime::register_steam_launch(Some(args.profile_id.clone()));
+    Ok(())
 }
 
 pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
@@ -449,7 +448,6 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
         .ok_or_else(|| AppError::validation("Invalid game path"))?
         .to_path_buf();
 
-    // Hold the launch lock from prep through spawn (see LAUNCH_LOCK).
     let cancel_gen = cancel_generation(&args.profile_id);
     let _launch_guard = LAUNCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if cancel_generation(&args.profile_id) != cancel_gen {
@@ -457,17 +455,21 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
         return Ok(());
     }
 
-    // Steam runner: let the Steam client launch the game so online play
-    // (Steamworks) and audio (Steam Linux Runtime) work, injecting via
-    // doorstop_config.ini instead of command-line args. Steam only ever runs
-    // one instance, so this path never uses an instance copy.
+    // The Steam client runs the first instance (online play and audio need
+    // it); later ones replay its launch below.
     #[cfg(target_os = "linux")]
     if let LinuxRunner::Steam { compat_data_path } = &args.runner {
-        return launch_modded_via_steam(&args, &game_dir, compat_data_path);
+        let cancelled = || cancel_generation(&args.profile_id) != cancel_gen;
+        let steam_running = steam_game_running(cancelled);
+        if cancelled() {
+            info!("launch cancelled while queued: profile={}", args.profile_id);
+            return Ok(());
+        }
+        if !steam_running {
+            return launch_modded_via_steam(&args, &game_dir, compat_data_path);
+        }
     }
 
-    // Second and later concurrent launches of this profile run from their own
-    // copy of it, so the instances don't fight over BepInEx's cache/interop.
     let profile_dir = PathBuf::from(&args.profile_path);
     let (launch_dir, instance) = prepare_launch_dir(&args)?;
     let bepinex_dll = rebase_into_launch_dir(&args.bepinex_dll, &profile_dir, &launch_dir);
@@ -475,8 +477,6 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     let coreclr_path = rebase_into_launch_dir(&args.coreclr_path, &profile_dir, &launch_dir);
     let launch_dir_str = launch_dir.to_string_lossy().to_string();
 
-    // An instance copy is only useful to the process it was made for: drop it
-    // again if the spawn fails.
     let copy_to_clean_up = instance.temporary_dir.clone();
     let result = spawn_modded(
         &args,
@@ -497,7 +497,6 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     result
 }
 
-/// Doorstop paths, already rebased onto the directory the launch runs from.
 struct LaunchPaths {
     bepinex_dll: String,
     dotnet_dir: String,
@@ -523,26 +522,14 @@ fn spawn_modded(
         &args.runner,
     )?;
 
-    #[cfg(target_os = "linux")]
-    let bepinex_dll = to_wine_path(&paths.bepinex_dll);
-    #[cfg(not(target_os = "linux"))]
-    let bepinex_dll = paths.bepinex_dll;
-
-    #[cfg(target_os = "linux")]
-    let dotnet_dir = to_wine_path(&paths.dotnet_dir);
-    #[cfg(not(target_os = "linux"))]
-    let dotnet_dir = paths.dotnet_dir;
-
-    #[cfg(target_os = "linux")]
-    let coreclr_path = to_wine_path(&paths.coreclr_path);
-    #[cfg(not(target_os = "linux"))]
-    let coreclr_path = paths.coreclr_path;
-
     cmd.current_dir(game_dir)
         .args(["--doorstop-enabled", "true"])
-        .args(["--doorstop-target-assembly", &bepinex_dll])
-        .args(["--doorstop-clr-corlib-dir", &dotnet_dir])
-        .args(["--doorstop-clr-runtime-coreclr-path", &coreclr_path]);
+        .args(["--doorstop-target-assembly", &game_path(&paths.bepinex_dll)])
+        .args(["--doorstop-clr-corlib-dir", &game_path(&paths.dotnet_dir)])
+        .args([
+            "--doorstop-clr-runtime-coreclr-path",
+            &game_path(&paths.coreclr_path),
+        ]);
 
     #[cfg(target_os = "linux")]
     {
@@ -561,22 +548,17 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
         .ok_or_else(|| AppError::validation("Invalid game path"))?
         .to_path_buf();
 
-    // Steam runner: disable doorstop via the ini (clears any prior modded
-    // config) and hand the launch to the Steam client.
+    let _launch_guard = LAUNCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     #[cfg(target_os = "linux")]
-    if matches!(args.runner, LinuxRunner::Steam { .. }) {
+    if matches!(args.runner, LinuxRunner::Steam { .. }) && !steam_game_running(|| false) {
         clear_doorstop_ini(&game_dir)?;
         let mut cmd = Command::new("steam");
         cmd.arg("-applaunch").arg(STEAM_APP_ID);
         spawn_steam(cmd)?;
-        return game_runtime::register_steam_launch(None);
+        game_runtime::register_steam_launch(None);
+        return Ok(());
     }
-
-    // Strip any modded-launch leftovers from the game directory so the
-    // doorstop loader can't accidentally inject a previous profile's
-    // BepInEx into a vanilla wine/proton session.
-    #[cfg(target_os = "linux")]
-    cleanup_linux_doorstop_files(&game_dir)?;
 
     let mut cmd = build_game_command(
         &args.game_exe,
@@ -591,9 +573,6 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
     launch_process(cmd, None, LaunchInstance::default())
 }
 
-/// Self-contained vanilla launch: reads app settings, resolves the game
-/// path and platform, builds the Linux runner if needed, and dispatches
-/// [`launch_vanilla`]. Vanilla launches are profile-less by design.
 pub fn launch_vanilla_from_settings() -> AppResult<()> {
     let settings = core_service::get_settings()?;
     let game_path = settings.among_us_path.trim();
@@ -621,6 +600,7 @@ pub fn launch_vanilla_from_settings() -> AppResult<()> {
     if matches!(settings.game_platform, GamePlatform::Steam) {
         ensure_steam_appid_file(game_exe.parent().expect("game_exe has a parent"));
     }
+    allow_multiple_game_processes(&settings);
 
     #[cfg(target_os = "linux")]
     let runner = build_linux_runner_from_settings(&settings)?;
@@ -633,10 +613,7 @@ pub fn launch_vanilla_from_settings() -> AppResult<()> {
     })
 }
 
-/// Where the Steam launch's Proton prefix lives. The compatibility data path
-/// setting wins when it's filled in, but Steam is the default runner and that
-/// setting is optional, so fall back to deriving the prefix from the game's own
-/// location rather than failing a launch that used to work.
+/// The configured compat data path, else derived from the game's location.
 #[cfg(target_os = "linux")]
 fn steam_compat_data_path(
     settings: &crate::backend::services::core_service::AppSettings,
@@ -664,9 +641,6 @@ fn build_linux_runner_from_settings(
 ) -> AppResult<LinuxRunner> {
     use crate::backend::services::core_service::LinuxRunnerKind;
 
-    // Steam runs through the Steam client, so it needs no runner binary — only
-    // the prefix, to place the winhttp DLL override in. It launches Steam's own
-    // copy by app id, so it can't run a copy from any other store.
     if matches!(settings.linux_runner_kind, LinuxRunnerKind::Steam) {
         if settings.game_platform != GamePlatform::Steam {
             return Err(AppError::validation(format!(
@@ -700,16 +674,24 @@ fn build_linux_runner_from_settings(
     })
 }
 
-const GAME_EXE_NAME: &str = "Among Us.exe";
+/// Unity won't start a second process while boot.config has `single-instance`.
+/// Checked every launch because game updates put the entry back.
+fn allow_multiple_game_processes(settings: &core_service::AppSettings) {
+    if settings.allow_multi_instance_launch
+        && let Err(e) =
+            core_service::remove_single_instance_from_boot_config(&settings.among_us_path)
+    {
+        warn!("failed to clear single-instance from boot.config: {e}");
+    }
+}
+
+pub const GAME_EXE_NAME: &str = "Among Us.exe";
 
 #[cfg(any(windows, target_os = "linux"))]
 const CORECLR_FILE: &str = "coreclr.dll";
 #[cfg(target_os = "macos")]
 const CORECLR_FILE: &str = "libcoreclr.dylib";
 
-/// Self-contained modded launch for the given profile. Reads app settings,
-/// validates the game executable, BepInEx DLL, and dotnet runtime, then
-/// dispatches [`launch_modded`].
 pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
     let settings = core_service::get_settings()?;
     let game_path = settings.among_us_path.trim();
@@ -767,17 +749,7 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
         ensure_steam_appid_file(game_exe.parent().expect("game_exe has a parent"));
     }
 
-    // Unity refuses to start a second process while boot.config carries this
-    // entry, so instance copies alone wouldn't buy multi-instance launching.
-    // Checked on every launch rather than only when the setting is toggled: a
-    // game update rewrites boot.config and puts the entry back. Best-effort —
-    // a read-only game dir shouldn't stop a single instance from launching.
-    if settings.allow_multi_instance_launch
-        && let Err(e) =
-            core_service::remove_single_instance_from_boot_config(&settings.among_us_path)
-    {
-        warn!("failed to clear single-instance from boot.config: {e}");
-    }
+    allow_multiple_game_processes(&settings);
 
     #[cfg(target_os = "linux")]
     let runner = build_linux_runner_from_settings(&settings)?;
@@ -790,8 +762,6 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
         dotnet_dir: dotnet_dir.to_string_lossy().to_string(),
         coreclr_path: coreclr_path.to_string_lossy().to_string(),
         platform: settings.game_platform,
-        // A launch that lands on an already-running profile only gets its own
-        // copy of it when multiple instances are allowed.
         allow_instance_copy: settings.allow_multi_instance_launch,
         #[cfg(target_os = "linux")]
         runner,
