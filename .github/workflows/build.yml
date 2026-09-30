@@ -74,6 +74,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          packaging\windows\fetch-bepinex.ps1
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /O"." packaging\windows\starlight.iss
 
       # Same idea for the AppImage — it's cheap to validate per run.
