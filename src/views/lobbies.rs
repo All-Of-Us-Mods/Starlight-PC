@@ -729,8 +729,7 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
         .profiles
         .iter()
         .map(|p| {
-            let needs_bepinex = p.needs_bepinex_for_settings(crate::settings::get(cx));
-            let bep_subtitle = if needs_bepinex {
+            let bep_subtitle = if p.needs_bepinex(crate::settings::get(cx)) {
                 t!("lobbies.bepinex_will_install").to_string()
             } else {
                 t!("lobbies.modded_profile").to_string()

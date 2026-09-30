@@ -39,7 +39,7 @@ pub(super) fn group() -> SettingGroup {
                                     .flex()
                                     .items_center()
                                     .gap_2()
-                                    .child(div().flex_1().child(install.label()))
+                                    .child(div().flex_1().child(install.setup.label()))
                                     .child(
                                         Button::new(SharedString::from(format!("unlink-{id}")))
                                             .label(t!("settings.unlink_install"))

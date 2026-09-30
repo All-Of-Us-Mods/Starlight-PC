@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::backend::events::{self, BackendEvent};
-use crate::backend::services::profile_service::{self, ProfileEntry, ZipOp};
-use crate::backend::services::{core_service, launch_service};
+use crate::backend::services::launch_service;
+use crate::backend::services::profile_service::{self, BepInExStatus, ProfileEntry, ZipOp};
 use crate::backend::state::game_runtime;
 use crate::backend::state::mod_catalog_cache;
 use crate::settings as app_settings;
@@ -484,22 +484,18 @@ impl LibraryView {
         let emit_id = id.clone();
         let drop_id = id.clone();
         let accent = theme.primary;
-        let warning = match profile.launch_settings(app_settings::get(cx)) {
-            Err(_) => Some(t!("profile.missing_install").to_string()),
-            Ok(settings) => {
-                let game_arch = core_service::game_arch(&settings.among_us_path);
-                match profile.bepinex_runtime().installed_arch() {
-                    None => Some(t!("profile.bepinex_not_installed").to_string()),
-                    Some(arch) if arch != game_arch => Some(
-                        t!(
-                            "profile.bepinex_incompatible",
-                            platform = settings.game_platform.display_name()
-                        )
-                        .to_string(),
-                    ),
-                    Some(_) => None,
-                }
-            }
+        let settings = app_settings::get(cx);
+        let warning = match profile.bepinex_status(settings) {
+            BepInExStatus::Ready => None,
+            BepInExStatus::NotInstalled => Some(t!("profile.bepinex_not_installed").to_string()),
+            BepInExStatus::MissingInstallation => Some(t!("profile.missing_install").to_string()),
+            BepInExStatus::Incompatible => profile.installation(settings).ok().map(|game| {
+                t!(
+                    "profile.bepinex_incompatible",
+                    platform = game.game_platform.display_name()
+                )
+                .to_string()
+            }),
         };
         let outdated_count = profile
             .mods
@@ -643,6 +639,7 @@ impl Render for LibraryView {
         // First-run nudge: launching can't work until the game path is set
         // (startup auto-detect may have already filled it in).
         let setup_banner = app_settings::get(cx)
+            .game
             .among_us_path
             .trim()
             .is_empty()

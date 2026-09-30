@@ -151,13 +151,13 @@ fn region_info_path() -> AppResult<PathBuf> {
     use crate::backend::services::core_service::{self, LinuxRunnerKind};
 
     let settings = core_service::get_settings()?;
-    match settings.linux_runner_kind {
+    match settings.game.linux_runner_kind {
         LinuxRunnerKind::Wine => {
             let explicit = settings.linux_wine_region_info_path.trim();
             if !explicit.is_empty() {
                 return Ok(expand_tilde(explicit));
             }
-            let prefix = settings.linux_wine_prefix.trim();
+            let prefix = settings.game.linux_wine_prefix.trim();
             if prefix.is_empty() {
                 return Err(AppError::state(
                     rust_i18n::t!("linux.wine_prefix_hint").to_string(),
@@ -166,7 +166,7 @@ fn region_info_path() -> AppResult<PathBuf> {
             Ok(region_info_in(wine_user_dir(&expand_tilde(prefix))?))
         }
         LinuxRunnerKind::Proton | LinuxRunnerKind::Steam => {
-            let compat = settings.linux_proton_compat_data_path.trim();
+            let compat = settings.game.linux_proton_compat_data_path.trim();
             if compat.is_empty() {
                 return Err(AppError::state(
                     rust_i18n::t!("linux.proton_compat_hint").to_string(),

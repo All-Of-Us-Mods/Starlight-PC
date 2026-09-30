@@ -1,5 +1,5 @@
-use super::installation_service::{GAME_EXE_NAME, GameInstallation};
-use crate::backend::binary::{BinaryArch, read_pe_arch};
+use super::installation_service::{GameInstallation, GameSetup};
+use crate::backend::binary::BinaryArch;
 use crate::backend::directories;
 use crate::backend::error::AppResult;
 use serde::{Deserialize, Serialize};
@@ -13,9 +13,10 @@ const BOOT_CONFIG_FILE_NAME: &str = "boot.config";
 /// Unity writes this entry with hyphens, alongside `build-guid=` and friends.
 const SINGLE_INSTANCE_KEY: &str = "single-instance=";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GamePlatform {
+    #[default]
     Steam,
     Epic,
     Xbox,
@@ -52,14 +53,6 @@ impl GamePlatform {
             GamePlatform::Itch => "itch.io",
         }
     }
-}
-
-/// Which BepInEx build the game in `among_us_path` needs, read from the PE
-/// header of its executable — platforms have switched bitness between game
-/// updates, so the binary is the only reliable source. Falls back to x64 (what
-/// most platforms ship) when the executable can't be read.
-pub fn game_arch(among_us_path: &str) -> BinaryArch {
-    read_pe_arch(&Path::new(among_us_path.trim()).join(GAME_EXE_NAME)).unwrap_or(BinaryArch::X64)
 }
 
 /// When the overlay scrollbars are visible.
@@ -126,30 +119,18 @@ pub struct AppSettings {
     pub game_installations: Vec<GameInstallation>,
     pub bepinex_url_x86: String,
     pub bepinex_url_x64: String,
-    pub among_us_path: String,
+    /// The default installation, stored flat for compatibility with older files.
+    #[serde(flatten)]
+    pub game: GameSetup,
     pub close_on_launch: bool,
     pub allow_multi_instance_launch: bool,
-    pub game_platform: GamePlatform,
     #[serde(default = "default_true")]
     pub cache_bepinex: bool,
-    pub xbox_app_id: Option<String>,
-    #[serde(default)]
-    pub linux_runner_kind: LinuxRunnerKind,
-    #[serde(default)]
-    pub linux_runner_binary: String,
-    #[serde(default)]
-    pub linux_wine_prefix: String,
     /// Explicit path to Among Us' `RegionInfo.json` for plain Wine setups,
     /// where the prefix layout (user name inside `drive_c/users`) varies.
     /// Empty means "derive from the Wine prefix".
     #[serde(default)]
     pub linux_wine_region_info_path: String,
-    #[serde(default)]
-    pub linux_proton_compat_data_path: String,
-    #[serde(default)]
-    pub linux_proton_steam_client_path: String,
-    #[serde(default)]
-    pub linux_proton_use_steam_run: bool,
     /// Name of the active JSON theme (see `crate::theme`).
     #[serde(default = "default_theme_name")]
     pub theme_name: String,
@@ -186,19 +167,11 @@ impl Default for AppSettings {
             game_installations: Vec::new(),
             bepinex_url_x86: DEFAULT_BEPINEX_URL_X86.to_string(),
             bepinex_url_x64: DEFAULT_BEPINEX_URL_X64.to_string(),
-            among_us_path: String::new(),
+            game: GameSetup::default(),
             close_on_launch: false,
             allow_multi_instance_launch: false,
-            game_platform: GamePlatform::Steam,
             cache_bepinex: true,
-            xbox_app_id: None,
-            linux_runner_kind: LinuxRunnerKind::Steam,
-            linux_runner_binary: String::new(),
-            linux_wine_prefix: String::new(),
             linux_wine_region_info_path: String::new(),
-            linux_proton_compat_data_path: String::new(),
-            linux_proton_steam_client_path: String::new(),
-            linux_proton_use_steam_run: true,
             theme_name: default_theme_name(),
             language: default_language(),
             show_stars_background: true,
@@ -275,7 +248,7 @@ fn read_legacy_settings() -> AppResult<Option<AppSettings>> {
         settings.bepinex_url_x64 = value.replace("win-x86-", "win-x64-");
     }
     if let Some(value) = patch.among_us_path {
-        settings.among_us_path = value;
+        settings.game.among_us_path = value;
     }
     if let Some(value) = patch.close_on_launch {
         settings.close_on_launch = value;
@@ -284,31 +257,31 @@ fn read_legacy_settings() -> AppResult<Option<AppSettings>> {
         settings.allow_multi_instance_launch = value;
     }
     if let Some(value) = patch.game_platform {
-        settings.game_platform = value;
+        settings.game.game_platform = value;
     }
     if let Some(value) = patch.cache_bepinex {
         settings.cache_bepinex = value;
     }
     if let Some(value) = patch.xbox_app_id {
-        settings.xbox_app_id = Some(value);
+        settings.game.xbox_app_id = Some(value);
     }
     if let Some(value) = patch.linux_runner_kind {
-        settings.linux_runner_kind = value;
+        settings.game.linux_runner_kind = value;
     }
     if let Some(value) = patch.linux_runner_binary {
-        settings.linux_runner_binary = value;
+        settings.game.linux_runner_binary = value;
     }
     if let Some(value) = patch.linux_wine_prefix {
-        settings.linux_wine_prefix = value;
+        settings.game.linux_wine_prefix = value;
     }
     if let Some(value) = patch.linux_proton_compat_data_path {
-        settings.linux_proton_compat_data_path = value;
+        settings.game.linux_proton_compat_data_path = value;
     }
     if let Some(value) = patch.linux_proton_steam_client_path {
-        settings.linux_proton_steam_client_path = value;
+        settings.game.linux_proton_steam_client_path = value;
     }
     if let Some(value) = patch.linux_proton_use_steam_run {
-        settings.linux_proton_use_steam_run = value;
+        settings.game.linux_proton_use_steam_run = value;
     }
 
     Ok(Some(settings))
@@ -393,7 +366,6 @@ pub fn get_bepinex_cache_path(arch: BinaryArch) -> AppResult<String> {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]
@@ -430,29 +402,5 @@ mod tests {
             remove_single_instance_line("build-guid=abc\nfoo=bar\n"),
             None
         );
-    }
-
-    #[test]
-    fn game_arch_reads_pe_machine() {
-        let dir = std::env::temp_dir().join(format!("starlight-pe-test-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let game_path = dir.to_string_lossy().to_string();
-
-        let exe = |machine: u16| {
-            let mut bytes = vec![0u8; 0x80];
-            bytes[..2].copy_from_slice(b"MZ");
-            bytes[0x3C..0x40].copy_from_slice(&0x40u32.to_le_bytes());
-            bytes[0x40..0x44].copy_from_slice(b"PE\0\0");
-            bytes[0x44..0x46].copy_from_slice(&machine.to_le_bytes());
-            fs::write(dir.join(GAME_EXE_NAME), bytes).unwrap();
-        };
-
-        exe(0x014c);
-        assert_eq!(game_arch(&game_path), BinaryArch::X86);
-        exe(0x8664);
-        assert_eq!(game_arch(&game_path), BinaryArch::X64);
-
-        fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(game_arch(&game_path), BinaryArch::X64);
     }
 }

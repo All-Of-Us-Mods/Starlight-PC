@@ -10,16 +10,9 @@ impl LibraryDetailView {
     ) -> impl IntoElement + use<> {
         let selected = profile.installation_id.clone();
         let installs = app_settings::get(cx).game_installations.clone();
-        let label = match selected.as_ref() {
-            None => app_settings::get(cx)
-                .game_platform
-                .display_name()
-                .to_string(),
-            Some(id) => installs
-                .iter()
-                .find(|i| &i.id == id)
-                .map(|i| i.game_platform.display_name().to_string())
-                .unwrap_or_else(|| t!("profile.missing_install").to_string()),
+        let label = match profile.installation(app_settings::get(cx)) {
+            Ok(game) => game.game_platform.display_name().to_string(),
+            Err(_) => t!("profile.missing_install").to_string(),
         };
         let view = cx.entity().downgrade();
         Button::new("profile-installation")
@@ -31,7 +24,11 @@ impl LibraryDetailView {
             )
             .dropdown_menu(move |mut menu, _, _| {
                 let options = std::iter::once((None, t!("profile.default_install").to_string()))
-                    .chain(installs.iter().map(|i| (Some(i.id.clone()), i.label())));
+                    .chain(
+                        installs
+                            .iter()
+                            .map(|i| (Some(i.id.clone()), i.setup.label())),
+                    );
                 for (id, label) in options {
                     let view = view.clone();
                     menu = menu.item(PopupMenuItem::new(label).checked(id == selected).on_click(

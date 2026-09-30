@@ -10,7 +10,7 @@ const APP_ID: &str = "945360";
 
 pub(super) fn validate_directory(selected: &Path, steam_roots: &[PathBuf]) -> AppResult<()> {
     let selected = selected.canonicalize()?;
-    match directories(steam_roots)?.as_slice() {
+    match directories(steam_roots).as_slice() {
         [game_dir] if game_dir == &selected => Ok(()),
         [game_dir] => Err(AppError::validation(format!(
             "Steam launches Among Us from {}. Select that installation, or use Wine or Proton to launch {} directly.",
@@ -25,43 +25,52 @@ pub(super) fn validate_directory(selected: &Path, steam_roots: &[PathBuf]) -> Ap
 
 /// Shared by auto-detection and launch validation, including external libraries
 /// and custom installation folder names recorded in Steam's manifests.
-pub(super) fn directories(steam_roots: &[PathBuf]) -> AppResult<Vec<PathBuf>> {
+/// Unreadable or malformed Steam files are skipped so one broken library
+/// doesn't hide the others.
+pub(super) fn directories(steam_roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut libraries: BTreeSet<_> = steam_roots.iter().cloned().collect();
     for root in steam_roots {
-        if let Some(raw) = read_optional(&root.join("steamapps/libraryfolders.vdf"))? {
+        if let Some(raw) = read_steam_file(&root.join("steamapps/libraryfolders.vdf")) {
             libraries.extend(quoted_values(&raw, "path").map(PathBuf::from));
         }
     }
-    let mut registered = BTreeSet::new();
-    for library in libraries {
-        let path = library.join(format!("steamapps/appmanifest_{APP_ID}.acf"));
-        let Some(raw) = read_optional(&path)? else {
-            continue;
-        };
-        let folder = quoted_values(&raw, "installdir")
-            .next()
-            .filter(|folder| {
-                Path::new(folder)
-                    .file_name()
-                    .is_some_and(|name| name == folder.as_str())
-            })
-            .filter(|_| quoted_values(&raw, "appid").next().as_deref() == Some(APP_ID))
-            .ok_or_else(|| {
-                AppError::validation(format!("Invalid Steam manifest at {}.", path.display()))
-            })?;
-        let game_dir = library.join("steamapps/common").join(folder);
-        if game_dir.join(GAME_EXE_NAME).is_file() {
-            registered.insert(game_dir.canonicalize()?);
-        }
-    }
-    Ok(registered.into_iter().collect())
+    let registered: BTreeSet<_> = libraries
+        .iter()
+        .filter_map(|library| registered_game_dir(library))
+        .collect();
+    registered.into_iter().collect()
 }
 
-fn read_optional(path: &Path) -> std::io::Result<Option<String>> {
+fn registered_game_dir(library: &Path) -> Option<PathBuf> {
+    let manifest = library.join(format!("steamapps/appmanifest_{APP_ID}.acf"));
+    let raw = read_steam_file(&manifest)?;
+    let folder = quoted_values(&raw, "installdir")
+        .next()
+        .filter(|folder| {
+            Path::new(folder)
+                .file_name()
+                .is_some_and(|name| name == folder.as_str())
+        })
+        .filter(|_| quoted_values(&raw, "appid").next().as_deref() == Some(APP_ID));
+    let Some(folder) = folder else {
+        log::warn!("Ignoring invalid Steam manifest at {}", manifest.display());
+        return None;
+    };
+    let game_dir = library.join("steamapps/common").join(folder);
+    if !game_dir.join(GAME_EXE_NAME).is_file() {
+        return None;
+    }
+    game_dir.canonicalize().ok()
+}
+
+fn read_steam_file(path: &Path) -> Option<String> {
     match fs::read_to_string(path) {
-        Ok(raw) => Ok(Some(raw)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error),
+        Ok(raw) => Some(raw),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            log::warn!("Skipping unreadable Steam file {}: {error}", path.display());
+            None
+        }
     }
 }
 
@@ -133,5 +142,28 @@ mod tests {
             .unwrap();
         }
         assert!(validate_directory(&roots[0].join("steamapps/common/Among Us"), &roots).is_err());
+    }
+
+    #[test]
+    fn unreadable_or_invalid_library_does_not_hide_other_libraries() {
+        let dir = TempDir::new("broken-steam-library");
+        let broken = dir.0.join("broken");
+        let valid = dir.0.join("valid");
+        // A directory where a file is expected fails to read on every OS.
+        fs::create_dir_all(broken.join("steamapps/libraryfolders.vdf")).unwrap();
+        fs::write(
+            broken.join("steamapps/appmanifest_945360.acf"),
+            "\"appid\" \"1\"",
+        )
+        .unwrap();
+        let game = valid.join("steamapps/common/Among Us");
+        fs::create_dir_all(&game).unwrap();
+        fs::write(game.join(GAME_EXE_NAME), b"game").unwrap();
+        fs::write(
+            valid.join("steamapps/appmanifest_945360.acf"),
+            "\"appid\" \"945360\"\n\"installdir\" \"Among Us\"",
+        )
+        .unwrap();
+        assert!(validate_directory(&game, &[broken, valid]).is_ok());
     }
 }

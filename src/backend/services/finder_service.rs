@@ -339,11 +339,7 @@ pub fn get_among_us_paths() -> Vec<PathBuf> {
 
     #[cfg(target_os = "linux")]
     {
-        let paths =
-            super::steam_installation::directories(&linux_steam_roots()).unwrap_or_else(|error| {
-                log::warn!("Failed to read Steam installations: {error}");
-                Vec::new()
-            });
+        let paths = super::steam_installation::directories(&linux_steam_roots());
         if !paths.is_empty() {
             return paths;
         }

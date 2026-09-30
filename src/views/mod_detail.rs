@@ -376,7 +376,7 @@ impl ModDetailView {
             self.profiles
                 .iter()
                 .find(|p| &p.id == profile_id)
-                .is_none_or(|p| p.needs_bepinex_for_settings(crate::settings::get(cx)))
+                .is_none_or(|p| p.needs_bepinex(crate::settings::get(cx)))
         });
         if let Some(panel) = self.install.as_mut() {
             panel.status = InstallStatus::Installing {
@@ -1016,7 +1016,6 @@ mod tests {
 
     fn named(name: &str) -> ProfileEntry {
         ProfileEntry {
-            installation_id: None,
             id: name.into(),
             name: name.into(),
             path: String::new(),
@@ -1027,6 +1026,7 @@ mod tests {
             custom_icon_extension: None,
             icon_mod_id: None,
             mods: vec![],
+            installation_id: None,
         }
     }
 

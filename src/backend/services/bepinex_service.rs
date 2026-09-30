@@ -112,7 +112,7 @@ pub fn ensure_installed(
     }
 
     let result = (|| -> AppResult<()> {
-        let update = StagedRuntime::new(runtime.root())?;
+        let mut update = StagedRuntime::new(runtime.root())?;
         install_bepinex(url, &update.contents(), cache_path, profile_id)?;
         update.install(architecture)
     })();

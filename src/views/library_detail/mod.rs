@@ -20,11 +20,13 @@ use std::sync::{Arc, Mutex};
 use crate::backend::api;
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_service::{BepInExProgress, BepInExTargetType};
+use crate::backend::services::launch_service;
 use crate::backend::services::mod_install_service::{self, InstallModInput};
-use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry, ZipOp};
+use crate::backend::services::profile_service::{
+    self, BepInExStatus, ProfileEntry, ProfileModEntry, ZipOp,
+};
 #[cfg(windows)]
 use crate::backend::services::profile_shortcut_service;
-use crate::backend::services::{core_service, launch_service};
 use crate::backend::state::game_runtime;
 use crate::backend::state::mod_catalog_cache;
 use crate::settings as app_settings;
@@ -1082,24 +1084,26 @@ impl LibraryDetailView {
         theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let bepinex_arch = profile.bepinex_runtime().installed_arch();
-        let resolved = profile.launch_settings(app_settings::get(cx));
-        let missing_installation = resolved.is_err();
-        let platform_name = resolved
-            .as_ref()
-            .map(|settings| settings.game_platform.display_name())
-            .unwrap_or_default();
-        let needs_bepinex = resolved.as_ref().is_ok_and(|settings| {
-            bepinex_arch != Some(core_service::game_arch(&settings.among_us_path))
-        });
-        let bep_incompatible = bepinex_arch.is_some() && needs_bepinex;
-        let install_label = needs_bepinex.then(|| {
-            if bep_incompatible {
-                t!("profile.reinstall_bepinex")
-            } else {
-                t!("profile.install_bepinex")
-            }
-        });
+        let settings = app_settings::get(cx);
+        let status = profile.bepinex_status(settings);
+        let missing_installation = status == BepInExStatus::MissingInstallation;
+        let (install_label, warning) = match status {
+            BepInExStatus::NotInstalled => (
+                Some(t!("profile.install_bepinex")),
+                Some(t!("profile.bepinex_not_installed").to_string()),
+            ),
+            BepInExStatus::Incompatible => (
+                Some(t!("profile.reinstall_bepinex")),
+                profile.installation(settings).ok().map(|game| {
+                    t!(
+                        "profile.bepinex_incompatible",
+                        platform = game.game_platform.display_name()
+                    )
+                    .to_string()
+                }),
+            ),
+            BepInExStatus::Ready | BepInExStatus::MissingInstallation => (None, None),
+        };
         let installing = self.bep_progress.is_some();
         let primary_controls = self.render_primary_controls(
             install_label,
@@ -1193,7 +1197,7 @@ impl LibraryDetailView {
                     .to_string(),
                 ),
             )
-            .children(bepinex_arch.is_none().then(|| {
+            .children(warning.map(|warning| {
                 div()
                     .mt_1()
                     .flex()
@@ -1202,18 +1206,7 @@ impl LibraryDetailView {
                     .text_xs()
                     .text_color(theme.warning)
                     .child(Icon::new(IconName::TriangleAlert).xsmall())
-                    .child(t!("profile.bepinex_not_installed").to_string())
-            }))
-            .children(bep_incompatible.then(|| {
-                div()
-                    .mt_1()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .text_xs()
-                    .text_color(theme.warning)
-                    .child(Icon::new(IconName::TriangleAlert).xsmall())
-                    .child(t!("profile.bepinex_incompatible", platform = platform_name).to_string())
+                    .child(warning)
             }));
 
         div()
