@@ -55,6 +55,7 @@ pub fn get_xbox_app_id() -> AppResult<String> {
 /// (rewritten to point at this profile's BepInEx/coreclr) into the UWP
 /// install dir.
 pub fn prepare_xbox_launch(profile_path: &Path, game_dir: &Path) -> AppResult<()> {
+    let runtime = super::bepinex_runtime::BepInExRuntime::new(profile_path);
     let src_dll = profile_path.join("winhttp.dll");
     let src_ini = profile_path.join("doorstop_config.ini");
     let dst_dll = game_dir.join("winhttp.dll");
@@ -74,12 +75,9 @@ pub fn prepare_xbox_launch(profile_path: &Path, game_dir: &Path) -> AppResult<()
     std::fs::copy(&src_dll, &dst_dll)?;
 
     let write_ini = || -> AppResult<()> {
-        let target_assembly = profile_path
-            .join("BepInEx")
-            .join("core")
-            .join("BepInEx.Unity.IL2CPP.dll");
-        let corlib_dir = profile_path.join("dotnet");
-        let coreclr_path = corlib_dir.join("coreclr.dll");
+        let target_assembly = runtime.assembly_path();
+        let corlib_dir = runtime.dotnet_dir();
+        let coreclr_path = runtime.coreclr_path();
         let target_assembly = target_assembly.to_string_lossy().replace('\\', "\\\\");
         let coreclr_path = coreclr_path.to_string_lossy().replace('\\', "\\\\");
         let corlib_dir = corlib_dir.to_string_lossy().replace('\\', "\\\\");

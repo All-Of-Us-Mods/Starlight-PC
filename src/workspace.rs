@@ -248,7 +248,7 @@ impl Workspace {
     fn first_run_detect_game(window: &mut Window, cx: &mut Context<Self>) {
         use crate::backend::services::finder_service;
 
-        if !app_settings::get(cx).among_us_path.trim().is_empty() {
+        if !app_settings::get(cx).game.among_us_path.trim().is_empty() {
             return;
         }
         let window_handle = window.window_handle();
@@ -268,9 +268,9 @@ impl Workspace {
             let _ = window_handle.update(cx, |_, window, cx| match detection {
                 Some((path, store)) => {
                     app_settings::update(cx, |s| {
-                        s.among_us_path = path.clone();
+                        s.game.among_us_path = path.clone();
                         if let Some(platform) = store {
-                            s.game_platform = platform;
+                            s.game.game_platform = platform;
                         }
                     });
                     window.push_notification(

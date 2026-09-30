@@ -1,3 +1,5 @@
+mod installations;
+
 use std::rc::Rc;
 
 use gpui_kit::component::{
@@ -11,6 +13,7 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use log::warn;
 
+use crate::backend::binary::BinaryArch;
 use crate::backend::events::{self, BackendEvent};
 #[cfg(unix)]
 use crate::backend::services::core_service::LinuxRunnerKind;
@@ -18,7 +21,7 @@ use crate::backend::services::core_service::LinuxRunnerKind;
 use crate::backend::services::core_service::ReleaseChannel;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
-    core_service::{self, BepInExArch, GamePlatform, ScrollbarVisibility},
+    core_service::{self, GamePlatform, ScrollbarVisibility},
     finder_service,
 };
 use crate::settings as app_settings;
@@ -110,7 +113,7 @@ fn format_bytes(bytes: u64) -> String {
 /// Build the download/clear row + status description for one BepInEx cache
 /// architecture. The cache is sized once here and reused for both the "Clear"
 /// button's visibility and the description, instead of stat-ing the file twice.
-fn cache_item(arch: BepInExArch, label: gpui_kit::SharedString) -> SettingItem {
+fn cache_item(arch: BinaryArch, label: gpui_kit::SharedString) -> SettingItem {
     let (present, status): (bool, SharedString) = match core_service::get_bepinex_cache_path(arch) {
         Ok(path) => match bepinex_service::cache_size(&path) {
             Some(size) => (
@@ -150,7 +153,7 @@ fn cache_item(arch: BepInExArch, label: gpui_kit::SharedString) -> SettingItem {
 
 fn patch_platform(value: SharedString, cx: &mut App) {
     if let Some(platform) = GamePlatform::from_id(&value) {
-        app_settings::update(cx, |s| s.game_platform = platform);
+        app_settings::update(cx, |s| s.game.game_platform = platform);
     }
 }
 
@@ -200,7 +203,7 @@ fn patch_linux_runner_kind(value: SharedString, cx: &mut App) {
         "steam" => LinuxRunnerKind::Steam,
         _ => LinuxRunnerKind::Proton,
     };
-    app_settings::update(cx, |s| s.linux_runner_kind = kind);
+    app_settings::update(cx, |s| s.game.linux_runner_kind = kind);
 }
 
 // ---------- path input field (Input + Browse button, two-way bound) ----------
@@ -309,19 +312,19 @@ fn path_field(
 
 #[cfg(unix)]
 fn detect_linux_runtime(window: &mut Window, cx: &mut App) {
-    let among_us_path = app_settings::get(cx).among_us_path.clone();
+    let among_us_path = app_settings::get(cx).game.among_us_path.clone();
     let path_arg = (!among_us_path.trim().is_empty()).then_some(among_us_path);
     match finder_service::detect_linux_runner(path_arg) {
         Ok(detection) => {
             app_settings::update(cx, |s| {
-                s.linux_runner_kind = detection.runner_kind;
-                s.linux_runner_binary = detection.runner_binary.unwrap_or_default();
-                s.linux_wine_prefix = detection.wine_prefix.unwrap_or_default();
-                s.linux_proton_compat_data_path =
+                s.game.linux_runner_kind = detection.runner_kind;
+                s.game.linux_runner_binary = detection.runner_binary.unwrap_or_default();
+                s.game.linux_wine_prefix = detection.wine_prefix.unwrap_or_default();
+                s.game.linux_proton_compat_data_path =
                     detection.proton_compat_data_path.unwrap_or_default();
-                s.linux_proton_steam_client_path =
+                s.game.linux_proton_steam_client_path =
                     detection.proton_steam_client_path.unwrap_or_default();
-                s.linux_proton_use_steam_run = detection.proton_use_steam_run;
+                s.game.linux_proton_use_steam_run = detection.proton_use_steam_run;
             });
             window.push_notification(
                 Notification::success(t!("settings.linux.detected").to_string()),
@@ -343,9 +346,9 @@ fn detect_among_us(window: &mut Window, cx: &mut App) {
         Ok(Some(path)) => {
             let detected_platform = finder_service::detect_game_store(&path).ok();
             app_settings::update(cx, |s| {
-                s.among_us_path = path.clone();
+                s.game.among_us_path = path.clone();
                 if let Some(platform) = detected_platform {
-                    s.game_platform = platform;
+                    s.game.game_platform = platform;
                 }
             });
             let msg = match detected_platform {
@@ -375,7 +378,7 @@ fn detect_among_us(window: &mut Window, cx: &mut App) {
     }
 }
 
-fn download_bepinex_cache(arch: BepInExArch, window: &mut Window, cx: &mut App) {
+fn download_bepinex_cache(arch: BinaryArch, window: &mut Window, cx: &mut App) {
     let url = app_settings::get(cx).bepinex_url(arch).to_string();
     let cache_path = match core_service::get_bepinex_cache_path(arch) {
         Ok(p) => p,
@@ -425,7 +428,7 @@ fn download_bepinex_cache(arch: BepInExArch, window: &mut Window, cx: &mut App) 
     .detach();
 }
 
-fn clear_bepinex_cache(arch: BepInExArch, window: &mut Window, cx: &mut App) {
+fn clear_bepinex_cache(arch: BinaryArch, window: &mut Window, cx: &mut App) {
     match core_service::get_bepinex_cache_path(arch) {
         Ok(path) => match bepinex_service::clear_cache(path, arch.as_str().to_string()) {
             Ok(()) => window.push_notification(
@@ -476,7 +479,7 @@ impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
-        let game_groups = vec![
+        let mut game_groups = vec![
             SettingGroup::new()
                 .title(t!("settings.group.installation"))
                 .items(vec![
@@ -485,9 +488,11 @@ impl Render for SettingsView {
                         path_field(
                             "among-us",
                             true,
-                            |cx| app_settings::get(cx).among_us_path.clone().into(),
+                            |cx| app_settings::get(cx).game.among_us_path.clone().into(),
                             |value, cx| {
-                                app_settings::update(cx, |s| s.among_us_path = value.to_string())
+                                app_settings::update(cx, |s| {
+                                    s.game.among_us_path = value.to_string()
+                                })
                             },
                         ),
                     )
@@ -513,13 +518,26 @@ impl Render for SettingsView {
                                 .into_iter()
                                 .map(|p| (p.id().into(), p.display_name().into()))
                                 .collect(),
-                            |cx| app_settings::get(cx).game_platform.id().into(),
+                            |cx| app_settings::get(cx).game.game_platform.id().into(),
                             patch_platform,
                         ),
                     )
                     .description(t!("settings.game_platform_desc").to_string()),
+                    SettingItem::new(
+                        t!("settings.multiple_installations"),
+                        SettingField::switch(
+                            |cx| app_settings::get(cx).show_installation_controls,
+                            |value, cx| {
+                                app_settings::update(cx, |s| s.show_installation_controls = value)
+                            },
+                        ),
+                    )
+                    .description(t!("settings.multiple_installations_desc").to_string()),
                 ]),
         ];
+        if app_settings::get(cx).show_installation_controls {
+            game_groups.push(installations::group());
+        }
         let game_page = SettingPage::new(t!("settings.page.game"))
             .default_open(true)
             .groups(game_groups);
@@ -640,8 +658,8 @@ impl Render for SettingsView {
                         ),
                     )
                     .description(t!("settings.cache_downloads_desc").to_string()),
-                    cache_item(BepInExArch::X64, t!("settings.cache.x64").into()),
-                    cache_item(BepInExArch::X86, t!("settings.cache.x86").into()),
+                    cache_item(BinaryArch::X64, t!("settings.cache.x64").into()),
+                    cache_item(BinaryArch::X86, t!("settings.cache.x86").into()),
                 ]),
             SettingGroup::new()
                 .title(t!("settings.group.download_urls"))
@@ -670,7 +688,7 @@ impl Render for SettingsView {
 
         #[cfg(unix)]
         let linux_page = {
-            let kind = app_settings::get(cx).linux_runner_kind.clone();
+            let kind = app_settings::get(cx).game.linux_runner_kind.clone();
 
             let auto_detect = SettingItem::new(
                 t!("settings.auto_detect"),
@@ -691,7 +709,7 @@ impl Render for SettingsView {
                         ("proton".into(), "Proton".into()),
                         ("wine".into(), "Wine".into()),
                     ],
-                    |cx| match app_settings::get(cx).linux_runner_kind {
+                    |cx| match app_settings::get(cx).game.linux_runner_kind {
                         LinuxRunnerKind::Wine => "wine".into(),
                         LinuxRunnerKind::Proton => "proton".into(),
                         LinuxRunnerKind::Steam => "steam".into(),
@@ -706,9 +724,15 @@ impl Render for SettingsView {
                 path_field(
                     "linux-runner-binary",
                     false,
-                    |cx| app_settings::get(cx).linux_runner_binary.clone().into(),
+                    |cx| {
+                        app_settings::get(cx)
+                            .game
+                            .linux_runner_binary
+                            .clone()
+                            .into()
+                    },
                     |value, cx| {
-                        app_settings::update(cx, |s| s.linux_runner_binary = value.to_string())
+                        app_settings::update(cx, |s| s.game.linux_runner_binary = value.to_string())
                     },
                 ),
             );
@@ -718,9 +742,9 @@ impl Render for SettingsView {
                 path_field(
                     "linux-wine-prefix",
                     true,
-                    |cx| app_settings::get(cx).linux_wine_prefix.clone().into(),
+                    |cx| app_settings::get(cx).game.linux_wine_prefix.clone().into(),
                     |value, cx| {
-                        app_settings::update(cx, |s| s.linux_wine_prefix = value.to_string())
+                        app_settings::update(cx, |s| s.game.linux_wine_prefix = value.to_string())
                     },
                 ),
             );
@@ -752,13 +776,14 @@ impl Render for SettingsView {
                     true,
                     |cx| {
                         app_settings::get(cx)
+                            .game
                             .linux_proton_compat_data_path
                             .clone()
                             .into()
                     },
                     |value, cx| {
                         app_settings::update(cx, |s| {
-                            s.linux_proton_compat_data_path = value.to_string()
+                            s.game.linux_proton_compat_data_path = value.to_string()
                         })
                     },
                 ),
@@ -768,8 +793,10 @@ impl Render for SettingsView {
             let steam_run = SettingItem::new(
                 t!("settings.linux.steam_run"),
                 SettingField::switch(
-                    |cx| app_settings::get(cx).linux_proton_use_steam_run,
-                    |value, cx| app_settings::update(cx, |s| s.linux_proton_use_steam_run = value),
+                    |cx| app_settings::get(cx).game.linux_proton_use_steam_run,
+                    |value, cx| {
+                        app_settings::update(cx, |s| s.game.linux_proton_use_steam_run = value)
+                    },
                 ),
             )
             .description(t!("settings.linux.steam_run_desc").to_string());

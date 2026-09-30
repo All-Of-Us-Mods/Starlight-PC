@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::backend::events::{self, BackendEvent};
-use crate::backend::services::profile_service::{self, ProfileEntry, ZipOp};
-use crate::backend::services::{core_service, launch_service};
+use crate::backend::services::launch_service;
+use crate::backend::services::profile_service::{self, BepInExStatus, ProfileEntry, ZipOp};
 use crate::backend::state::game_runtime;
 use crate::backend::state::mod_catalog_cache;
 use crate::settings as app_settings;
@@ -484,8 +484,19 @@ impl LibraryView {
         let emit_id = id.clone();
         let drop_id = id.clone();
         let accent = theme.primary;
-        let platform = app_settings::get(cx).game_platform;
-        let game_arch = core_service::game_arch(&app_settings::get(cx).among_us_path);
+        let settings = app_settings::get(cx);
+        let warning = match profile.bepinex_status(settings) {
+            BepInExStatus::Ready => None,
+            BepInExStatus::NotInstalled => Some(t!("profile.bepinex_not_installed").to_string()),
+            BepInExStatus::MissingInstallation => Some(t!("profile.missing_install").to_string()),
+            BepInExStatus::Incompatible => profile.installation(settings).ok().map(|game| {
+                t!(
+                    "profile.bepinex_incompatible",
+                    platform = game.game_platform.display_name()
+                )
+                .to_string()
+            }),
+        };
         let outdated_count = profile
             .mods
             .iter()
@@ -545,17 +556,9 @@ impl LibraryView {
                             .text_color(theme.muted_foreground)
                             .child(label)
                     }))
-                    .children(profile.needs_bepinex(game_arch).then(|| {
-                        let label = match profile.bepinex_installed {
-                            None => t!("profile.bepinex_not_installed").to_string(),
-                            Some(_) => t!(
-                                "profile.bepinex_incompatible",
-                                platform = platform.display_name()
-                            )
-                            .to_string(),
-                        };
-                        div().text_xs().text_color(theme.warning).child(label)
-                    }))
+                    .children(
+                        warning.map(|label| div().text_xs().text_color(theme.warning).child(label)),
+                    )
                     .child(
                         div().text_xs().text_color(theme.muted_foreground).child(
                             t!(
@@ -636,6 +639,7 @@ impl Render for LibraryView {
         // First-run nudge: launching can't work until the game path is set
         // (startup auto-detect may have already filled it in).
         let setup_banner = app_settings::get(cx)
+            .game
             .among_us_path
             .trim()
             .is_empty()

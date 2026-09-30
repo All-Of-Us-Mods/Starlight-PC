@@ -1,4 +1,5 @@
 pub mod api;
+pub mod binary;
 pub mod deeplink;
 pub mod directories;
 pub mod error;
@@ -6,6 +7,8 @@ pub mod events;
 pub mod services;
 pub mod single_instance;
 pub mod state;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 use gpui_kit::App;
 use log::debug;

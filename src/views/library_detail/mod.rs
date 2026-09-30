@@ -4,6 +4,7 @@
 //! always happens on the background executor; this module only orchestrates.
 
 mod icon_dialog;
+mod installation_picker;
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -19,11 +20,13 @@ use std::sync::{Arc, Mutex};
 use crate::backend::api;
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_service::{BepInExProgress, BepInExTargetType};
+use crate::backend::services::launch_service;
 use crate::backend::services::mod_install_service::{self, InstallModInput};
-use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry, ZipOp};
+use crate::backend::services::profile_service::{
+    self, BepInExStatus, ProfileEntry, ProfileModEntry, ZipOp,
+};
 #[cfg(windows)]
 use crate::backend::services::profile_shortcut_service;
-use crate::backend::services::{core_service, launch_service};
 use crate::backend::state::game_runtime;
 use crate::backend::state::mod_catalog_cache;
 use crate::settings as app_settings;
@@ -92,7 +95,7 @@ pub struct LibraryDetailView {
 
 pub(super) enum LoadState {
     Loading,
-    Loaded(ProfileEntry),
+    Loaded(Box<ProfileEntry>),
     NotFound,
     Failed(String),
 }
@@ -122,6 +125,8 @@ impl LibraryDetailView {
         };
 
         view.spawn_load(cx);
+        cx.observe_global::<app_settings::SettingsGlobal>(|_, cx| cx.notify())
+            .detach();
 
         // Reload when the window regains focus, so a DLL dropped into
         // BepInEx/plugins via the file manager shows up without leaving and
@@ -143,8 +148,11 @@ impl LibraryDetailView {
                         if matches!(p.target_type, BepInExTargetType::Profile)
                             && p.target_id == id_for_events =>
                     {
-                        let done = p.stage == "complete";
+                        let done = matches!(p.stage.as_str(), "complete" | "failed");
                         let _ = this.update(cx, |this, cx| {
+                            if p.stage == "failed" {
+                                this.launch_error = Some(p.message.clone());
+                            }
                             this.bep_progress = if done { None } else { Some(p) };
                             cx.notify();
                         });
@@ -206,7 +214,7 @@ impl LibraryDetailView {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.state = match result {
-                    Ok(Some(p)) => LoadState::Loaded(p),
+                    Ok(Some(p)) => LoadState::Loaded(Box::new(p)),
                     Ok(None) => LoadState::NotFound,
                     Err(e) => LoadState::Failed(e.to_string()),
                 };
@@ -290,13 +298,23 @@ impl LibraryDetailView {
 
     fn install_bepinex(&mut self, cx: &mut Context<Self>) {
         let id = self.profile_id.clone();
-        cx.background_executor()
-            .spawn(async move {
-                if let Err(e) = profile_service::install_bepinex_for_profile(&id) {
-                    warn!("install_bepinex_for_profile failed: {e}");
-                }
-            })
-            .detach();
+        self.launch_error = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { profile_service::install_bepinex_for_profile(&id) })
+                .await;
+            if let Err(error) = result {
+                warn!("install_bepinex_for_profile failed: {error}");
+                let _ = this.update(cx, |this, cx| {
+                    this.bep_progress = None;
+                    this.launch_error = Some(error.to_string());
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     fn toggle_mod(&mut self, mod_id: String, enabled: bool, cx: &mut Context<Self>) {
@@ -513,7 +531,7 @@ impl LibraryDetailView {
         let LoadState::Loaded(profile) = &self.state else {
             return;
         };
-        let profile = profile.clone();
+        let profile = profile.as_ref().clone();
         self.launch_error = None;
         self.pending_launches += 1;
         cx.notify();
@@ -943,6 +961,7 @@ impl LibraryDetailView {
         // `Some` when BepInEx must be (re)installed before launching.
         install_label: Option<Cow<'static, str>>,
         installing: bool,
+        installation_available: bool,
         theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
@@ -959,6 +978,7 @@ impl LibraryDetailView {
                     .large()
                     .icon(Icon::new(AppIcon::Download))
                     .label(label)
+                    .disabled(!installation_available)
                     .on_click(cx.listener(|this, _, _window, cx| this.install_bepinex(cx)))
                     .into_any_element(),
             )
@@ -976,6 +996,7 @@ impl LibraryDetailView {
                         .large()
                         .icon(Icon::new(IconName::Play))
                         .label(t!("lobbies.launch"))
+                        .disabled(!installation_available)
                         .on_click(cx.listener(|this, _, _window, cx| this.launch(cx))),
                 );
             } else {
@@ -1003,6 +1024,7 @@ impl LibraryDetailView {
                             .large()
                             .icon(Icon::new(IconName::Play))
                             .label(t!("profile.launch_another"))
+                            .disabled(!installation_available)
                             .on_click(cx.listener(|this, _, _window, cx| this.launch(cx))),
                     );
                 }
@@ -1062,20 +1084,34 @@ impl LibraryDetailView {
         theme: &gpui_kit::component::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let bep_installed = profile.bepinex_installed.is_some();
-        let platform = app_settings::get(cx).game_platform;
-        let game_arch = core_service::game_arch(&app_settings::get(cx).among_us_path);
-        let needs_bepinex = profile.needs_bepinex(game_arch);
-        let bep_incompatible = bep_installed && needs_bepinex;
-        let install_label = needs_bepinex.then(|| {
-            if bep_incompatible {
-                t!("profile.reinstall_bepinex")
-            } else {
-                t!("profile.install_bepinex")
-            }
-        });
+        let settings = app_settings::get(cx);
+        let status = profile.bepinex_status(settings);
+        let missing_installation = status == BepInExStatus::MissingInstallation;
+        let (install_label, warning) = match status {
+            BepInExStatus::NotInstalled => (
+                Some(t!("profile.install_bepinex")),
+                Some(t!("profile.bepinex_not_installed").to_string()),
+            ),
+            BepInExStatus::Incompatible => (
+                Some(t!("profile.reinstall_bepinex")),
+                profile.installation(settings).ok().map(|game| {
+                    t!(
+                        "profile.bepinex_incompatible",
+                        platform = game.game_platform.display_name()
+                    )
+                    .to_string()
+                }),
+            ),
+            BepInExStatus::Ready | BepInExStatus::MissingInstallation => (None, None),
+        };
         let installing = self.bep_progress.is_some();
-        let primary_controls = self.render_primary_controls(install_label, installing, theme, cx);
+        let primary_controls = self.render_primary_controls(
+            install_label,
+            installing,
+            !missing_installation,
+            theme,
+            cx,
+        );
         let manage_buttons = self.render_manage_buttons(cx);
 
         let launch_err = self.launch_error.clone().map(|msg| {
@@ -1161,7 +1197,7 @@ impl LibraryDetailView {
                     .to_string(),
                 ),
             )
-            .children((!bep_installed).then(|| {
+            .children(warning.map(|warning| {
                 div()
                     .mt_1()
                     .flex()
@@ -1170,24 +1206,7 @@ impl LibraryDetailView {
                     .text_xs()
                     .text_color(theme.warning)
                     .child(Icon::new(IconName::TriangleAlert).xsmall())
-                    .child(t!("profile.bepinex_not_installed").to_string())
-            }))
-            .children(bep_incompatible.then(|| {
-                div()
-                    .mt_1()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .text_xs()
-                    .text_color(theme.warning)
-                    .child(Icon::new(IconName::TriangleAlert).xsmall())
-                    .child(
-                        t!(
-                            "profile.bepinex_incompatible",
-                            platform = platform.display_name()
-                        )
-                        .to_string(),
-                    )
+                    .child(warning)
             }));
 
         div()
@@ -1241,7 +1260,27 @@ impl LibraryDetailView {
                     .child(title_col)
                     .children(primary_controls.map(|c| div().flex_none().child(c))),
             )
+            .when(
+                app_settings::get(cx).show_installation_controls || missing_installation,
+                |hero| {
+                    hero.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(t!("profile.launch_using").to_string())
+                            .child(self.installation_picker(profile, cx)),
+                    )
+                },
+            )
             .children(progress_row)
+            .children(missing_installation.then(|| {
+                Alert::error(
+                    "profile-missing-installation",
+                    t!("profile.missing_install").to_string(),
+                )
+                .small()
+            }))
             .children(launch_err)
             .children(notice)
             // Secondary profile actions live in a quiet toolbar under a

@@ -162,6 +162,9 @@ servers:
   installed_regions: Installed regions
   available: Available servers
 profile:
+  launch_using: Launch using
+  default_install: Default installation (Settings)
+  missing_install: Installation removed; choose another
   fallback_title: Profile
   played: "%{time} played"
   this_profile: this profile
@@ -266,6 +269,12 @@ update:
   up_to_date: Starlight is up to date.
   check_failed: "Update check failed: %{error}"
 settings:
+  multiple_installations: Multiple installations
+  multiple_installations_desc: Let profiles launch with a linked installation.
+  linked_installs: Linked installations
+  link_install: Link installation
+  link_install_desc: Save the current game and launch settings. Relink to update.
+  unlink_install: Unlink
   page:
     game: Game
     launch: Launch

@@ -1,4 +1,6 @@
+use crate::backend::binary::BinaryArch;
 use crate::backend::error::AppResult;
+use crate::backend::services::bepinex_runtime::BepInExRuntime;
 use crate::backend::services::http_download::{download_file, extract_zip};
 use log::{debug, info, warn};
 use std::fs;
@@ -95,70 +97,94 @@ fn emit_extract_progress(
     );
 }
 
-pub fn install_bepinex(
-    url: String,
-    destination: String,
-    cache_path: Option<String>,
-    target_type: BepInExTargetType,
+/// Install the `architecture` build into the runtime's profile unless it is
+/// already there. Plugins and config stay; the arch-specific runtime is
+/// replaced in place. A failed install leaves the profile needing BepInEx.
+pub fn ensure_installed(
+    runtime: &BepInExRuntime<'_>,
+    architecture: BinaryArch,
+    url: &str,
+    cache_path: Option<&str>,
+    profile_id: &str,
+) -> AppResult<()> {
+    if !runtime.needs_install(architecture) {
+        return Ok(());
+    }
+
+    let result = (|| -> AppResult<()> {
+        // Extracting over another build would leave its arch-only files behind.
+        for dir in [runtime.dotnet_dir(), runtime.core_dir()] {
+            if dir.exists() {
+                fs::remove_dir_all(dir)?;
+            }
+        }
+        install_bepinex(url, runtime.root(), cache_path, profile_id)?;
+        // Check the extracted files rather than trusting the URL or cache name.
+        runtime.validate(architecture)
+    })();
+    if let Err(error) = result {
+        emit(
+            "failed",
+            0.0,
+            &error.to_string(),
+            BepInExTargetType::Profile,
+            profile_id,
+        );
+        return Err(error);
+    }
+    emit(
+        "complete",
+        100.0,
+        "Complete!",
+        BepInExTargetType::Profile,
+        profile_id,
+    );
+    Ok(())
+}
+
+fn install_bepinex(
+    url: &str,
+    dest: &Path,
+    cache_path: Option<&str>,
     target_id: &str,
 ) -> AppResult<()> {
-    info!("install_bepinex: {} -> {}", url, destination);
-    let dest = Path::new(&destination);
+    info!("install_bepinex: {} -> {}", url, dest.display());
+    let target_type = BepInExTargetType::Profile;
+    let cache_file = cache_path.map(Path::new);
+    let temp = dest.with_extension("zip.tmp");
 
-    if let Some(ref cache) = cache_path {
-        let cache_file = Path::new(cache);
-        if cache_file.exists() {
-            info!("Using cached BepInEx");
-            emit(
-                "extracting",
-                0.0,
-                "Using cached BepInEx...",
+    let archive = if let Some(cache) = cache_file.filter(|path| path.is_file()) {
+        info!("Using cached BepInEx");
+        cache
+    } else {
+        emit("downloading", 0.0, "Downloading...", target_type, target_id);
+        let mut last_download_percent = Some(0);
+        download_file(url, &temp, None, None, |dl, total| {
+            emit_download_progress(
+                dl,
+                total,
                 target_type,
                 target_id,
-            );
-            let mut last_extract_percent = Some(0);
-            extract_zip(cache_file, dest, |cur, total| {
-                emit_extract_progress(
-                    cur,
-                    total,
-                    target_type,
-                    target_id,
-                    &mut last_extract_percent,
-                )
-            })?;
-            emit("complete", 100.0, "Complete!", target_type, target_id);
-            return Ok(());
-        }
-    }
+                &mut last_download_percent,
+            )
+        })?;
 
-    let temp = dest.with_extension("zip.tmp");
-    emit("downloading", 0.0, "Downloading...", target_type, target_id);
-    let mut last_download_percent = Some(0);
-    download_file(&url, &temp, None, None, |dl, total| {
-        emit_download_progress(
-            dl,
-            total,
-            target_type,
-            target_id,
-            &mut last_download_percent,
-        )
-    })?;
-
-    if let Some(ref cache) = cache_path {
-        let cache_file = Path::new(cache);
-        if let Some(parent) = cache_file.parent() {
-            fs::create_dir_all(parent).ok();
+        if let Some(cache) = cache_file {
+            if let Some(parent) = cache.parent() {
+                fs::create_dir_all(parent).ok();
+            }
+            if let Err(e) = fs::copy(&temp, cache) {
+                warn!("Failed to cache: {}", e);
+            } else {
+                debug!("Cached to {:?}", cache);
+            }
         }
-        if let Err(e) = fs::copy(&temp, cache_file) {
-            warn!("Failed to cache: {}", e);
-        } else {
-            debug!("Cached to {:?}", cache_file);
-        }
-    }
+        temp.as_path()
+    };
 
     emit("extracting", 0.0, "Extracting...", target_type, target_id);
     let mut last_extract_percent = Some(0);
-    extract_zip(&temp, dest, |cur, total| {
+    let result = extract_zip(archive, dest, |cur, total| {
         emit_extract_progress(
             cur,
             total,
@@ -166,11 +192,12 @@ pub fn install_bepinex(
             target_id,
             &mut last_extract_percent,
         )
-    })?;
+    });
 
-    fs::remove_file(&temp).ok();
-    emit("complete", 100.0, "Complete!", target_type, target_id);
-    Ok(())
+    if archive == temp {
+        fs::remove_file(&temp).ok();
+    }
+    result
 }
 
 pub fn download_bepinex_to_cache(
@@ -229,7 +256,99 @@ pub fn cache_size(cache_path: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::changed_percent;
+    use super::*;
+    use crate::backend::test_support::{TempDir, pe_bytes, write_test_runtime};
+    use std::io::Write;
+
+    fn cached_runtime(dir: &Path, machine: Option<u16>) -> String {
+        let cache = dir.join("bepinex.zip");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&cache).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("BepInEx/core/BepInEx.Unity.IL2CPP.dll", options)
+            .unwrap();
+        zip.write_all(b"managed").unwrap();
+        for (path, bytes) in [
+            ("winhttp.dll", b"proxy".as_slice()),
+            (
+                "doorstop_config.ini",
+                b"[General]\nenabled = true\n".as_slice(),
+            ),
+        ] {
+            zip.start_file(path, options).unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        if let Some(machine) = machine {
+            let coreclr = BepInExRuntime::new(dir).coreclr_path();
+            zip.start_file(
+                format!("dotnet/{}", coreclr.file_name().unwrap().to_string_lossy()),
+                options,
+            )
+            .unwrap();
+            zip.write_all(&pe_bytes(machine)).unwrap();
+        }
+        zip.finish().unwrap();
+        cache.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn cached_install_replaces_runtime_and_preserves_plugins_and_config() {
+        let dir = TempDir::new("runtime-replacement");
+        let root = dir.0.join("profile");
+        let runtime = BepInExRuntime::new(&root);
+        write_test_runtime(&root, 0x014c);
+        assert_eq!(runtime.installed_arch(), Some(BinaryArch::X86));
+        fs::write(runtime.dotnet_dir().join("old-arch.dll"), b"old").unwrap();
+        fs::write(runtime.core_dir().join("old-arch.dll"), b"old").unwrap();
+        fs::create_dir_all(root.join("BepInEx/plugins")).unwrap();
+        fs::create_dir_all(root.join("BepInEx/config")).unwrap();
+        fs::write(root.join("BepInEx/plugins/Mod.dll"), b"plugin").unwrap();
+        fs::write(root.join("BepInEx/config/Mod.cfg"), b"config").unwrap();
+        let cache = cached_runtime(&dir.0, Some(0x8664));
+        ensure_installed(&runtime, BinaryArch::X64, "unused", Some(&cache), "test").unwrap();
+
+        assert_eq!(runtime.installed_arch(), Some(BinaryArch::X64));
+        assert!(!runtime.dotnet_dir().join("old-arch.dll").exists());
+        assert!(!runtime.core_dir().join("old-arch.dll").exists());
+        assert_eq!(
+            fs::read(root.join("BepInEx/plugins/Mod.dll")).unwrap(),
+            b"plugin"
+        );
+        assert_eq!(
+            fs::read(root.join("BepInEx/config/Mod.cfg")).unwrap(),
+            b"config"
+        );
+        assert!(!root.join("metadata.json").exists());
+
+        // A compatible runtime is a no-op, even without a usable URL or cache.
+        fs::write(runtime.core_dir().join("keep.dll"), b"keep").unwrap();
+        ensure_installed(&runtime, BinaryArch::X64, "unused", None, "test").unwrap();
+        assert!(runtime.core_dir().join("keep.dll").is_file());
+    }
+
+    #[test]
+    fn wrong_architecture_or_incomplete_package_fails_and_still_needs_install() {
+        for (machine, tag) in [(Some(0x014c), "wrong-arch"), (None, "incomplete")] {
+            let dir = TempDir::new(tag);
+            let root = dir.0.join("profile");
+            let runtime = BepInExRuntime::new(&root);
+            write_test_runtime(&root, 0x014c);
+            let cache = cached_runtime(&dir.0, machine);
+            let mut events = crate::backend::events::subscribe();
+            let result = ensure_installed(&runtime, BinaryArch::X64, "unused", Some(&cache), tag);
+            assert!(result.is_err());
+            assert!(runtime.needs_install(BinaryArch::X64));
+            let mut stages = Vec::new();
+            while let Ok(event) = events.try_recv() {
+                if let crate::backend::events::BackendEvent::BepInExProgress(progress) = event
+                    && progress.target_id == tag
+                {
+                    stages.push(progress.stage);
+                }
+            }
+            assert_eq!(stages.last().map(String::as_str), Some("failed"));
+            assert!(!stages.iter().any(|stage| stage == "complete"));
+        }
+    }
 
     #[test]
     fn progress_is_emitted_once_per_whole_percent() {

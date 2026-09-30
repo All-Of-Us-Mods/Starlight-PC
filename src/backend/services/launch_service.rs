@@ -1,5 +1,6 @@
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::core_service::{self, GamePlatform};
+use crate::backend::services::installation_service::GameSetup;
 use crate::backend::services::profile_instance_service;
 use crate::backend::services::profile_service::ProfileEntry;
 #[cfg(windows)]
@@ -264,8 +265,8 @@ fn attach_epic_launch_args(_cmd: &mut Command, _platform: GamePlatform) -> AppRe
 }
 
 #[cfg(windows)]
-fn ensure_xbox_app_id(settings: &core_service::AppSettings) -> AppResult<String> {
-    if let Some(app_id) = settings
+fn ensure_xbox_app_id(game: &GameSetup) -> AppResult<String> {
+    if let Some(app_id) = game
         .xbox_app_id
         .as_deref()
         .map(str::trim)
@@ -275,7 +276,7 @@ fn ensure_xbox_app_id(settings: &core_service::AppSettings) -> AppResult<String>
     }
 
     let app_id = xbox_service::get_xbox_app_id()?;
-    core_service::update_settings(|s| s.xbox_app_id = Some(app_id.clone()))?;
+    core_service::update_settings(|s| s.game.xbox_app_id = Some(app_id.clone()))?;
     Ok(app_id)
 }
 
@@ -448,6 +449,14 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
         .ok_or_else(|| AppError::validation("Invalid game path"))?
         .to_path_buf();
 
+    #[cfg(target_os = "linux")]
+    if matches!(args.runner, LinuxRunner::Steam { .. }) {
+        super::steam_installation::validate_directory(
+            &game_dir,
+            &super::finder_service::linux_steam_roots(),
+        )?;
+    }
+
     let cancel_gen = cancel_generation(&args.profile_id);
     let _launch_guard = LAUNCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if cancel_generation(&args.profile_id) != cancel_gen {
@@ -548,6 +557,14 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
         .ok_or_else(|| AppError::validation("Invalid game path"))?
         .to_path_buf();
 
+    #[cfg(target_os = "linux")]
+    if matches!(args.runner, LinuxRunner::Steam { .. }) {
+        super::steam_installation::validate_directory(
+            &game_dir,
+            &super::finder_service::linux_steam_roots(),
+        )?;
+    }
+
     let _launch_guard = LAUNCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     #[cfg(target_os = "linux")]
@@ -575,39 +592,27 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
 
 pub fn launch_vanilla_from_settings() -> AppResult<()> {
     let settings = core_service::get_settings()?;
-    let game_path = settings.among_us_path.trim();
-    if game_path.is_empty() {
-        return Err(AppError::validation(
-            "Among Us path is not set. Configure it in Settings.",
-        ));
-    }
-
-    let game_exe = PathBuf::from(game_path).join(GAME_EXE_NAME);
-    if !game_exe.exists() {
-        return Err(AppError::validation(format!(
-            "{GAME_EXE_NAME} not found at {}",
-            game_exe.display()
-        )));
-    }
+    let game = &settings.game;
+    let game_exe = game.executable()?;
 
     #[cfg(windows)]
-    if matches!(settings.game_platform, GamePlatform::Xbox) {
-        let app_id = ensure_xbox_app_id(&settings)?;
+    if matches!(game.game_platform, GamePlatform::Xbox) {
+        let app_id = ensure_xbox_app_id(game)?;
         xbox_service::cleanup_xbox_files(game_exe.parent().expect("game_exe has a parent"))?;
         return xbox_service::launch_xbox(&app_id);
     }
 
-    if matches!(settings.game_platform, GamePlatform::Steam) {
+    if matches!(game.game_platform, GamePlatform::Steam) {
         ensure_steam_appid_file(game_exe.parent().expect("game_exe has a parent"));
     }
-    allow_multiple_game_processes(&settings);
+    allow_multiple_game_processes(&settings, game);
 
     #[cfg(target_os = "linux")]
-    let runner = build_linux_runner_from_settings(&settings)?;
+    let runner = build_linux_runner(game)?;
 
     launch_vanilla(LaunchVanillaArgs {
         game_exe: game_exe.to_string_lossy().to_string(),
-        platform: settings.game_platform,
+        platform: game.game_platform,
         #[cfg(target_os = "linux")]
         runner,
     })
@@ -615,60 +620,56 @@ pub fn launch_vanilla_from_settings() -> AppResult<()> {
 
 /// The configured compat data path, else derived from the game's location.
 #[cfg(target_os = "linux")]
-fn steam_compat_data_path(
-    settings: &crate::backend::services::core_service::AppSettings,
-) -> AppResult<String> {
-    let configured = settings.linux_proton_compat_data_path.trim();
+fn steam_compat_data_path(game: &GameSetup) -> AppResult<String> {
+    let configured = game.linux_proton_compat_data_path.trim();
     if !configured.is_empty() {
         return Ok(configured.to_string());
     }
 
     crate::backend::services::finder_service::proton_compat_data_path(Path::new(
-        &settings.among_us_path,
+        &game.among_us_path,
     ))
     .map(|path| path.to_string_lossy().to_string())
     .ok_or_else(|| {
         AppError::validation(format!(
             "Could not find the Proton prefix for {}. Set the compatibility data path in Settings.",
-            settings.among_us_path
+            game.among_us_path
         ))
     })
 }
 
 #[cfg(target_os = "linux")]
-fn build_linux_runner_from_settings(
-    settings: &crate::backend::services::core_service::AppSettings,
-) -> AppResult<LinuxRunner> {
+fn build_linux_runner(game: &GameSetup) -> AppResult<LinuxRunner> {
     use crate::backend::services::core_service::LinuxRunnerKind;
 
-    if matches!(settings.linux_runner_kind, LinuxRunnerKind::Steam) {
-        if settings.game_platform != GamePlatform::Steam {
+    if matches!(game.linux_runner_kind, LinuxRunnerKind::Steam) {
+        if game.game_platform != GamePlatform::Steam {
             return Err(AppError::validation(format!(
                 "The Steam runner can only launch the Steam version of Among Us. Choose Wine or Proton in Settings to launch the {} version.",
-                settings.game_platform.display_name()
+                game.game_platform.display_name()
             )));
         }
         return Ok(LinuxRunner::Steam {
-            compat_data_path: steam_compat_data_path(settings)?,
+            compat_data_path: steam_compat_data_path(game)?,
         });
     }
 
-    let binary = settings.linux_runner_binary.trim();
+    let binary = game.linux_runner_binary.trim();
     if binary.is_empty() {
         return Err(AppError::validation(
             "Linux runner binary is required in Settings.",
         ));
     }
-    Ok(match settings.linux_runner_kind {
+    Ok(match game.linux_runner_kind {
         LinuxRunnerKind::Wine => LinuxRunner::Wine {
             binary: binary.to_string(),
-            prefix: settings.linux_wine_prefix.clone(),
+            prefix: game.linux_wine_prefix.clone(),
         },
         LinuxRunnerKind::Proton => LinuxRunner::Proton {
             binary: binary.to_string(),
-            compat_data_path: settings.linux_proton_compat_data_path.clone(),
-            steam_client_path: settings.linux_proton_steam_client_path.clone(),
-            use_steam_run: settings.linux_proton_use_steam_run,
+            compat_data_path: game.linux_proton_compat_data_path.clone(),
+            steam_client_path: game.linux_proton_steam_client_path.clone(),
+            use_steam_run: game.linux_proton_use_steam_run,
         },
         LinuxRunnerKind::Steam => unreachable!("handled above"),
     })
@@ -676,63 +677,34 @@ fn build_linux_runner_from_settings(
 
 /// Unity won't start a second process while boot.config has `single-instance`.
 /// Checked every launch because game updates put the entry back.
-fn allow_multiple_game_processes(settings: &core_service::AppSettings) {
+fn allow_multiple_game_processes(settings: &core_service::AppSettings, game: &GameSetup) {
     if settings.allow_multi_instance_launch
-        && let Err(e) =
-            core_service::remove_single_instance_from_boot_config(&settings.among_us_path)
+        && let Err(e) = core_service::remove_single_instance_from_boot_config(&game.among_us_path)
     {
         warn!("failed to clear single-instance from boot.config: {e}");
     }
 }
 
-pub const GAME_EXE_NAME: &str = "Among Us.exe";
-
-#[cfg(any(windows, target_os = "linux"))]
-const CORECLR_FILE: &str = "coreclr.dll";
-#[cfg(target_os = "macos")]
-const CORECLR_FILE: &str = "libcoreclr.dylib";
-
 pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
     let settings = core_service::get_settings()?;
-    let game_path = settings.among_us_path.trim();
-    if game_path.is_empty() {
+    let game = profile.installation(&settings)?;
+    if profile.needs_bepinex(&settings) {
         return Err(AppError::validation(
-            "Among Us path is not set. Configure it in Settings.",
+            "Install BepInEx for the selected installation before launching.",
         ));
     }
+    let game_exe = game.executable()?;
 
-    let game_exe = PathBuf::from(game_path).join(GAME_EXE_NAME);
-    if !game_exe.exists() {
-        return Err(AppError::validation(format!(
-            "{GAME_EXE_NAME} not found at {}",
-            game_exe.display()
-        )));
-    }
-
-    let profile_path = PathBuf::from(&profile.path);
-    let bepinex_dll = profile_path
-        .join("BepInEx")
-        .join("core")
-        .join("BepInEx.Unity.IL2CPP.dll");
-    if !bepinex_dll.exists() {
-        return Err(AppError::validation(
-            "BepInEx DLL not found. Install BepInEx for this profile first.",
-        ));
-    }
-    let dotnet_dir = profile_path.join("dotnet");
-    let coreclr_path = dotnet_dir.join(CORECLR_FILE);
-    if !coreclr_path.exists() {
-        return Err(AppError::validation(format!(
-            "dotnet runtime not found at {}",
-            coreclr_path.display()
-        )));
-    }
+    let runtime = profile.bepinex_runtime();
+    let bepinex_dll = runtime.assembly_path();
+    let dotnet_dir = runtime.dotnet_dir();
+    let coreclr_path = runtime.coreclr_path();
 
     #[cfg(windows)]
-    if matches!(settings.game_platform, GamePlatform::Xbox) {
-        let app_id = ensure_xbox_app_id(&settings)?;
+    if matches!(game.game_platform, GamePlatform::Xbox) {
+        let app_id = ensure_xbox_app_id(game)?;
         let game_dir = game_exe.parent().expect("game_exe has a parent");
-        xbox_service::prepare_xbox_launch(&profile_path, game_dir)?;
+        xbox_service::prepare_xbox_launch(runtime.root(), game_dir)?;
         xbox_service::launch_xbox(&app_id)?;
         if let Err(e) = crate::backend::services::profile_service::update_last_launched(&profile.id)
         {
@@ -745,14 +717,14 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
         return Ok(());
     }
 
-    if matches!(settings.game_platform, GamePlatform::Steam) {
+    if matches!(game.game_platform, GamePlatform::Steam) {
         ensure_steam_appid_file(game_exe.parent().expect("game_exe has a parent"));
     }
 
-    allow_multiple_game_processes(&settings);
+    allow_multiple_game_processes(&settings, game);
 
     #[cfg(target_os = "linux")]
-    let runner = build_linux_runner_from_settings(&settings)?;
+    let runner = build_linux_runner(game)?;
 
     launch_modded(LaunchModdedArgs {
         game_exe: game_exe.to_string_lossy().to_string(),
@@ -761,7 +733,7 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
         bepinex_dll: bepinex_dll.to_string_lossy().to_string(),
         dotnet_dir: dotnet_dir.to_string_lossy().to_string(),
         coreclr_path: coreclr_path.to_string_lossy().to_string(),
-        platform: settings.game_platform,
+        platform: game.game_platform,
         allow_instance_copy: settings.allow_multi_instance_launch,
         #[cfg(target_os = "linux")]
         runner,

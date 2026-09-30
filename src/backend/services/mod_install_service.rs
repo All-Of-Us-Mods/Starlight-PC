@@ -14,11 +14,9 @@ use semver::{Version, VersionReq};
 use crate::backend::api::{
     self, DEFAULT_API_BASE_URL, ModDependency, ModVersion, ModVersionInfo, PlatformDownload,
 };
+use crate::backend::binary::BinaryArch;
 use crate::backend::error::{AppError, AppResult};
-use crate::backend::services::{
-    core_service::{self, BepInExArch},
-    mod_download_service, profile_service,
-};
+use crate::backend::services::{core_service, mod_download_service, profile_service};
 
 #[derive(Debug, Clone)]
 pub struct ResolvedDependency {
@@ -292,13 +290,13 @@ fn pick_platform_target(
     platforms: &[PlatformDownload],
     fallback_file_name: Option<&str>,
     fallback_checksum: Option<&str>,
-    game_arch: BepInExArch,
+    game_arch: BinaryArch,
     mod_id: &str,
     version: &str,
 ) -> Option<DownloadTarget> {
     let arch_fallbacks: &[&str] = match game_arch {
-        BepInExArch::X64 => &["x64", "x86"],
-        BepInExArch::X86 => &["x86"],
+        BinaryArch::X64 => &["x64", "x86"],
+        BinaryArch::X86 => &["x86"],
     };
     let preferred = arch_fallbacks.iter().find_map(|arch| {
         platforms
@@ -338,7 +336,7 @@ fn resolve_download_target(
     mod_id: &str,
     version: &str,
     version_info: &ModVersionInfo,
-    game_arch: BepInExArch,
+    game_arch: BinaryArch,
 ) -> AppResult<DownloadTarget> {
     if let Some(platforms) = version_info.platforms.as_ref().filter(|p| !p.is_empty())
         && let Some(target) = pick_platform_target(
@@ -376,11 +374,9 @@ pub fn install_mods_for_profile(
     profile_id: &str,
     mods: &[InstallModInput],
 ) -> AppResult<Vec<InstalledModResult>> {
-    let settings = core_service::get_settings()?;
-    let game_arch = core_service::game_arch(&settings.among_us_path);
-
     let profile = profile_service::get_profile_by_id(profile_id)?
         .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))?;
+    let game_arch = profile.installation(&core_service::get_settings()?)?.arch();
     let profile_path = profile.path.clone();
 
     // Updating a disabled mod would currently replace its manifest entry with

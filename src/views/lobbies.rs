@@ -16,7 +16,7 @@ use crate::backend::error::{AppError, AppResult};
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::mod_install_service::{self, InstallModInput};
 use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry};
-use crate::backend::services::{core_service, launch_service, region_service};
+use crate::backend::services::{launch_service, region_service};
 use crate::backend::state::game_runtime::{self, GameStatePayload};
 use crate::backend::state::mod_catalog_cache;
 use crate::views::{page_root, section_label};
@@ -724,13 +724,12 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
     };
     let required_mods = &dialog.lobby.game.mods;
     let no_mods: Vec<ProfileModEntry> = Vec::new();
-    let game_arch = core_service::game_arch(&crate::settings::get(cx).among_us_path);
 
     let mut option_rows: Vec<AnyElement> = this
         .profiles
         .iter()
         .map(|p| {
-            let bep_subtitle = if p.needs_bepinex(game_arch) {
+            let bep_subtitle = if p.needs_bepinex(crate::settings::get(cx)) {
                 t!("lobbies.bepinex_will_install").to_string()
             } else {
                 t!("lobbies.modded_profile").to_string()

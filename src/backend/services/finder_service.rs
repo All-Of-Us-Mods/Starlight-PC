@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 use winreg::{RegKey, enums::*};
 
-const AMONG_US_EXE: &str = "Among Us.exe";
+use super::installation_service::GAME_EXE_NAME;
 #[cfg(target_os = "linux")]
 const AMONG_US_STEAM_APP_ID: &str = "945360";
 const EPIC_FOLDER: &str = "Among Us_Data/StreamingAssets/aa/EGS";
@@ -28,7 +28,7 @@ pub struct LinuxRunnerDetection {
 }
 
 fn verify_among_us_directory(path: &Path) -> bool {
-    path.is_dir() && path.join(AMONG_US_EXE).is_file()
+    path.is_dir() && path.join(GAME_EXE_NAME).is_file()
 }
 
 #[cfg(target_os = "windows")]
@@ -100,66 +100,7 @@ fn home_dir() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
-fn find_among_us_linux_paths() -> Vec<PathBuf> {
-    fn parse_libraryfolders_paths(raw: &str) -> Vec<PathBuf> {
-        let mut libraries = Vec::new();
-        for line in raw.lines() {
-            if !line.contains("\"path\"") {
-                continue;
-            }
-
-            let mut parts = line.split('"');
-            let _ = parts.next();
-            let key = parts.next();
-            let _ = parts.next();
-            let value = parts.next();
-
-            if key == Some("path") {
-                let path = value.unwrap_or_default().replace("\\\\", "\\");
-                if !path.is_empty() {
-                    libraries.push(PathBuf::from(path));
-                }
-            }
-        }
-        libraries
-    }
-
-    let mut detected_paths = Vec::new();
-    let mut steam_roots = Vec::new();
-    if let Some(home) = home_dir() {
-        steam_roots.push(home.join(".local/share/Steam"));
-        steam_roots.push(home.join(".steam/steam"));
-        steam_roots.push(home.join(".var/app/com.valvesoftware.Steam/data/Steam"));
-    }
-
-    let mut library_roots = Vec::new();
-    for steam_root in &steam_roots {
-        library_roots.push(steam_root.clone());
-        let library_folders_vdf = steam_root.join("steamapps").join("libraryfolders.vdf");
-        if let Ok(raw) = std::fs::read_to_string(library_folders_vdf) {
-            library_roots.extend(parse_libraryfolders_paths(&raw));
-        }
-    }
-
-    library_roots.sort();
-    library_roots.dedup();
-
-    for library_root in library_roots {
-        let full_path = library_root
-            .join("steamapps")
-            .join("common")
-            .join("Among Us");
-        if verify_among_us_directory(&full_path) {
-            info!("Found Among Us at: {}", full_path.display());
-            detected_paths.push(full_path);
-        }
-    }
-
-    detected_paths
-}
-
-#[cfg(target_os = "linux")]
-fn linux_steam_roots() -> Vec<PathBuf> {
+pub(super) fn linux_steam_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(home) = home_dir() {
         roots.push(home.join(".local/share/Steam"));
@@ -398,7 +339,7 @@ pub fn get_among_us_paths() -> Vec<PathBuf> {
 
     #[cfg(target_os = "linux")]
     {
-        let paths = find_among_us_linux_paths();
+        let paths = super::steam_installation::directories(&linux_steam_roots());
         if !paths.is_empty() {
             return paths;
         }
