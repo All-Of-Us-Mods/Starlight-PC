@@ -1,6 +1,7 @@
 ; Inno Setup script for the Starlight installer. Built by the release
 ; workflow (ISCC is preinstalled on GitHub's Windows runners) alongside the
 ; portable exe:
+;   packaging\windows\fetch-bepinex.ps1
 ;   ISCC.exe /DMyAppVersion=<x.y.z> packaging\windows\starlight.iss
 ;
 ; Installs per-user (no admin prompt) into {localappdata}\Programs\Starlight,
@@ -41,6 +42,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\..\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; Seed the app's BepInEx cache (see get_bepinex_cache_path) with the default
+; builds from fetch-bepinex.ps1, for players who can't reach the BepInEx host.
+; A zip the player already has is left alone.
+Source: "..\..\target\bepinex\bepinex-*.zip"; DestDir: "{userappdata}\allofus\Starlight\data\cache"; Flags: onlyifdoesntexist
 
 [Icons]
 ; Start Menu entry is always created; the desktop shortcut is the optional task.
