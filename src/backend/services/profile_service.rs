@@ -72,8 +72,13 @@ pub enum BepInExStatus {
 }
 
 impl ProfileEntry {
+    /// With multiple installations turned off, every profile uses the default.
     pub fn installation<'a>(&self, settings: &'a AppSettings) -> AppResult<&'a GameSetup> {
-        settings.installation(self.installation_id.as_deref())
+        let id = self
+            .installation_id
+            .as_deref()
+            .filter(|_| settings.show_installation_controls);
+        settings.installation(id)
     }
 
     /// Read from disk each time, so replaced or removed files are reflected.
@@ -1052,6 +1057,7 @@ mod tests {
                 ..Default::default()
             },
         });
+        settings.show_installation_controls = true;
         profile.installation_id = Some("x86".into());
         assert_eq!(
             profile.bepinex_status(&settings),
@@ -1062,6 +1068,8 @@ mod tests {
             profile.bepinex_status(&settings),
             BepInExStatus::MissingInstallation
         );
+        settings.show_installation_controls = false;
+        assert_eq!(profile.bepinex_status(&settings), BepInExStatus::Ready);
 
         profile.installation_id = None;
         fs::remove_file(runtime.assembly_path()).unwrap();

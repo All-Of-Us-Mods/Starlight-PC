@@ -270,7 +270,7 @@ update:
   check_failed: "Update check failed: %{error}"
 settings:
   multiple_installations: Multiple installations
-  multiple_installations_desc: Show installation controls and profile selectors. Saved choices stay active when hidden.
+  multiple_installations_desc: Let profiles launch with a linked installation.
   linked_installs: Linked installations
   link_install: Link installation
   link_install_desc: Save the current game and launch settings. Relink to update.
