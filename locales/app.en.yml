@@ -164,7 +164,7 @@ servers:
 profile:
   launch_using: Launch using
   default_install: Default installation (Settings)
-  missing_install: Installation removed — choose another
+  missing_install: Installation removed; choose another
   fallback_title: Profile
   played: "%{time} played"
   this_profile: this profile
