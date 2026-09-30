@@ -1,4 +1,3 @@
-mod bepinex_installation;
 pub mod bepinex_runtime;
 pub mod bepinex_service;
 pub mod core_service;

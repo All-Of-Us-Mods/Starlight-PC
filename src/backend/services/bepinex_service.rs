@@ -1,6 +1,5 @@
 use crate::backend::binary::BinaryArch;
 use crate::backend::error::AppResult;
-use crate::backend::services::bepinex_installation::StagedRuntime;
 use crate::backend::services::bepinex_runtime::BepInExRuntime;
 use crate::backend::services::http_download::{download_file, extract_zip};
 use log::{debug, info, warn};
@@ -98,8 +97,9 @@ fn emit_extract_progress(
     );
 }
 
-/// Keep runtime replacement and verification together. Profile metadata never
-/// participates in deciding which build is installed.
+/// Install the `architecture` build into the runtime's profile unless it is
+/// already there. Plugins and config stay; the arch-specific runtime is
+/// replaced in place. A failed install leaves the profile needing BepInEx.
 pub fn ensure_installed(
     runtime: &BepInExRuntime<'_>,
     architecture: BinaryArch,
@@ -112,9 +112,15 @@ pub fn ensure_installed(
     }
 
     let result = (|| -> AppResult<()> {
-        let mut update = StagedRuntime::new(runtime.root())?;
-        install_bepinex(url, &update.contents(), cache_path, profile_id)?;
-        update.install(architecture)
+        // Extracting over another build would leave its arch-only files behind.
+        for dir in [runtime.dotnet_dir(), runtime.core_dir()] {
+            if dir.exists() {
+                fs::remove_dir_all(dir)?;
+            }
+        }
+        install_bepinex(url, runtime.root(), cache_path, profile_id)?;
+        // Check the extracted files rather than trusting the URL or cache name.
+        runtime.validate(architecture)
     })();
     if let Err(error) = result {
         emit(
@@ -320,20 +326,17 @@ mod tests {
     }
 
     #[test]
-    fn cached_install_rejects_wrong_architecture_and_incomplete_packages() {
+    fn wrong_architecture_or_incomplete_package_fails_and_still_needs_install() {
         for (machine, tag) in [(Some(0x014c), "wrong-arch"), (None, "incomplete")] {
             let dir = TempDir::new(tag);
             let root = dir.0.join("profile");
             let runtime = BepInExRuntime::new(&root);
             write_test_runtime(&root, 0x014c);
-            let original = fs::read(runtime.coreclr_path()).unwrap();
             let cache = cached_runtime(&dir.0, machine);
             let mut events = crate::backend::events::subscribe();
             let result = ensure_installed(&runtime, BinaryArch::X64, "unused", Some(&cache), tag);
             assert!(result.is_err());
             assert!(runtime.needs_install(BinaryArch::X64));
-            assert!(!runtime.needs_install(BinaryArch::X86));
-            assert_eq!(fs::read(runtime.coreclr_path()).unwrap(), original);
             let mut stages = Vec::new();
             while let Ok(event) = events.try_recv() {
                 if let crate::backend::events::BackendEvent::BepInExProgress(progress) = event
@@ -344,39 +347,6 @@ mod tests {
             }
             assert_eq!(stages.last().map(String::as_str), Some("failed"));
             assert!(!stages.iter().any(|stage| stage == "complete"));
-        }
-    }
-
-    #[test]
-    fn failed_download_or_invalid_zip_leaves_existing_runtime_intact() {
-        let dir = TempDir::new("failed-runtime-update");
-        let root = dir.0.join("profile");
-        write_test_runtime(&root, 0x014c);
-        let runtime = BepInExRuntime::new(&root);
-        let original = fs::read(runtime.coreclr_path()).unwrap();
-        let cache = dir.0.join("invalid.zip");
-        fs::write(&cache, b"invalid zip").unwrap();
-        let cache = cache.to_string_lossy();
-        for cache in [None, Some(cache.as_ref())] {
-            assert!(
-                ensure_installed(
-                    &runtime,
-                    BinaryArch::X64,
-                    "invalid URL",
-                    cache,
-                    "failed-update"
-                )
-                .is_err()
-            );
-            assert_eq!(runtime.installed_arch(), Some(BinaryArch::X86));
-            assert_eq!(fs::read(runtime.coreclr_path()).unwrap(), original);
-            assert!(fs::read_dir(&dir.0).unwrap().all(|entry| {
-                !entry
-                    .unwrap()
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".bepinex-install-")
-            }));
         }
     }
 
