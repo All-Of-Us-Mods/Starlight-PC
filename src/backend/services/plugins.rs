@@ -3,7 +3,7 @@
 //! `<file>.disabled`.
 
 use crate::backend::error::{AppError, AppResult};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
@@ -29,7 +29,7 @@ impl Plugins {
     /// whether they're enabled.
     pub fn scan(&self) -> BTreeMap<String, bool> {
         let mut found = BTreeMap::new();
-        scan_dir(&self.dir, "", &mut HashSet::new(), &mut found);
+        scan_dir(&self.dir, "", &mut Vec::new(), &mut found);
         found
     }
 
@@ -104,28 +104,35 @@ pub fn is_valid_file(file: &str) -> bool {
             .all(|component| matches!(component, Component::Normal(_)))
 }
 
+/// `ancestors` holds the canonical folders above `dir`, so a symlink back to
+/// one of them is skipped instead of looping.
 fn scan_dir(
     dir: &Path,
     prefix: &str,
-    visited: &mut HashSet<PathBuf>,
+    ancestors: &mut Vec<PathBuf>,
     found: &mut BTreeMap<String, bool>,
 ) {
     let Ok(canonical) = fs::canonicalize(dir) else {
         return;
     };
-    if !visited.insert(canonical) {
+    if ancestors.contains(&canonical) {
         return;
     }
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
+    ancestors.push(canonical);
     for entry in entries.flatten() {
         let Some(name) = entry.file_name().to_str().map(str::to_string) else {
             continue;
         };
         let path = format!("{prefix}{name}");
-        if entry.path().is_dir() {
-            scan_dir(&entry.path(), &format!("{path}/"), visited, found);
+        let entry_path = entry.path();
+        if entry_path.is_dir() {
+            scan_dir(&entry_path, &format!("{path}/"), ancestors, found);
+            continue;
+        }
+        if !entry_path.is_file() {
             continue;
         }
         let lower = name.to_ascii_lowercase();
@@ -136,6 +143,7 @@ fn scan_dir(
             found.entry(file).or_insert(false);
         }
     }
+    ancestors.pop();
 }
 
 #[cfg(test)]
@@ -189,7 +197,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn scan_follows_symlinks_once_and_only_touches_links() {
+    fn scan_follows_symlinks_without_looping_and_only_touches_links() {
         use std::os::unix::fs::symlink;
         let dir = TempDir::new("symlinks");
         let plugins = Plugins::new(&dir.0);
@@ -199,9 +207,21 @@ mod tests {
         symlink(outside.join("Linked.dll"), plugins.dir().join("Linked.dll")).unwrap();
         symlink(&outside, plugins.dir().join("linked-dir")).unwrap();
         symlink(plugins.dir(), plugins.dir().join("loop")).unwrap();
+        fs::create_dir_all(plugins.dir().join("real")).unwrap();
+        fs::write(plugins.dir().join("real/Real.dll"), b"x").unwrap();
+        symlink(plugins.dir().join("real"), plugins.dir().join("a-link")).unwrap();
+        symlink(dir.0.join("missing"), plugins.dir().join("Dangling.dll")).unwrap();
 
         let files: Vec<_> = plugins.scan().into_keys().collect();
-        assert_eq!(files, ["Linked.dll", "linked-dir/Linked.dll"]);
+        assert_eq!(
+            files,
+            [
+                "Linked.dll",
+                "a-link/Real.dll",
+                "linked-dir/Linked.dll",
+                "real/Real.dll"
+            ]
+        );
 
         assert!(plugins.remove("linked-dir/Linked.dll").is_err());
         assert!(plugins.set_enabled("linked-dir/Linked.dll", false).is_err());
