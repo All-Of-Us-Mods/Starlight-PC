@@ -110,6 +110,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item target/release/Starlight.exe Starlight-windows-x86_64.exe
+          packaging\windows\fetch-bepinex.ps1
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ needs.prepare.outputs.version }} /O"." packaging\windows\starlight.iss
 
       - name: Package (Linux)
