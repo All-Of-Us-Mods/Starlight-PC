@@ -181,26 +181,10 @@ fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> AppResult<Option<P
 fn sync_custom_mods(profile: &mut ProfileEntry) {
     let plugins_dir = PathBuf::from(&profile.path).join("BepInEx").join("plugins");
 
-    // Plugin file name -> enabled. An enabled `X.dll` wins over a stale
-    // `X.dll.disabled` twin regardless of iteration order.
+    // Plugin path (relative to `plugins`) -> enabled. An enabled `X.dll` wins
+    // over a stale `X.dll.disabled` twin regardless of iteration order.
     let mut on_disk: HashMap<String, bool> = HashMap::new();
-    if let Ok(entries) = fs::read_dir(&plugins_dir) {
-        for entry in entries.flatten() {
-            if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                continue;
-            }
-            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
-                continue;
-            };
-            let lower = name.to_ascii_lowercase();
-            if lower.ends_with(".dll") {
-                on_disk.insert(name, true);
-            } else if lower.ends_with(".dll.disabled") {
-                let base = name[..name.len() - ".disabled".len()].to_string();
-                on_disk.entry(base).or_insert(false);
-            }
-        }
-    }
+    collect_plugins(&plugins_dir, "", 0, &mut on_disk);
 
     // A custom entry survives only while its file is still on disk AND no
     // catalog entry claims that same file — the latter happens when a mod is
@@ -245,6 +229,42 @@ fn sync_custom_mods(profile: &mut ProfileEntry) {
             file: Some(file),
             enabled,
         });
+    }
+}
+
+/// How deep [`collect_plugins`] descends. Bounds symlink cycles; real plugin
+/// folders are only a level or two deep.
+const MAX_PLUGIN_DEPTH: usize = 8;
+
+/// Gather the plugins under `dir` into `on_disk`, keyed by `prefix` + name.
+/// BepInEx loads plugins from subfolders and through symlinks, so this does
+/// too.
+fn collect_plugins(dir: &Path, prefix: &str, depth: usize, on_disk: &mut HashMap<String, bool>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        // `fs::metadata` follows symlinks; `entry.file_type()` does not.
+        let Ok(metadata) = fs::metadata(entry.path()) else {
+            continue;
+        };
+        let path = format!("{prefix}{name}");
+        if metadata.is_dir() {
+            if depth < MAX_PLUGIN_DEPTH {
+                collect_plugins(&entry.path(), &format!("{path}/"), depth + 1, on_disk);
+            }
+            continue;
+        }
+        let lower = name.to_ascii_lowercase();
+        if lower.ends_with(".dll") {
+            on_disk.insert(path, true);
+        } else if lower.ends_with(".dll.disabled") {
+            let base = path[..path.len() - ".disabled".len()].to_string();
+            on_disk.entry(base).or_insert(false);
+        }
     }
 }
 
@@ -431,13 +451,16 @@ fn load_profile(profile_id: &str) -> AppResult<ProfileEntry> {
         .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))
 }
 
-/// The bare file name of a stored plugin file, rejecting anything that isn't
-/// already a plain name (path separators, `..`, empty).
-fn base_file_name(file: &str) -> AppResult<&str> {
-    Path::new(file)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| *name == file && !file.contains('/') && !file.contains('\\'))
+/// A stored plugin file: a `/`-separated path relative to `BepInEx/plugins`,
+/// rejecting anything that could escape it (`..`, absolute, `\`, empty).
+fn plugin_file(file: &str) -> AppResult<&str> {
+    let valid = !file.is_empty()
+        && !file.contains('\\')
+        && Path::new(file)
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)));
+    valid
+        .then_some(file)
         .ok_or_else(|| AppError::validation("Invalid mod file name"))
 }
 
@@ -573,7 +596,7 @@ pub fn add_mod_to_profile(
     version: &str,
     file: &str,
 ) -> AppResult<()> {
-    let base_name = base_file_name(file)?;
+    let plugin = plugin_file(file)?;
 
     let mut profile = load_profile(profile_id)?;
 
@@ -583,13 +606,13 @@ pub fn add_mod_to_profile(
         .find(|mod_entry| mod_entry.mod_id == mod_id)
     {
         existing.version = version.to_string();
-        existing.file = Some(base_name.to_string());
+        existing.file = Some(plugin.to_string());
         existing.enabled = true;
     } else {
         profile.mods.push(ProfileModEntry {
             mod_id: mod_id.to_string(),
             version: version.to_string(),
-            file: Some(base_name.to_string()),
+            file: Some(plugin.to_string()),
             enabled: true,
         });
     }
@@ -600,7 +623,7 @@ pub fn add_mod_to_profile(
     profile.mods.retain(|mod_entry| {
         !(mod_entry.is_custom()
             && mod_entry.mod_id != mod_id
-            && mod_entry.file.as_deref() == Some(base_name))
+            && mod_entry.file.as_deref() == Some(plugin))
     });
     write_profile(&profile)
 }
@@ -618,11 +641,11 @@ pub fn set_mod_enabled(profile_id: &str, mod_id: &str, enabled: bool) -> AppResu
         ));
     };
 
-    let base_name = base_file_name(&file)?;
+    let plugin = plugin_file(&file)?;
 
     let plugins_dir = PathBuf::from(&profile.path).join("BepInEx").join("plugins");
-    let enabled_path = plugins_dir.join(base_name);
-    let disabled_path = plugins_dir.join(format!("{base_name}.disabled"));
+    let enabled_path = plugins_dir.join(plugin);
+    let disabled_path = plugins_dir.join(format!("{plugin}.disabled"));
 
     if enabled {
         if disabled_path.exists() {
@@ -704,15 +727,15 @@ pub fn import_mod_to_profile(profile_id: &str, source_path: &str) -> AppResult<S
 }
 
 pub fn delete_mod_file(profile_path: &str, file_name: &str) -> AppResult<()> {
-    let base_name = base_file_name(file_name)?;
+    let plugin = plugin_file(file_name)?;
 
     let plugins_dir = PathBuf::from(profile_path).join("BepInEx").join("plugins");
-    let path = plugins_dir.join(base_name);
+    let path = plugins_dir.join(plugin);
     if path.exists() {
         fs::remove_file(path)?;
     }
     // A disabled mod's file lives under a `.disabled` suffix — remove that too.
-    let _ = fs::remove_file(plugins_dir.join(format!("{base_name}.disabled")));
+    let _ = fs::remove_file(plugins_dir.join(format!("{plugin}.disabled")));
     Ok(())
 }
 
@@ -1124,6 +1147,53 @@ mod tests {
 
         let off = profile.mods.iter().find(|m| m.mod_id == "custom:Off.dll");
         assert!(off.is_some_and(|m| !m.enabled && m.file.as_deref() == Some("Off.dll")));
+    }
+
+    #[test]
+    fn sync_finds_plugins_in_subfolders_and_through_symlinks() {
+        let dir = TempProfileDir::new("nested");
+        let nested = dir.plugins().join("sinai-dev-UnityExplorer");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("UnityExplorer.dll"), b"x").unwrap();
+        fs::write(nested.join("Off.dll.disabled"), b"x").unwrap();
+        #[cfg(unix)]
+        {
+            let outside = dir.0.join("outside");
+            fs::create_dir_all(&outside).unwrap();
+            fs::write(outside.join("Linked.dll"), b"x").unwrap();
+            std::os::unix::fs::symlink(
+                outside.join("Linked.dll"),
+                dir.plugins().join("Linked.dll"),
+            )
+            .unwrap();
+            std::os::unix::fs::symlink(&outside, dir.plugins().join("linked-dir")).unwrap();
+        }
+
+        let mut profile = profile_at(&dir, vec![]);
+        sync_custom_mods(&mut profile);
+        let files: Vec<_> = profile
+            .mods
+            .iter()
+            .filter_map(|m| m.file.as_deref())
+            .collect();
+
+        assert!(files.contains(&"sinai-dev-UnityExplorer/UnityExplorer.dll"));
+        assert!(files.contains(&"sinai-dev-UnityExplorer/Off.dll"));
+        #[cfg(unix)]
+        {
+            assert!(files.contains(&"Linked.dll"));
+            assert!(files.contains(&"linked-dir/Linked.dll"));
+        }
+    }
+
+    #[test]
+    fn plugin_file_accepts_nested_paths_but_not_escapes() {
+        assert!(plugin_file("Mod.dll").is_ok());
+        assert!(plugin_file("folder/Mod.dll").is_ok());
+        assert!(plugin_file("../Mod.dll").is_err());
+        assert!(plugin_file("/etc/Mod.dll").is_err());
+        assert!(plugin_file("folder\\Mod.dll").is_err());
+        assert!(plugin_file("").is_err());
     }
 
     #[test]
