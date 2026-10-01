@@ -184,7 +184,7 @@ fn sync_custom_mods(profile: &mut ProfileEntry) {
     // Plugin path (relative to `plugins`) -> enabled. An enabled `X.dll` wins
     // over a stale `X.dll.disabled` twin regardless of iteration order.
     let mut on_disk: HashMap<String, bool> = HashMap::new();
-    collect_plugins(&plugins_dir, "", 0, &mut on_disk);
+    collect_plugins(&plugins_dir, "", &mut HashSet::new(), &mut on_disk);
 
     // A custom entry survives only while its file is still on disk AND no
     // catalog entry claims that same file — the latter happens when a mod is
@@ -232,14 +232,22 @@ fn sync_custom_mods(profile: &mut ProfileEntry) {
     }
 }
 
-/// How deep [`collect_plugins`] descends. Bounds symlink cycles; real plugin
-/// folders are only a level or two deep.
-const MAX_PLUGIN_DEPTH: usize = 8;
-
 /// Gather the plugins under `dir` into `on_disk`, keyed by `prefix` + name.
 /// BepInEx loads plugins from subfolders and through symlinks, so this does
-/// too.
-fn collect_plugins(dir: &Path, prefix: &str, depth: usize, on_disk: &mut HashMap<String, bool>) {
+/// too. `visited` holds canonical directories already scanned, so a symlink
+/// cycle (or two links to one folder) is walked only once.
+fn collect_plugins(
+    dir: &Path,
+    prefix: &str,
+    visited: &mut HashSet<PathBuf>,
+    on_disk: &mut HashMap<String, bool>,
+) {
+    let Ok(canonical) = fs::canonicalize(dir) else {
+        return;
+    };
+    if !visited.insert(canonical) {
+        return;
+    }
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -253,9 +261,7 @@ fn collect_plugins(dir: &Path, prefix: &str, depth: usize, on_disk: &mut HashMap
         };
         let path = format!("{prefix}{name}");
         if metadata.is_dir() {
-            if depth < MAX_PLUGIN_DEPTH {
-                collect_plugins(&entry.path(), &format!("{path}/"), depth + 1, on_disk);
-            }
+            collect_plugins(&entry.path(), &format!("{path}/"), visited, on_disk);
             continue;
         }
         let lower = name.to_ascii_lowercase();
@@ -464,6 +470,26 @@ fn plugin_file(file: &str) -> AppResult<&str> {
         .ok_or_else(|| AppError::validation("Invalid mod file name"))
 }
 
+/// Refuse to rename or delete a plugin reached through a symlinked folder:
+/// that would change files outside the profile. A symlinked plugin file is
+/// fine — renaming or removing it only touches the link.
+fn ensure_not_in_linked_folder(plugins_dir: &Path, plugin: &str) -> AppResult<()> {
+    let mut dir = plugins_dir.to_path_buf();
+    for component in Path::new(plugin)
+        .parent()
+        .into_iter()
+        .flat_map(Path::components)
+    {
+        dir.push(component);
+        if fs::symlink_metadata(&dir).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            return Err(AppError::validation(
+                "This plugin is in a linked folder; manage it from its source folder",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Install the BepInEx build the game binary needs, unless the profile
 /// already has it. A profile holding the other arch's build is reinstalled in
 /// place: plugins and config stay, the arch-specific runtime is replaced.
@@ -644,6 +670,7 @@ pub fn set_mod_enabled(profile_id: &str, mod_id: &str, enabled: bool) -> AppResu
     let plugin = plugin_file(&file)?;
 
     let plugins_dir = PathBuf::from(&profile.path).join("BepInEx").join("plugins");
+    ensure_not_in_linked_folder(&plugins_dir, plugin)?;
     let enabled_path = plugins_dir.join(plugin);
     let disabled_path = plugins_dir.join(format!("{plugin}.disabled"));
 
@@ -730,6 +757,7 @@ pub fn delete_mod_file(profile_path: &str, file_name: &str) -> AppResult<()> {
     let plugin = plugin_file(file_name)?;
 
     let plugins_dir = PathBuf::from(profile_path).join("BepInEx").join("plugins");
+    ensure_not_in_linked_folder(&plugins_dir, plugin)?;
     let path = plugins_dir.join(plugin);
     if path.exists() {
         fs::remove_file(path)?;
@@ -946,17 +974,7 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
                 .unwrap_or_default()
                 .into_iter()
                 .map(|mut mod_entry| {
-                    mod_entry.file = mod_entry.file.and_then(|file_name| {
-                        Path::new(&file_name)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .filter(|name| {
-                                *name == file_name
-                                    && !file_name.contains('/')
-                                    && !file_name.contains('\\')
-                            })
-                            .map(|name| name.to_string())
-                    });
+                    mod_entry.file = mod_entry.file.filter(|file| plugin_file(file).is_ok());
                     mod_entry
                 })
                 .collect(),
@@ -1156,9 +1174,9 @@ mod tests {
         fs::create_dir_all(&nested).unwrap();
         fs::write(nested.join("UnityExplorer.dll"), b"x").unwrap();
         fs::write(nested.join("Off.dll.disabled"), b"x").unwrap();
+        let outside = dir.0.join("outside");
         #[cfg(unix)]
         {
-            let outside = dir.0.join("outside");
             fs::create_dir_all(&outside).unwrap();
             fs::write(outside.join("Linked.dll"), b"x").unwrap();
             std::os::unix::fs::symlink(
@@ -1167,6 +1185,8 @@ mod tests {
             )
             .unwrap();
             std::os::unix::fs::symlink(&outside, dir.plugins().join("linked-dir")).unwrap();
+            // A cycle back to `plugins` must not re-list everything under it.
+            std::os::unix::fs::symlink(dir.plugins(), nested.join("loop")).unwrap();
         }
 
         let mut profile = profile_at(&dir, vec![]);
@@ -1183,6 +1203,14 @@ mod tests {
         {
             assert!(files.contains(&"Linked.dll"));
             assert!(files.contains(&"linked-dir/Linked.dll"));
+            assert_eq!(files.len(), 4);
+
+            // Plugins in a linked folder are left alone; a linked file is just
+            // the link, so deleting it keeps the target.
+            let profile_path = dir.0.to_str().unwrap();
+            assert!(delete_mod_file(profile_path, "linked-dir/Linked.dll").is_err());
+            delete_mod_file(profile_path, "Linked.dll").unwrap();
+            assert!(outside.join("Linked.dll").is_file());
         }
     }
 
