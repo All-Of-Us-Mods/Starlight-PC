@@ -2,6 +2,7 @@ use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::bepinex_runtime::BepInExRuntime;
 use crate::backend::services::core_service::AppSettings;
 use crate::backend::services::installation_service::GameSetup;
+use crate::backend::services::plugins::{self, Plugins};
 use crate::backend::services::{bepinex_service, core_service, profile_zip_service};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -12,9 +13,8 @@ use std::path::{Path, PathBuf};
 use crate::backend::directories;
 
 const PROFILE_METADATA_FILE: &str = "metadata.json";
-/// Prefix for mod ids synthesized from loose DLLs found in `BepInEx/plugins`
-/// that no catalog mod entry claims ("custom mods"). Catalog ids never contain
-/// `:`, so these can't collide with (or be looked up against) the catalog.
+/// Id prefix of custom mods: plugins on disk that no catalog mod claims.
+/// Catalog ids never contain `:`.
 pub const CUSTOM_MOD_PREFIX: &str = "custom:";
 const CUSTOM_ICON_BASE_NAME: &str = "icon";
 const CUSTOM_ICON_EXTENSIONS: [&str; 7] =
@@ -29,16 +29,12 @@ pub struct ProfileModEntry {
     pub mod_id: String,
     pub version: String,
     pub file: Option<String>,
-    /// Whether the plugin is loaded by BepInEx. Disabled mods keep their file on
-    /// disk as `<file>.disabled`. Defaults true for profiles saved before this
-    /// field existed.
-    #[serde(default = "default_true")]
+    /// Read from the plugins folder, never stored.
+    #[serde(skip, default = "default_true")]
     pub enabled: bool,
 }
 
 impl ProfileModEntry {
-    /// True for mods synthesized from a loose plugin DLL in `BepInEx/plugins`
-    /// rather than installed from the catalog.
     pub fn is_custom(&self) -> bool {
         self.mod_id.starts_with(CUSTOM_MOD_PREFIX)
     }
@@ -100,6 +96,33 @@ impl ProfileEntry {
 
     pub fn bepinex_runtime(&self) -> BepInExRuntime<'_> {
         BepInExRuntime::new(Path::new(&self.path))
+    }
+
+    pub fn plugins(&self) -> Plugins {
+        Plugins::new(Path::new(&self.path))
+    }
+
+    /// Catalog mods take their enabled state from disk; plugins no catalog mod
+    /// claims become custom mods.
+    fn attach_plugins(&mut self) {
+        let mut on_disk = self.plugins().scan();
+        self.mods.retain(|mod_entry| !mod_entry.is_custom());
+        for mod_entry in &mut self.mods {
+            if let Some(enabled) = mod_entry
+                .file
+                .as_ref()
+                .and_then(|file| on_disk.remove(file))
+            {
+                mod_entry.enabled = enabled;
+            }
+        }
+        self.mods
+            .extend(on_disk.into_iter().map(|(file, enabled)| ProfileModEntry {
+                mod_id: format!("{CUSTOM_MOD_PREFIX}{file}"),
+                version: String::new(),
+                file: Some(file),
+                enabled,
+            }));
     }
 }
 
@@ -168,90 +191,16 @@ fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> AppResult<Option<P
         ))
     })?;
     profile.path = profile_dir.to_string_lossy().to_string();
-    sync_custom_mods(&mut profile);
+    profile.attach_plugins();
     Ok(Some(profile))
-}
-
-/// Reconcile the mod list with the DLLs actually present in `BepInEx/plugins`.
-/// Plugins no mod entry claims (added via the "Add DLL" button or dropped in
-/// manually) are surfaced as `custom:` entries; custom entries whose file
-/// disappeared are dropped, and a custom entry's enabled flag mirrors the
-/// on-disk `.disabled` state. In-memory only — the synthesized entries are
-/// persisted whenever the profile is next written.
-fn sync_custom_mods(profile: &mut ProfileEntry) {
-    let plugins_dir = PathBuf::from(&profile.path).join("BepInEx").join("plugins");
-
-    // Plugin file name -> enabled. An enabled `X.dll` wins over a stale
-    // `X.dll.disabled` twin regardless of iteration order.
-    let mut on_disk: HashMap<String, bool> = HashMap::new();
-    if let Ok(entries) = fs::read_dir(&plugins_dir) {
-        for entry in entries.flatten() {
-            if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                continue;
-            }
-            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
-                continue;
-            };
-            let lower = name.to_ascii_lowercase();
-            if lower.ends_with(".dll") {
-                on_disk.insert(name, true);
-            } else if lower.ends_with(".dll.disabled") {
-                let base = name[..name.len() - ".disabled".len()].to_string();
-                on_disk.entry(base).or_insert(false);
-            }
-        }
-    }
-
-    // A custom entry survives only while its file is still on disk AND no
-    // catalog entry claims that same file — the latter happens when a mod is
-    // installed through the app after its DLL was (briefly) seen as loose,
-    // which used to leave a duplicate "custom" row behind.
-    let claimed: HashSet<String> = profile
-        .mods
-        .iter()
-        .filter(|mod_entry| !mod_entry.is_custom())
-        .filter_map(|mod_entry| mod_entry.file.clone())
-        .collect();
-    profile.mods.retain(|mod_entry| {
-        !mod_entry.is_custom()
-            || mod_entry
-                .file
-                .as_deref()
-                .is_some_and(|file| on_disk.contains_key(file) && !claimed.contains(file))
-    });
-
-    let mut tracked: HashSet<String> = HashSet::new();
-    for mod_entry in &mut profile.mods {
-        if let Some(file) = mod_entry.file.clone() {
-            // Disk is the source of truth for the enabled flag: enabling and
-            // disabling renames the file, so a `.disabled` twin means off —
-            // including for catalog mods that arrived that way from an import.
-            if let Some(enabled) = on_disk.get(&file) {
-                mod_entry.enabled = *enabled;
-            }
-            tracked.insert(file);
-        }
-    }
-
-    let mut untracked: Vec<(String, bool)> = on_disk
-        .into_iter()
-        .filter(|(file, _)| !tracked.contains(file))
-        .collect();
-    untracked.sort_by(|a, b| a.0.cmp(&b.0));
-    for (file, enabled) in untracked {
-        profile.mods.push(ProfileModEntry {
-            mod_id: format!("{CUSTOM_MOD_PREFIX}{file}"),
-            version: String::new(),
-            file: Some(file),
-            enabled,
-        });
-    }
 }
 
 fn write_profile(profile: &ProfileEntry) -> AppResult<()> {
     let profile_dir = PathBuf::from(&profile.path);
     fs::create_dir_all(&profile_dir)?;
-    let metadata = serde_json::to_vec_pretty(profile)?;
+    let mut stored = profile.clone();
+    stored.mods.retain(|mod_entry| !mod_entry.is_custom());
+    let metadata = serde_json::to_vec_pretty(&stored)?;
     let metadata_path = metadata_path(&profile_dir);
     let temporary_path = metadata_path.with_extension("json.tmp");
     fs::write(&temporary_path, metadata)?;
@@ -431,16 +380,6 @@ fn load_profile(profile_id: &str) -> AppResult<ProfileEntry> {
         .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))
 }
 
-/// The bare file name of a stored plugin file, rejecting anything that isn't
-/// already a plain name (path separators, `..`, empty).
-fn base_file_name(file: &str) -> AppResult<&str> {
-    Path::new(file)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| *name == file && !file.contains('/') && !file.contains('\\'))
-        .ok_or_else(|| AppError::validation("Invalid mod file name"))
-}
-
 /// Install the BepInEx build the game binary needs, unless the profile
 /// already has it. A profile holding the other arch's build is reinstalled in
 /// place: plugins and config stay, the arch-specific runtime is replaced.
@@ -573,67 +512,32 @@ pub fn add_mod_to_profile(
     version: &str,
     file: &str,
 ) -> AppResult<()> {
-    let base_name = base_file_name(file)?;
-
+    if !plugins::is_valid_file(file) {
+        return Err(AppError::validation("Invalid mod file name"));
+    }
     let mut profile = load_profile(profile_id)?;
-
-    if let Some(existing) = profile
+    let entry = ProfileModEntry {
+        mod_id: mod_id.to_string(),
+        version: version.to_string(),
+        file: Some(file.to_string()),
+        enabled: true,
+    };
+    match profile
         .mods
         .iter_mut()
-        .find(|mod_entry| mod_entry.mod_id == mod_id)
+        .find(|existing| existing.mod_id == mod_id)
     {
-        existing.version = version.to_string();
-        existing.file = Some(base_name.to_string());
-        existing.enabled = true;
-    } else {
-        profile.mods.push(ProfileModEntry {
-            mod_id: mod_id.to_string(),
-            version: version.to_string(),
-            file: Some(base_name.to_string()),
-            enabled: true,
-        });
+        Some(existing) => *existing = entry,
+        None => profile.mods.push(entry),
     }
-    // The plugin file is downloaded before this manifest update, so the
-    // profile read above may have synthesized a `custom:` entry for it (see
-    // `sync_custom_mods`) — the catalog entry claims the file now, so drop
-    // the twin instead of persisting a duplicate.
-    profile.mods.retain(|mod_entry| {
-        !(mod_entry.is_custom()
-            && mod_entry.mod_id != mod_id
-            && mod_entry.file.as_deref() == Some(base_name))
-    });
     write_profile(&profile)
 }
 
-/// Enable or disable a profile's mod. BepInEx only loads `*.dll`, so a disabled
-/// mod is kept on disk as `<file>.disabled` and renamed back when re-enabled.
 pub fn set_mod_enabled(profile_id: &str, mod_id: &str, enabled: bool) -> AppResult<()> {
-    let mut profile = load_profile(profile_id)?;
-    let Some(index) = profile.mods.iter().position(|m| m.mod_id == mod_id) else {
-        return Err(AppError::validation("Mod is not installed in this profile"));
-    };
-    let Some(file) = profile.mods[index].file.clone() else {
-        return Err(AppError::validation(
-            "This mod has no file to enable/disable",
-        ));
-    };
-
-    let base_name = base_file_name(&file)?;
-
-    let plugins_dir = PathBuf::from(&profile.path).join("BepInEx").join("plugins");
-    let enabled_path = plugins_dir.join(base_name);
-    let disabled_path = plugins_dir.join(format!("{base_name}.disabled"));
-
-    if enabled {
-        if disabled_path.exists() {
-            fs::rename(&disabled_path, &enabled_path)?;
-        }
-    } else if enabled_path.exists() {
-        fs::rename(&enabled_path, &disabled_path)?;
-    }
-
-    profile.mods[index].enabled = enabled;
-    write_profile(&profile)
+    let profile = load_profile(profile_id)?;
+    profile
+        .plugins()
+        .set_enabled(installed_file(&profile, mod_id)?, enabled)
 }
 
 pub fn add_play_time(profile_id: &str, duration_ms: i64) -> AppResult<()> {
@@ -649,71 +553,31 @@ pub fn remove_mod_from_profile(profile_id: &str, mod_id: &str) -> AppResult<()> 
     write_profile(&profile)
 }
 
-/// Remove a mod from the profile manifest *and* delete its plugin file (plus
-/// any `.disabled` twin) from `BepInEx/plugins`. Deleting the file first
-/// matters for custom mods: [`sync_custom_mods`] would otherwise resurrect the
-/// entry from the leftover DLL on the next profile read.
 pub fn uninstall_mod_from_profile(profile_id: &str, mod_id: &str) -> AppResult<()> {
     let profile = load_profile(profile_id)?;
-    let Some(entry) = profile.mods.iter().find(|m| m.mod_id == mod_id) else {
-        return Err(AppError::validation("Mod is not installed in this profile"));
-    };
-    if let Some(file) = entry.file.clone() {
-        delete_mod_file(&profile.path, &file)?;
+    if let Ok(file) = installed_file(&profile, mod_id) {
+        profile.plugins().remove(file)?;
     }
     remove_mod_from_profile(profile_id, mod_id)
 }
 
-/// Copy a local plugin .dll into the profile's `BepInEx/plugins`. No manifest
-/// entry is written — the next profile read surfaces it as a `custom:` mod via
-/// [`sync_custom_mods`]. Returns the plugin's file name.
+/// Copy a plugin into the profile; it shows up as a custom mod. Returns its
+/// file name.
 pub fn import_mod_to_profile(profile_id: &str, source_path: &str) -> AppResult<String> {
-    let source = PathBuf::from(source_path);
-    if !source.exists() {
-        return Err(AppError::validation("Selected mod file does not exist"));
-    }
-
-    let source_name = source
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| AppError::validation("Invalid mod file name"))?;
-
-    if !source_name.to_ascii_lowercase().ends_with(".dll") {
-        return Err(AppError::validation("Selected file must be a .dll"));
-    }
-
-    if source_name.contains('/') || source_name.contains('\\') {
-        return Err(AppError::validation("Invalid mod file name"));
-    }
-
-    let profile = load_profile(profile_id)?;
-
-    let destination = PathBuf::from(&profile.path)
-        .join("BepInEx")
-        .join("plugins")
-        .join(source_name);
-
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    fs::copy(&source, &destination)?;
-    // A re-added plugin should come back enabled — drop any stale disabled twin.
-    let _ = fs::remove_file(destination.with_file_name(format!("{source_name}.disabled")));
-    Ok(source_name.to_string())
+    load_profile(profile_id)?
+        .plugins()
+        .import(Path::new(source_path))
 }
 
-pub fn delete_mod_file(profile_path: &str, file_name: &str) -> AppResult<()> {
-    let base_name = base_file_name(file_name)?;
-
-    let plugins_dir = PathBuf::from(profile_path).join("BepInEx").join("plugins");
-    let path = plugins_dir.join(base_name);
-    if path.exists() {
-        fs::remove_file(path)?;
-    }
-    // A disabled mod's file lives under a `.disabled` suffix — remove that too.
-    let _ = fs::remove_file(plugins_dir.join(format!("{base_name}.disabled")));
-    Ok(())
+fn installed_file<'a>(profile: &'a ProfileEntry, mod_id: &str) -> AppResult<&'a str> {
+    profile
+        .mods
+        .iter()
+        .find(|mod_entry| mod_entry.mod_id == mod_id)
+        .ok_or_else(|| AppError::validation("Mod is not installed in this profile"))?
+        .file
+        .as_deref()
+        .ok_or_else(|| AppError::validation("This mod has no plugin file"))
 }
 
 pub fn get_profile_log(profile_path: &str, file_name: &str) -> String {
@@ -789,6 +653,35 @@ struct ImportedMetadata {
     /// id -> version `mods` map. Absent in zips from other sources.
     #[serde(default)]
     mod_files: HashMap<String, String>,
+}
+
+/// `mods` is an id -> version map from our exporter, or the stored entry list
+/// when the zip is a raw profile folder.
+fn imported_mods(metadata: ImportedMetadata) -> Vec<ProfileModEntry> {
+    let mut mods: Vec<ProfileModEntry> = match metadata.mods {
+        Some(serde_json::Value::Object(map)) => map
+            .into_iter()
+            .map(|(mod_id, version)| ProfileModEntry {
+                file: metadata.mod_files.get(&mod_id).cloned(),
+                version: version.as_str().unwrap_or_default().to_string(),
+                mod_id,
+                enabled: true,
+            })
+            .collect(),
+        Some(serde_json::Value::Array(entries)) => entries
+            .into_iter()
+            .filter_map(|entry| serde_json::from_value(entry).ok())
+            .collect(),
+        _ => Vec::new(),
+    };
+    mods.retain(|mod_entry| !mod_entry.is_custom());
+    for mod_entry in &mut mods {
+        mod_entry.file = mod_entry
+            .file
+            .take()
+            .filter(|file| plugins::is_valid_file(file));
+    }
+    mods
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -895,48 +788,7 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
                 .and_then(|item| item.custom_icon_extension.clone())
                 .and_then(|ext| normalize_custom_icon_extension(&ext)),
             icon_mod_id: imported.as_ref().and_then(|item| item.icon_mod_id.clone()),
-            mods: imported
-                .and_then(|item| item.mods.map(|mods| (mods, item.mod_files)))
-                .map(|(mods_value, mod_files)| {
-                    let mut entries = Vec::new();
-                    if let Some(mods_map) = mods_value.as_object() {
-                        for (mod_id, version_val) in mods_map {
-                            let version = version_val.as_str().unwrap_or("").to_string();
-                            entries.push(ProfileModEntry {
-                                mod_id: mod_id.clone(),
-                                version,
-                                file: mod_files.get(mod_id).cloned(),
-                                enabled: true,
-                            });
-                        }
-                    } else if let Some(mods_array) = mods_value.as_array() {
-                        for mod_entry in mods_array {
-                            if let Ok(entry) =
-                                serde_json::from_value::<ProfileModEntry>(mod_entry.clone())
-                            {
-                                entries.push(entry);
-                            }
-                        }
-                    }
-                    entries
-                })
-                .unwrap_or_default()
-                .into_iter()
-                .map(|mut mod_entry| {
-                    mod_entry.file = mod_entry.file.and_then(|file_name| {
-                        Path::new(&file_name)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .filter(|name| {
-                                *name == file_name
-                                    && !file_name.contains('/')
-                                    && !file_name.contains('\\')
-                            })
-                            .map(|name| name.to_string())
-                    });
-                    mod_entry
-                })
-                .collect(),
+            mods: imported.map(imported_mods).unwrap_or_default(),
             installation_id: None,
         };
         normalize_icon_selection(&mut profile);
@@ -1106,80 +958,56 @@ mod tests {
     }
 
     #[test]
-    fn sync_surfaces_untracked_dlls_as_custom_mods() {
-        let dir = TempProfileDir::new("untracked");
-        fs::write(dir.plugins().join("Tracked.dll"), b"x").unwrap();
+    fn plugins_on_disk_become_custom_mods_and_drive_enabled_state() {
+        let dir = TempProfileDir::new("attach");
+        fs::write(dir.plugins().join("Tracked.dll.disabled"), b"x").unwrap();
         fs::write(dir.plugins().join("Loose.dll"), b"x").unwrap();
-        fs::write(dir.plugins().join("Off.dll.disabled"), b"x").unwrap();
-        fs::write(dir.plugins().join("notes.txt"), b"x").unwrap();
 
+        let stale_custom = ProfileModEntry {
+            mod_id: format!("{CUSTOM_MOD_PREFIX}Gone.dll"),
+            version: String::new(),
+            file: Some("Gone.dll".into()),
+            enabled: true,
+        };
+        let mut profile = profile_at(
+            &dir,
+            vec![tracked("catalog-mod", "Tracked.dll"), stale_custom],
+        );
+        profile.attach_plugins();
+
+        let mods: Vec<_> = profile
+            .mods
+            .iter()
+            .map(|m| (m.mod_id.as_str(), m.enabled))
+            .collect();
+        assert_eq!(mods, [("catalog-mod", false), ("custom:Loose.dll", true)]);
+    }
+
+    #[test]
+    fn custom_mods_are_never_stored() {
+        let dir = TempProfileDir::new("store");
+        fs::write(dir.plugins().join("Loose.dll"), b"x").unwrap();
         let mut profile = profile_at(&dir, vec![tracked("catalog-mod", "Tracked.dll")]);
-        sync_custom_mods(&mut profile);
+        profile.attach_plugins();
+        write_profile(&profile).unwrap();
 
-        assert_eq!(profile.mods.len(), 3);
-        assert_eq!(profile.mods[0].mod_id, "catalog-mod");
-
-        let loose = profile.mods.iter().find(|m| m.mod_id == "custom:Loose.dll");
-        assert!(loose.is_some_and(|m| m.enabled && m.file.as_deref() == Some("Loose.dll")));
-
-        let off = profile.mods.iter().find(|m| m.mod_id == "custom:Off.dll");
-        assert!(off.is_some_and(|m| !m.enabled && m.file.as_deref() == Some("Off.dll")));
+        let stored: serde_json::Value =
+            serde_json::from_slice(&fs::read(metadata_path(&dir.0)).unwrap()).unwrap();
+        assert_eq!(stored["mods"].as_array().unwrap().len(), 1);
+        assert!(stored["mods"][0].get("enabled").is_none());
     }
 
     #[test]
-    fn sync_drops_custom_twin_when_catalog_entry_claims_the_same_file() {
-        let dir = TempProfileDir::new("claimed-twin");
-        fs::write(dir.plugins().join("Reactor.dll"), b"x").unwrap();
-
-        // Duplicate state as persisted by the old install flow: the DLL both
-        // as a catalog entry and as a stale custom entry.
-        let mut profile = profile_at(
-            &dir,
-            vec![
-                ProfileModEntry {
-                    mod_id: format!("{CUSTOM_MOD_PREFIX}Reactor.dll"),
-                    version: String::new(),
-                    file: Some("Reactor.dll".into()),
-                    enabled: true,
-                },
-                tracked("reactor", "Reactor.dll"),
-            ],
-        );
-        sync_custom_mods(&mut profile);
-
-        assert_eq!(profile.mods.len(), 1);
-        assert_eq!(profile.mods[0].mod_id, "reactor");
-    }
-
-    #[test]
-    fn sync_drops_custom_entries_whose_file_vanished_and_mirrors_disk_state() {
-        let dir = TempProfileDir::new("vanished");
-        fs::write(dir.plugins().join("Kept.dll.disabled"), b"x").unwrap();
-
-        let mut profile = profile_at(
-            &dir,
-            vec![
-                ProfileModEntry {
-                    mod_id: format!("{CUSTOM_MOD_PREFIX}Gone.dll"),
-                    version: String::new(),
-                    file: Some("Gone.dll".into()),
-                    enabled: true,
-                },
-                ProfileModEntry {
-                    mod_id: format!("{CUSTOM_MOD_PREFIX}Kept.dll"),
-                    version: String::new(),
-                    file: Some("Kept.dll".into()),
-                    enabled: true,
-                },
-                // Catalog mods are never dropped by the sync, even without a file.
-                tracked("catalog-mod", "AlsoGone.dll"),
-            ],
-        );
-        sync_custom_mods(&mut profile);
-
-        assert!(!profile.mods.iter().any(|m| m.mod_id == "custom:Gone.dll"));
-        assert!(profile.mods.iter().any(|m| m.mod_id == "catalog-mod"));
-        let kept = profile.mods.iter().find(|m| m.mod_id == "custom:Kept.dll");
-        assert!(kept.is_some_and(|m| !m.enabled));
+    fn imported_mods_keep_nested_files_and_drop_unsafe_ones() {
+        let metadata: ImportedMetadata = serde_json::from_value(serde_json::json!({
+            "mods": {"reactor": "2.0.0", "evil": "1.0.0"},
+            "mod_files": {"reactor": "Reactor/Reactor.dll", "evil": "../evil.dll"}
+        }))
+        .unwrap();
+        let mods = imported_mods(metadata);
+        let reactor = mods.iter().find(|m| m.mod_id == "reactor").unwrap();
+        assert_eq!(reactor.file.as_deref(), Some("Reactor/Reactor.dll"));
+        let evil = mods.iter().find(|m| m.mod_id == "evil").unwrap();
+        assert!(evil.file.is_none());
     }
 }

@@ -7,7 +7,6 @@
 //! what's actually on disk.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 
 use semver::{Version, VersionReq};
 
@@ -16,6 +15,7 @@ use crate::backend::api::{
 };
 use crate::backend::binary::BinaryArch;
 use crate::backend::error::{AppError, AppResult};
+use crate::backend::services::plugins::Plugins;
 use crate::backend::services::{core_service, mod_download_service, profile_service};
 
 #[derive(Debug, Clone)]
@@ -377,11 +377,9 @@ pub fn install_mods_for_profile(
     let profile = profile_service::get_profile_by_id(profile_id)?
         .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))?;
     let game_arch = profile.installation(&core_service::get_settings()?)?.arch();
-    let profile_path = profile.path.clone();
+    let plugins = profile.plugins();
 
-    // Updating a disabled mod would currently replace its manifest entry with
-    // an enabled one. Require the user to opt in by enabling it first, and
-    // enforce that rule here so non-UI install paths cannot bypass it.
+    // Installing would silently re-enable a disabled mod.
     if let Some(item) = mods.iter().find(|item| {
         profile
             .mods
@@ -394,7 +392,6 @@ pub fn install_mods_for_profile(
         )));
     }
 
-    // Snapshot prior entries so we can restore the manifest on rollback.
     let mut previous: HashMap<String, Option<(String, Option<String>)>> = HashMap::new();
     for item in mods {
         let prior = profile
@@ -404,15 +401,11 @@ pub fn install_mods_for_profile(
             .map(|m| (m.version.clone(), m.file.clone()));
         previous.insert(item.mod_id.clone(), prior);
     }
-
-    let plugins_dir = PathBuf::from(&profile_path).join("BepInEx").join("plugins");
-    std::fs::create_dir_all(&plugins_dir)?;
+    std::fs::create_dir_all(plugins.dir())?;
 
     let mut downloaded: Vec<InstalledModResult> = Vec::new();
     let mut persisted: Vec<InstalledModResult> = Vec::new();
-    // Old files replaced by upgrades. Deleted only after every mod has
-    // installed — deleting inside the loop would leave a later rollback
-    // restoring a manifest entry whose DLL is already gone.
+    // Deleted after the loop so a rollback never restores an entry whose DLL is gone.
     let mut replaced_files: Vec<String> = Vec::new();
 
     for item in mods {
@@ -420,31 +413,19 @@ pub fn install_mods_for_profile(
         let target = match resolve_download_target(&item.mod_id, &item.version, &info, game_arch) {
             Ok(t) => t,
             Err(e) => {
-                rollback(
-                    &profile_path,
-                    profile_id,
-                    &downloaded,
-                    &persisted,
-                    &previous,
-                );
+                rollback(&plugins, profile_id, &downloaded, &persisted, &previous);
                 return Err(e);
             }
         };
 
-        let destination = plugins_dir.join(&target.file_name);
+        let destination = plugins.dir().join(&target.file_name);
         if let Err(e) = mod_download_service::download_mod(
             item.mod_id.clone(),
             target.url,
             destination.to_string_lossy().into_owned(),
             target.checksum.clone(),
         ) {
-            rollback(
-                &profile_path,
-                profile_id,
-                &downloaded,
-                &persisted,
-                &previous,
-            );
+            rollback(&plugins, profile_id, &downloaded, &persisted, &previous);
             return Err(e);
         }
 
@@ -459,13 +440,7 @@ pub fn install_mods_for_profile(
             &item.version,
             &target.file_name,
         ) {
-            rollback(
-                &profile_path,
-                profile_id,
-                &downloaded,
-                &persisted,
-                &previous,
-            );
+            rollback(&plugins, profile_id, &downloaded, &persisted, &previous);
             return Err(e);
         }
         persisted.push(InstalledModResult {
@@ -481,14 +456,14 @@ pub fn install_mods_for_profile(
     }
 
     for old_file in replaced_files {
-        let _ = profile_service::delete_mod_file(&profile_path, &old_file);
+        let _ = plugins.remove(&old_file);
     }
 
     Ok(downloaded)
 }
 
 fn rollback(
-    profile_path: &str,
+    plugins: &Plugins,
     profile_id: &str,
     downloaded: &[InstalledModResult],
     persisted: &[InstalledModResult],
@@ -512,7 +487,7 @@ fn rollback(
         }
     }
     for item in downloaded.iter().rev() {
-        let _ = profile_service::delete_mod_file(profile_path, &item.file_name);
+        let _ = plugins.remove(&item.file_name);
     }
 }
 
