@@ -60,13 +60,14 @@ pub struct VersionInfo {
     pub version: Option<String>,
 }
 
-/// Most of a plugin is IL and embedded assets; only the headers and the
-/// resource section are read. The cap bounds what a malformed header can ask for.
-const MAX_RESOURCE_SECTION: u32 = 1 << 20;
+/// Version resources are small; `wLength` is a `u16`.
+const MAX_VERSION_INFO: u32 = u16::MAX as u32;
 const RT_VERSION: u32 = 16;
 
 /// Read a PE file's version resource. Missing, malformed and resource-less
-/// binaries have none.
+/// binaries have none. Only the headers and the few resource entries leading
+/// to it are read, never the IL and embedded assets that make up most of a
+/// plugin.
 pub fn read_pe_version_info(path: &Path) -> Option<VersionInfo> {
     let mut file = File::open(path).ok()?;
     let mut headers = Vec::new();
@@ -88,31 +89,96 @@ pub fn read_pe_version_info(path: &Path) -> Option<VersionInfo> {
     if u32_at(&headers, directories - 4)? <= 2 {
         return None;
     }
-    let resource_rva = u32_at(&headers, directories + 16)?;
+    let root = u32_at(&headers, directories + 16)?;
     let sections = optional + u16_at(&headers, pe + 20)? as usize;
-    let (base, size, offset) = (0..section_count).find_map(|ix| {
+    let section = (0..section_count).find_map(|ix| {
         let header = sections + ix * 40;
-        let base = u32_at(&headers, header + 12)?;
-        let size = u32_at(&headers, header + 16)?;
-        let offset = u32_at(&headers, header + 20)?;
-        (base <= resource_rva && resource_rva - base < size).then_some((base, size, offset))
+        let section = Section {
+            base: u32_at(&headers, header + 12)?,
+            size: u32_at(&headers, header + 16)?,
+            offset: u32_at(&headers, header + 20)?,
+        };
+        section.contains(root).then_some(section)
     })?;
-    let mut section = Vec::new();
-    file.seek(SeekFrom::Start(offset.into())).ok()?;
-    file.take(size.min(MAX_RESOURCE_SECTION).into())
-        .read_to_end(&mut section)
-        .ok()?;
+    let mut tree = ResourceTree {
+        file,
+        section,
+        root,
+    };
 
     // Resource tree: type -> name -> language -> data. Assemblies carry a
     // single version resource, so the first name and language are it.
-    let tree = section.get((resource_rva - base) as usize..)?;
-    let names = resource_subdirectory(tree, 0, Some(RT_VERSION))?;
-    let languages = resource_subdirectory(tree, names, None)?;
-    let leaf = resource_child(tree, languages, None)? as usize;
-    let data_start = u32_at(tree, leaf)?.checked_sub(base)? as usize;
-    let data_len = u32_at(tree, leaf + 4)? as usize;
-    let data = section.get(data_start..data_start.checked_add(data_len)?)?;
-    parse_version_info(data)
+    let names = tree.subdirectory(0, Some(RT_VERSION))?;
+    let languages = tree.subdirectory(names, None)?;
+    let leaf = tree.child(languages, None)?;
+    let leaf = tree.read(leaf, 8)?;
+    let data_len = u32_at(&leaf, 4)?.min(MAX_VERSION_INFO);
+    let data = tree.read_rva(u32_at(&leaf, 0)?, data_len)?;
+    parse_version_info(&data)
+}
+
+/// The section holding the resource tree: where it sits in memory (`base`)
+/// and in the file (`offset`).
+struct Section {
+    base: u32,
+    size: u32,
+    offset: u32,
+}
+
+impl Section {
+    fn contains(&self, rva: u32) -> bool {
+        rva.checked_sub(self.base)
+            .is_some_and(|rel| rel < self.size)
+    }
+}
+
+/// Reads parts of a resource tree straight from the file. Directory offsets
+/// are relative to the tree's `root`; data entries point at RVAs.
+struct ResourceTree {
+    file: File,
+    section: Section,
+    root: u32,
+}
+
+impl ResourceTree {
+    /// The subdirectory under `dir` matching `id` (or the first one).
+    fn subdirectory(&mut self, dir: u32, id: Option<u32>) -> Option<u32> {
+        let child = self.child(dir, id)?;
+        (child & 0x8000_0000 != 0).then_some(child & 0x7FFF_FFFF)
+    }
+
+    /// The raw offset of the entry under `dir` matching `id` (or the first
+    /// one); its high bit marks a subdirectory.
+    fn child(&mut self, dir: u32, id: Option<u32>) -> Option<u32> {
+        let header = self.read(dir, 16)?;
+        let count = u32::from(u16_at(&header, 12)?) + u32::from(u16_at(&header, 14)?);
+        let entries = self.read(dir.checked_add(16)?, count * 8)?;
+        entries
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .find(|entry| id.is_none_or(|id| u32_at(&entry[..], 0) == Some(id)))
+            .and_then(|entry| u32_at(&entry[..], 4))
+    }
+
+    fn read(&mut self, offset: u32, len: u32) -> Option<Vec<u8>> {
+        self.read_rva(self.root.checked_add(offset)?, len)
+    }
+
+    fn read_rva(&mut self, rva: u32, len: u32) -> Option<Vec<u8>> {
+        let end = rva.checked_add(len)?;
+        if !self.section.contains(rva) || end - self.section.base > self.section.size {
+            return None;
+        }
+        let offset = u64::from(self.section.offset) + u64::from(rva - self.section.base);
+        self.file.seek(SeekFrom::Start(offset)).ok()?;
+        let mut bytes = Vec::new();
+        (&mut self.file)
+            .take(len.into())
+            .read_to_end(&mut bytes)
+            .ok()?;
+        (bytes.len() == len as usize).then_some(bytes)
+    }
 }
 
 /// `VS_VERSIONINFO` -> `StringFileInfo` -> string tables -> strings.
@@ -168,8 +234,10 @@ impl<'a> VersionBlock<'a> {
         };
         let key_units = block
             .get(6..)?
-            .chunks_exact(2)
-            .position(|unit| unit == [0, 0])?;
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .position(|unit| unit == &[0, 0])?;
         let key = utf16_until_nul(&block[6..]);
         let value_start = align4(6 + (key_units + 1) * 2).min(block.len());
         let value_end = (value_start + value_len).min(block.len());
@@ -191,27 +259,12 @@ impl<'a> VersionBlock<'a> {
     }
 }
 
-/// The subdirectory under the resource directory at `dir` matching `id`
-/// (or the first one).
-fn resource_subdirectory(tree: &[u8], dir: usize, id: Option<u32>) -> Option<usize> {
-    let child = resource_child(tree, dir, id)?;
-    (child & 0x8000_0000 != 0).then_some((child & 0x7FFF_FFFF) as usize)
-}
-
-/// The raw offset of the entry under the resource directory at `dir` matching
-/// `id` (or the first one); its high bit marks a subdirectory.
-fn resource_child(tree: &[u8], dir: usize, id: Option<u32>) -> Option<u32> {
-    let count = u16_at(tree, dir + 12)? as usize + u16_at(tree, dir + 14)? as usize;
-    (0..count)
-        .map(|ix| dir + 16 + ix * 8)
-        .find(|&entry| id.is_none_or(|id| u32_at(tree, entry) == Some(id)))
-        .and_then(|entry| u32_at(tree, entry + 4))
-}
-
 fn utf16_until_nul(bytes: &[u8]) -> String {
     let units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|unit| u16::from_le_bytes([unit[0], unit[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&unit| u16::from_le_bytes(unit))
         .take_while(|&unit| unit != 0)
         .collect();
     String::from_utf16_lossy(&units)
@@ -301,6 +354,13 @@ mod tests {
 
         fs::write(&path, pe_with_version_info(&[("FileDescription", " ")])).unwrap();
         assert_eq!(read_pe_version_info(&path), Some(VersionInfo::default()));
+        // Large resource sections are read only where the version resource is.
+        let after_icons = pe_with_version_info_after(&[("ProductVersion", "2.0.0")], 2 << 20);
+        fs::write(&path, after_icons).unwrap();
+        assert_eq!(
+            read_pe_version_info(&path).unwrap().version.as_deref(),
+            Some("2.0.0")
+        );
         // A PE without a resource section has no version info.
         fs::write(&path, pe_bytes(0x014c)).unwrap();
         assert_eq!(read_pe_version_info(&path), None);
@@ -308,6 +368,12 @@ mod tests {
 
     /// A PE32 whose only section holds a version resource with `strings`.
     fn pe_with_version_info(strings: &[(&str, &str)]) -> Vec<u8> {
+        pe_with_version_info_after(strings, 0)
+    }
+
+    /// Like [`pe_with_version_info`], with `gap` bytes of other resource data
+    /// before the version resource.
+    fn pe_with_version_info_after(strings: &[(&str, &str)], gap: usize) -> Vec<u8> {
         let strings: Vec<u8> = strings
             .iter()
             .flat_map(|(key, value)| version_block(key, 1, &utf16z(value), &[]))
@@ -327,8 +393,9 @@ mod tests {
             tree[dir + 16..dir + 20].copy_from_slice(&id.to_le_bytes());
             tree[dir + 20..dir + 24].copy_from_slice(&child.to_le_bytes());
         }
-        tree[72..76].copy_from_slice(&(rva + 88).to_le_bytes());
+        tree[72..76].copy_from_slice(&(rva + 88 + gap as u32).to_le_bytes());
         tree[76..80].copy_from_slice(&(version.len() as u32).to_le_bytes());
+        tree.resize(88 + gap, 0);
         tree.extend(version);
 
         let mut bytes = pe_bytes(0x014c);

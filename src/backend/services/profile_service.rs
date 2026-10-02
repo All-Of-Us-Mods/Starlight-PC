@@ -15,7 +15,7 @@ use crate::backend::directories;
 
 const PROFILE_METADATA_FILE: &str = "metadata.json";
 /// 2.3.0 stored custom mods in metadata as catalog entries with this id
-/// prefix; they are dropped on load. Catalog ids never contain `:`.
+/// prefix; they are dropped on load and import. Catalog ids never contain `:`.
 const LEGACY_CUSTOM_MOD_PREFIX: &str = "custom:";
 const CUSTOM_ICON_BASE_NAME: &str = "icon";
 const CUSTOM_ICON_EXTENSIONS: [&str; 7] =
@@ -698,6 +698,8 @@ fn imported_mods(metadata: ImportedMetadata) -> Vec<ProfileModEntry> {
             .collect(),
         _ => Vec::new(),
     };
+    // 2.3.0 stored custom mods here; keep them out of the new profile.
+    mods.retain(|mod_entry| !mod_entry.mod_id.starts_with(LEGACY_CUSTOM_MOD_PREFIX));
     for mod_entry in &mut mods {
         mod_entry.file = mod_entry
             .file
@@ -1037,5 +1039,21 @@ mod tests {
         assert_eq!(reactor.file.as_deref(), Some("Reactor/Reactor.dll"));
         let evil = mods.iter().find(|m| m.mod_id == "evil").unwrap();
         assert!(evil.file.is_none());
+    }
+
+    #[test]
+    fn imported_raw_profiles_drop_legacy_custom_entries() {
+        let metadata: ImportedMetadata = serde_json::from_value(serde_json::json!({
+            "mods": [
+                {"mod_id": "reactor", "version": "2.0.0", "file": "Reactor.dll"},
+                {"mod_id": "custom:Loose.dll", "version": "", "file": "Loose.dll"}
+            ]
+        }))
+        .unwrap();
+        let ids: Vec<_> = imported_mods(metadata)
+            .into_iter()
+            .map(|m| m.mod_id)
+            .collect();
+        assert_eq!(ids, ["reactor"]);
     }
 }
