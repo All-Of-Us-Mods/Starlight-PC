@@ -15,7 +15,6 @@ pub const GAME_EXE_NAME: &str = "Among Us.exe";
 pub struct GameSetup {
     pub among_us_path: String,
     pub game_platform: GamePlatform,
-    pub xbox_app_id: Option<String>,
     #[serde(default)]
     pub linux_runner_kind: LinuxRunnerKind,
     #[serde(default)]
@@ -35,7 +34,6 @@ impl Default for GameSetup {
         Self {
             among_us_path: String::new(),
             game_platform: GamePlatform::Steam,
-            xbox_app_id: None,
             linux_runner_kind: LinuxRunnerKind::Steam,
             linux_runner_binary: String::new(),
             linux_wine_prefix: String::new(),

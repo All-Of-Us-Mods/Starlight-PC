@@ -18,12 +18,14 @@ use std::path::Path;
 use std::process::Command;
 
 /// Resolve the Start Menu app id for Among Us via PowerShell's `Get-StartApps`.
+/// Only packaged app ids (`Family!App`) qualify: Steam's Start Menu shortcut is
+/// also named "Among Us" and would launch the Steam copy instead.
 pub fn get_xbox_app_id() -> AppResult<String> {
     let output = Command::new("powershell")
         .args([
             "-NoProfile",
             "-Command",
-            "(Get-StartApps | Where-Object { $_.Name -like '*Among Us*' }).AppId",
+            "(Get-StartApps | Where-Object { $_.Name -like '*Among Us*' -and $_.AppId -like '*!*' }).AppId",
         ])
         .output()
         .map_err(|e| AppError::process(format!("Failed to run PowerShell: {e}")))?;

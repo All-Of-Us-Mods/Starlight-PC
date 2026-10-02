@@ -264,22 +264,6 @@ fn attach_epic_launch_args(_cmd: &mut Command, _platform: GamePlatform) -> AppRe
     Ok(())
 }
 
-#[cfg(windows)]
-fn ensure_xbox_app_id(game: &GameSetup) -> AppResult<String> {
-    if let Some(app_id) = game
-        .xbox_app_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return Ok(app_id.to_string());
-    }
-
-    let app_id = xbox_service::get_xbox_app_id()?;
-    core_service::update_settings(|s| s.game.xbox_app_id = Some(app_id.clone()))?;
-    Ok(app_id)
-}
-
 fn launch_process(
     mut cmd: Command,
     profile_id: Option<String>,
@@ -597,7 +581,7 @@ pub fn launch_vanilla_from_settings() -> AppResult<()> {
 
     #[cfg(windows)]
     if matches!(game.game_platform, GamePlatform::Xbox) {
-        let app_id = ensure_xbox_app_id(game)?;
+        let app_id = xbox_service::get_xbox_app_id()?;
         xbox_service::cleanup_xbox_files(game_exe.parent().expect("game_exe has a parent"))?;
         return xbox_service::launch_xbox(&app_id);
     }
@@ -702,7 +686,7 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
 
     #[cfg(windows)]
     if matches!(game.game_platform, GamePlatform::Xbox) {
-        let app_id = ensure_xbox_app_id(game)?;
+        let app_id = xbox_service::get_xbox_app_id()?;
         let game_dir = game_exe.parent().expect("game_exe has a parent");
         xbox_service::prepare_xbox_launch(runtime.root(), game_dir)?;
         xbox_service::launch_xbox(&app_id)?;
