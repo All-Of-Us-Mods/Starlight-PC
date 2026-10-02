@@ -1,4 +1,5 @@
-//! Architecture inspection shared by game executables and native runtimes.
+//! PE inspection: the architecture of game executables and native runtimes,
+//! and the version resource of plugin assemblies.
 
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -47,6 +48,244 @@ pub fn read_pe_arch(path: &Path) -> Option<BinaryArch> {
     }
 }
 
+/// A binary's name and version from its Win32 version resource. .NET
+/// compilers fill `FileDescription` from `[AssemblyTitle]` and
+/// `ProductVersion` from `[AssemblyInformationalVersion]`; both default to the
+/// assembly's name and version. `ProductName` is avoided: native libraries
+/// often set it to their vendor's product, e.g. "Microsoft® Windows® Operating
+/// System".
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct VersionInfo {
+    pub name: Option<String>,
+    pub version: Option<String>,
+}
+
+/// Version resources are small; `wLength` is a `u16`.
+const MAX_VERSION_INFO: u32 = u16::MAX as u32;
+const RT_VERSION: u32 = 16;
+
+/// Read a PE file's version resource. Missing, malformed and resource-less
+/// binaries have none. Only the headers and the few resource entries leading
+/// to it are read, never the IL and embedded assets that make up most of a
+/// plugin.
+pub fn read_pe_version_info(path: &Path) -> Option<VersionInfo> {
+    let mut file = File::open(path).ok()?;
+    let mut headers = Vec::new();
+    (&mut file).take(0x1000).read_to_end(&mut headers).ok()?;
+    if headers.get(..2)? != b"MZ" {
+        return None;
+    }
+    let pe = u32_at(&headers, 0x3C)? as usize;
+    if headers.get(pe..pe + 4)? != b"PE\0\0" {
+        return None;
+    }
+    let section_count = u16_at(&headers, pe + 6)? as usize;
+    let optional = pe + 24;
+    let directories = match u16_at(&headers, optional)? {
+        0x10b => optional + 96,
+        0x20b => optional + 112,
+        _ => return None,
+    };
+    if u32_at(&headers, directories - 4)? <= 2 {
+        return None;
+    }
+    let root = u32_at(&headers, directories + 16)?;
+    let sections = optional + u16_at(&headers, pe + 20)? as usize;
+    let section = (0..section_count).find_map(|ix| {
+        let header = sections + ix * 40;
+        let section = Section {
+            base: u32_at(&headers, header + 12)?,
+            size: u32_at(&headers, header + 16)?,
+            offset: u32_at(&headers, header + 20)?,
+        };
+        section.contains(root).then_some(section)
+    })?;
+    let mut tree = ResourceTree {
+        file,
+        section,
+        root,
+    };
+
+    // Resource tree: type -> name -> language -> data. Assemblies carry a
+    // single version resource, so the first name and language are it.
+    let names = tree.subdirectory(0, Some(RT_VERSION))?;
+    let languages = tree.subdirectory(names, None)?;
+    let leaf = tree.child(languages, None)?;
+    let leaf = tree.read(leaf, 8)?;
+    let data_len = u32_at(&leaf, 4)?.min(MAX_VERSION_INFO);
+    let data = tree.read_rva(u32_at(&leaf, 0)?, data_len)?;
+    parse_version_info(&data)
+}
+
+/// The section holding the resource tree: where it sits in memory (`base`)
+/// and in the file (`offset`).
+struct Section {
+    base: u32,
+    size: u32,
+    offset: u32,
+}
+
+impl Section {
+    fn contains(&self, rva: u32) -> bool {
+        rva.checked_sub(self.base)
+            .is_some_and(|rel| rel < self.size)
+    }
+}
+
+/// Reads parts of a resource tree straight from the file. Directory offsets
+/// are relative to the tree's `root`; data entries point at RVAs.
+struct ResourceTree {
+    file: File,
+    section: Section,
+    root: u32,
+}
+
+impl ResourceTree {
+    /// The subdirectory under `dir` matching `id` (or the first one).
+    fn subdirectory(&mut self, dir: u32, id: Option<u32>) -> Option<u32> {
+        let child = self.child(dir, id)?;
+        (child & 0x8000_0000 != 0).then_some(child & 0x7FFF_FFFF)
+    }
+
+    /// The raw offset of the entry under `dir` matching `id` (or the first
+    /// one); its high bit marks a subdirectory.
+    fn child(&mut self, dir: u32, id: Option<u32>) -> Option<u32> {
+        let header = self.read(dir, 16)?;
+        let count = u32::from(u16_at(&header, 12)?) + u32::from(u16_at(&header, 14)?);
+        let entries = self.read(dir.checked_add(16)?, count * 8)?;
+        entries
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .find(|entry| id.is_none_or(|id| u32_at(&entry[..], 0) == Some(id)))
+            .and_then(|entry| u32_at(&entry[..], 4))
+    }
+
+    fn read(&mut self, offset: u32, len: u32) -> Option<Vec<u8>> {
+        self.read_rva(self.root.checked_add(offset)?, len)
+    }
+
+    fn read_rva(&mut self, rva: u32, len: u32) -> Option<Vec<u8>> {
+        let end = rva.checked_add(len)?;
+        if !self.section.contains(rva) || end - self.section.base > self.section.size {
+            return None;
+        }
+        let offset = u64::from(self.section.offset) + u64::from(rva - self.section.base);
+        self.file.seek(SeekFrom::Start(offset)).ok()?;
+        let mut bytes = Vec::new();
+        (&mut self.file)
+            .take(len.into())
+            .read_to_end(&mut bytes)
+            .ok()?;
+        (bytes.len() == len as usize).then_some(bytes)
+    }
+}
+
+/// `VS_VERSIONINFO` -> `StringFileInfo` -> string tables -> strings.
+fn parse_version_info(data: &[u8]) -> Option<VersionInfo> {
+    let root = VersionBlock::parse(data)?;
+    if root.key != "VS_VERSION_INFO" {
+        return None;
+    }
+    let mut info = VersionInfo::default();
+    let strings = root
+        .children()
+        .filter(|block| block.key == "StringFileInfo")
+        .flat_map(|block| block.children())
+        .flat_map(|table| table.children());
+    for string in strings {
+        let value = utf16_until_nul(string.value);
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        match string.key.as_str() {
+            "FileDescription" => {
+                info.name.get_or_insert_with(|| value.to_string());
+            }
+            // SDK-style projects append `+<commit>` build metadata.
+            "ProductVersion" => {
+                let version = value.split('+').next().unwrap_or(value).trim();
+                info.version.get_or_insert_with(|| version.to_string());
+            }
+            _ => {}
+        }
+    }
+    Some(info)
+}
+
+/// One node of a version resource: a UTF-16 key, a value and child nodes,
+/// each part aligned to 4 bytes.
+struct VersionBlock<'a> {
+    key: String,
+    value: &'a [u8],
+    children: &'a [u8],
+}
+
+impl<'a> VersionBlock<'a> {
+    fn parse(data: &'a [u8]) -> Option<Self> {
+        let block = data.get(..u16_at(data, 0)? as usize)?;
+        let value_len = u16_at(block, 2)? as usize;
+        // Text values are measured in UTF-16 units, binary ones in bytes.
+        let value_len = if u16_at(block, 4)? == 1 {
+            value_len * 2
+        } else {
+            value_len
+        };
+        let key_units = block
+            .get(6..)?
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .position(|unit| unit == &[0, 0])?;
+        let key = utf16_until_nul(&block[6..]);
+        let value_start = align4(6 + (key_units + 1) * 2).min(block.len());
+        let value_end = (value_start + value_len).min(block.len());
+        Some(Self {
+            key,
+            value: &block[value_start..value_end],
+            children: &block[align4(value_end).min(block.len())..],
+        })
+    }
+
+    fn children(&self) -> impl Iterator<Item = VersionBlock<'a>> + use<'a> {
+        let mut rest = self.children;
+        std::iter::from_fn(move || {
+            let block = VersionBlock::parse(rest)?;
+            let len = u16_at(rest, 0)? as usize;
+            rest = rest.get(align4(len).max(1)..).unwrap_or_default();
+            Some(block)
+        })
+    }
+}
+
+fn utf16_until_nul(bytes: &[u8]) -> String {
+    let units: Vec<u16> = bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&unit| u16::from_le_bytes(unit))
+        .take_while(|&unit| unit != 0)
+        .collect();
+    String::from_utf16_lossy(&units)
+}
+
+fn align4(offset: usize) -> usize {
+    (offset + 3) & !3
+}
+
+fn u16_at(bytes: &[u8], offset: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(
+        bytes.get(offset..offset + 2)?.try_into().ok()?,
+    ))
+}
+
+fn u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(
+        bytes.get(offset..offset + 4)?.try_into().ok()?,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,5 +329,117 @@ mod tests {
             fs::write(&path, bytes).unwrap();
             assert_eq!(read_pe_arch(&path), None);
         }
+    }
+
+    #[test]
+    fn reads_file_description_and_product_version_without_build_metadata() {
+        let dir = TempDir::new("version-info");
+        let path = dir.0.join("Plugin.dll");
+        fs::write(
+            &path,
+            pe_with_version_info(&[
+                ("ProductName", "Microsoft® Windows® Operating System"),
+                ("FileDescription", "MiraAPI"),
+                ("ProductVersion", "0.5.0+0123abcd"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(
+            read_pe_version_info(&path),
+            Some(VersionInfo {
+                name: Some("MiraAPI".into()),
+                version: Some("0.5.0".into()),
+            })
+        );
+
+        fs::write(&path, pe_with_version_info(&[("FileDescription", " ")])).unwrap();
+        assert_eq!(read_pe_version_info(&path), Some(VersionInfo::default()));
+        // Large resource sections are read only where the version resource is.
+        let after_icons = pe_with_version_info_after(&[("ProductVersion", "2.0.0")], 2 << 20);
+        fs::write(&path, after_icons).unwrap();
+        assert_eq!(
+            read_pe_version_info(&path).unwrap().version.as_deref(),
+            Some("2.0.0")
+        );
+        // A PE without a resource section has no version info.
+        fs::write(&path, pe_bytes(0x014c)).unwrap();
+        assert_eq!(read_pe_version_info(&path), None);
+    }
+
+    /// A PE32 whose only section holds a version resource with `strings`.
+    fn pe_with_version_info(strings: &[(&str, &str)]) -> Vec<u8> {
+        pe_with_version_info_after(strings, 0)
+    }
+
+    /// Like [`pe_with_version_info`], with `gap` bytes of other resource data
+    /// before the version resource.
+    fn pe_with_version_info_after(strings: &[(&str, &str)], gap: usize) -> Vec<u8> {
+        let strings: Vec<u8> = strings
+            .iter()
+            .flat_map(|(key, value)| version_block(key, 1, &utf16z(value), &[]))
+            .collect();
+        let table = version_block("000004b0", 1, &[], &strings);
+        let file_info = version_block("StringFileInfo", 1, &[], &table);
+        let version = version_block("VS_VERSION_INFO", 0, &[0; 52], &file_info);
+
+        let (rva, raw) = (0x1000u32, 0x200usize);
+        let mut tree = vec![0u8; 88];
+        for (dir, id, child) in [
+            (0, 16u32, 0x8000_0018u32),
+            (24, 1, 0x8000_0030),
+            (48, 0x409, 72),
+        ] {
+            tree[dir + 14..dir + 16].copy_from_slice(&1u16.to_le_bytes());
+            tree[dir + 16..dir + 20].copy_from_slice(&id.to_le_bytes());
+            tree[dir + 20..dir + 24].copy_from_slice(&child.to_le_bytes());
+        }
+        tree[72..76].copy_from_slice(&(rva + 88 + gap as u32).to_le_bytes());
+        tree[76..80].copy_from_slice(&(version.len() as u32).to_le_bytes());
+        tree.resize(88 + gap, 0);
+        tree.extend(version);
+
+        let mut bytes = pe_bytes(0x014c);
+        bytes.resize(raw, 0);
+        let put = |bytes: &mut Vec<u8>, at: usize, value: &[u8]| {
+            bytes[at..at + value.len()].copy_from_slice(value)
+        };
+        put(&mut bytes, 0x46, &1u16.to_le_bytes());
+        put(&mut bytes, 0x54, &224u16.to_le_bytes());
+        put(&mut bytes, 0x58, &0x10bu16.to_le_bytes());
+        put(&mut bytes, 0x58 + 92, &16u32.to_le_bytes());
+        put(&mut bytes, 0x58 + 112, &rva.to_le_bytes());
+        let section = 0x58 + 224;
+        put(&mut bytes, section + 12, &rva.to_le_bytes());
+        put(&mut bytes, section + 16, &(tree.len() as u32).to_le_bytes());
+        put(&mut bytes, section + 20, &(raw as u32).to_le_bytes());
+        bytes.extend(tree);
+        bytes
+    }
+
+    fn version_block(key: &str, kind: u16, value: &[u8], children: &[u8]) -> Vec<u8> {
+        let value_len = if kind == 1 {
+            value.len() / 2
+        } else {
+            value.len()
+        };
+        let mut block = vec![0, 0];
+        block.extend((value_len as u16).to_le_bytes());
+        block.extend(kind.to_le_bytes());
+        block.extend(utf16z(key));
+        block.resize(align4(block.len()), 0);
+        block.extend(value);
+        block.resize(align4(block.len()), 0);
+        block.extend(children);
+        let len = (block.len() as u16).to_le_bytes();
+        block[..2].copy_from_slice(&len);
+        block.resize(align4(block.len()), 0);
+        block
+    }
+
+    fn utf16z(text: &str) -> Vec<u8> {
+        text.encode_utf16()
+            .chain([0])
+            .flat_map(u16::to_le_bytes)
+            .collect()
     }
 }

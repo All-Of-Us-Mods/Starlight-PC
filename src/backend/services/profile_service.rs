@@ -1,3 +1,4 @@
+use crate::backend::binary::read_pe_version_info;
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::bepinex_runtime::BepInExRuntime;
 use crate::backend::services::core_service::AppSettings;
@@ -13,9 +14,9 @@ use std::path::{Path, PathBuf};
 use crate::backend::directories;
 
 const PROFILE_METADATA_FILE: &str = "metadata.json";
-/// Id prefix of custom mods: plugins on disk that no catalog mod claims.
-/// Catalog ids never contain `:`.
-pub const CUSTOM_MOD_PREFIX: &str = "custom:";
+/// 2.3.0 stored custom mods in metadata as catalog entries with this id
+/// prefix; they are dropped on load and import. Catalog ids never contain `:`.
+const LEGACY_CUSTOM_MOD_PREFIX: &str = "custom:";
 const CUSTOM_ICON_BASE_NAME: &str = "icon";
 const CUSTOM_ICON_EXTENSIONS: [&str; 7] =
     [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif"];
@@ -34,9 +35,24 @@ pub struct ProfileModEntry {
     pub enabled: bool,
 }
 
-impl ProfileModEntry {
-    pub fn is_custom(&self) -> bool {
-        self.mod_id.starts_with(CUSTOM_MOD_PREFIX)
+/// A plugin on disk that no catalog mod claims, described by its own version
+/// resource.
+#[derive(Debug, Clone)]
+pub struct CustomMod {
+    pub file: String,
+    pub enabled: bool,
+    pub name: Option<String>,
+    pub version: Option<String>,
+}
+
+impl CustomMod {
+    pub fn display_name(&self) -> &str {
+        self.name.as_deref().unwrap_or(self.file_name())
+    }
+
+    /// The plugin's file name, without the folders it's nested in.
+    pub fn file_name(&self) -> &str {
+        self.file.rsplit('/').next().unwrap_or(&self.file)
     }
 }
 
@@ -51,7 +67,11 @@ pub struct ProfileEntry {
     pub icon_mode: Option<String>,
     pub custom_icon_extension: Option<String>,
     pub icon_mod_id: Option<String>,
+    /// Catalog mods.
     pub mods: Vec<ProfileModEntry>,
+    /// Read from the plugins folder, never stored.
+    #[serde(skip)]
+    pub custom_mods: Vec<CustomMod>,
     /// Linked installation to launch; `None` uses the default from Settings.
     #[serde(default)]
     pub installation_id: Option<String>,
@@ -105,8 +125,10 @@ impl ProfileEntry {
     /// Catalog mods take their enabled state from disk; plugins no catalog mod
     /// claims become custom mods.
     fn attach_plugins(&mut self) {
-        let mut on_disk = self.plugins().scan();
-        self.mods.retain(|mod_entry| !mod_entry.is_custom());
+        let plugins = self.plugins();
+        let mut on_disk = plugins.scan();
+        self.mods
+            .retain(|mod_entry| !mod_entry.mod_id.starts_with(LEGACY_CUSTOM_MOD_PREFIX));
         for mod_entry in &mut self.mods {
             if let Some(enabled) = mod_entry
                 .file
@@ -116,13 +138,18 @@ impl ProfileEntry {
                 mod_entry.enabled = enabled;
             }
         }
-        self.mods
-            .extend(on_disk.into_iter().map(|(file, enabled)| ProfileModEntry {
-                mod_id: format!("{CUSTOM_MOD_PREFIX}{file}"),
-                version: String::new(),
-                file: Some(file),
-                enabled,
-            }));
+        self.custom_mods = on_disk
+            .into_iter()
+            .map(|(file, enabled)| {
+                let info = read_pe_version_info(&plugins.path(&file, enabled)).unwrap_or_default();
+                CustomMod {
+                    file,
+                    enabled,
+                    name: info.name,
+                    version: info.version,
+                }
+            })
+            .collect();
     }
 }
 
@@ -198,9 +225,7 @@ fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> AppResult<Option<P
 fn write_profile(profile: &ProfileEntry) -> AppResult<()> {
     let profile_dir = PathBuf::from(&profile.path);
     fs::create_dir_all(&profile_dir)?;
-    let mut stored = profile.clone();
-    stored.mods.retain(|mod_entry| !mod_entry.is_custom());
-    let metadata = serde_json::to_vec_pretty(&stored)?;
+    let metadata = serde_json::to_vec_pretty(profile)?;
     let metadata_path = metadata_path(&profile_dir);
     let temporary_path = metadata_path.with_extension("json.tmp");
     fs::write(&temporary_path, metadata)?;
@@ -365,6 +390,7 @@ pub fn create_profile(name: &str) -> AppResult<ProfileEntry> {
         custom_icon_extension: None,
         icon_mod_id: None,
         mods: vec![],
+        custom_mods: vec![],
         installation_id: None,
     };
     if let Err(error) = write_profile(&profile) {
@@ -533,11 +559,11 @@ pub fn add_mod_to_profile(
     write_profile(&profile)
 }
 
-pub fn set_mod_enabled(profile_id: &str, mod_id: &str, enabled: bool) -> AppResult<()> {
-    let profile = load_profile(profile_id)?;
-    profile
+/// Toggle a catalog or custom mod by its plugin file.
+pub fn set_plugin_enabled(profile_id: &str, file: &str, enabled: bool) -> AppResult<()> {
+    load_profile(profile_id)?
         .plugins()
-        .set_enabled(installed_file(&profile, mod_id)?, enabled)
+        .set_enabled(file, enabled)
 }
 
 pub fn add_play_time(profile_id: &str, duration_ms: i64) -> AppResult<()> {
@@ -555,10 +581,19 @@ pub fn remove_mod_from_profile(profile_id: &str, mod_id: &str) -> AppResult<()> 
 
 pub fn uninstall_mod_from_profile(profile_id: &str, mod_id: &str) -> AppResult<()> {
     let profile = load_profile(profile_id)?;
-    if let Ok(file) = installed_file(&profile, mod_id) {
+    if let Some(file) = profile
+        .mods
+        .iter()
+        .find(|mod_entry| mod_entry.mod_id == mod_id)
+        .and_then(|mod_entry| mod_entry.file.as_deref())
+    {
         profile.plugins().remove(file)?;
     }
     remove_mod_from_profile(profile_id, mod_id)
+}
+
+pub fn remove_custom_mod(profile_id: &str, file: &str) -> AppResult<()> {
+    load_profile(profile_id)?.plugins().remove(file)
 }
 
 /// Copy a plugin into the profile; it shows up as a custom mod. Returns its
@@ -567,17 +602,6 @@ pub fn import_mod_to_profile(profile_id: &str, source_path: &str) -> AppResult<S
     load_profile(profile_id)?
         .plugins()
         .import(Path::new(source_path))
-}
-
-fn installed_file<'a>(profile: &'a ProfileEntry, mod_id: &str) -> AppResult<&'a str> {
-    profile
-        .mods
-        .iter()
-        .find(|mod_entry| mod_entry.mod_id == mod_id)
-        .ok_or_else(|| AppError::validation("Mod is not installed in this profile"))?
-        .file
-        .as_deref()
-        .ok_or_else(|| AppError::validation("This mod has no plugin file"))
 }
 
 pub fn get_profile_log(profile_path: &str, file_name: &str) -> String {
@@ -674,7 +698,8 @@ fn imported_mods(metadata: ImportedMetadata) -> Vec<ProfileModEntry> {
             .collect(),
         _ => Vec::new(),
     };
-    mods.retain(|mod_entry| !mod_entry.is_custom());
+    // 2.3.0 stored custom mods here; keep them out of the new profile.
+    mods.retain(|mod_entry| !mod_entry.mod_id.starts_with(LEGACY_CUSTOM_MOD_PREFIX));
     for mod_entry in &mut mods {
         mod_entry.file = mod_entry
             .file
@@ -789,6 +814,7 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
                 .and_then(|ext| normalize_custom_icon_extension(&ext)),
             icon_mod_id: imported.as_ref().and_then(|item| item.icon_mod_id.clone()),
             mods: imported.map(imported_mods).unwrap_or_default(),
+            custom_mods: Vec::new(),
             installation_id: None,
         };
         normalize_icon_selection(&mut profile);
@@ -864,6 +890,7 @@ mod tests {
             custom_icon_extension: None,
             icon_mod_id: None,
             mods,
+            custom_mods: Vec::new(),
             installation_id: None,
         }
     }
@@ -963,15 +990,11 @@ mod tests {
         fs::write(dir.plugins().join("Tracked.dll.disabled"), b"x").unwrap();
         fs::write(dir.plugins().join("Loose.dll"), b"x").unwrap();
 
-        let stale_custom = ProfileModEntry {
-            mod_id: format!("{CUSTOM_MOD_PREFIX}Gone.dll"),
-            version: String::new(),
-            file: Some("Gone.dll".into()),
-            enabled: true,
-        };
+        // Stored by older versions; dropped instead of claiming the plugin.
+        let legacy_custom = tracked("custom:Loose.dll", "Loose.dll");
         let mut profile = profile_at(
             &dir,
-            vec![tracked("catalog-mod", "Tracked.dll"), stale_custom],
+            vec![tracked("catalog-mod", "Tracked.dll"), legacy_custom],
         );
         profile.attach_plugins();
 
@@ -980,7 +1003,13 @@ mod tests {
             .iter()
             .map(|m| (m.mod_id.as_str(), m.enabled))
             .collect();
-        assert_eq!(mods, [("catalog-mod", false), ("custom:Loose.dll", true)]);
+        assert_eq!(mods, [("catalog-mod", false)]);
+        let custom: Vec<_> = profile
+            .custom_mods
+            .iter()
+            .map(|m| (m.display_name(), m.enabled, m.version.as_deref()))
+            .collect();
+        assert_eq!(custom, [("Loose.dll", true, None)]);
     }
 
     #[test]
@@ -995,6 +1024,7 @@ mod tests {
             serde_json::from_slice(&fs::read(metadata_path(&dir.0)).unwrap()).unwrap();
         assert_eq!(stored["mods"].as_array().unwrap().len(), 1);
         assert!(stored["mods"][0].get("enabled").is_none());
+        assert!(stored.get("custom_mods").is_none());
     }
 
     #[test]
@@ -1009,5 +1039,21 @@ mod tests {
         assert_eq!(reactor.file.as_deref(), Some("Reactor/Reactor.dll"));
         let evil = mods.iter().find(|m| m.mod_id == "evil").unwrap();
         assert!(evil.file.is_none());
+    }
+
+    #[test]
+    fn imported_raw_profiles_drop_legacy_custom_entries() {
+        let metadata: ImportedMetadata = serde_json::from_value(serde_json::json!({
+            "mods": [
+                {"mod_id": "reactor", "version": "2.0.0", "file": "Reactor.dll"},
+                {"mod_id": "custom:Loose.dll", "version": "", "file": "Loose.dll"}
+            ]
+        }))
+        .unwrap();
+        let ids: Vec<_> = imported_mods(metadata)
+            .into_iter()
+            .map(|m| m.mod_id)
+            .collect();
+        assert_eq!(ids, ["reactor"]);
     }
 }

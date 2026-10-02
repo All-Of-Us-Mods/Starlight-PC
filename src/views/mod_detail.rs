@@ -1026,6 +1026,7 @@ mod tests {
             custom_icon_extension: None,
             icon_mod_id: None,
             mods: vec![],
+            custom_mods: vec![],
             installation_id: None,
         }
     }
