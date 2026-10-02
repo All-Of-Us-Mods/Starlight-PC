@@ -140,7 +140,7 @@ impl LibraryView {
         let mod_ids: HashSet<String> = profiles
             .iter()
             .flat_map(|profile| &profile.mods)
-            .filter(|installed| installed.enabled && !installed.is_custom())
+            .filter(|installed| installed.enabled)
             .map(|installed| installed.mod_id.clone())
             .collect();
         if mod_ids.is_empty() {
@@ -563,7 +563,7 @@ impl LibraryView {
                         div().text_xs().text_color(theme.muted_foreground).child(
                             t!(
                                 "library.card_stats",
-                                mods = profile.mods.len(),
+                                mods = profile.mods.len() + profile.custom_mods.len(),
                                 played = format::play_time(profile.total_play_time),
                             )
                             .to_string(),

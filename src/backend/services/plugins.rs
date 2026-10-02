@@ -33,6 +33,15 @@ impl Plugins {
         found
     }
 
+    /// Where a scanned plugin currently lives, for reading it.
+    pub fn path(&self, file: &str, enabled: bool) -> PathBuf {
+        if enabled {
+            self.dir.join(file)
+        } else {
+            self.dir.join(format!("{file}{DISABLED_SUFFIX}"))
+        }
+    }
+
     pub fn set_enabled(&self, file: &str, enabled: bool) -> AppResult<()> {
         let [on, off] = self.paths(file)?;
         let (from, to) = if enabled { (off, on) } else { (on, off) };

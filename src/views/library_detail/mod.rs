@@ -233,12 +233,7 @@ impl LibraryDetailView {
         let LoadState::Loaded(profile) = &self.state else {
             return;
         };
-        let mod_ids: Vec<String> = profile
-            .mods
-            .iter()
-            .filter(|m| !m.is_custom())
-            .map(|m| m.mod_id.clone())
-            .collect();
+        let mod_ids: Vec<String> = profile.mods.iter().map(|m| m.mod_id.clone()).collect();
         if mod_ids.is_empty() {
             return;
         }
@@ -317,12 +312,19 @@ impl LibraryDetailView {
         .detach();
     }
 
-    fn toggle_mod(&mut self, mod_id: String, enabled: bool, cx: &mut Context<Self>) {
+    fn toggle_mod(&mut self, file: String, enabled: bool, cx: &mut Context<Self>) {
         // Optimistic UI update; reverted by a reload if the on-disk op fails.
-        if let LoadState::Loaded(profile) = &mut self.state
-            && let Some(entry) = profile.mods.iter_mut().find(|m| m.mod_id == mod_id)
-        {
-            entry.enabled = enabled;
+        if let LoadState::Loaded(profile) = &mut self.state {
+            let catalog = profile
+                .mods
+                .iter_mut()
+                .filter(|m| m.file.as_ref() == Some(&file));
+            for entry in catalog {
+                entry.enabled = enabled;
+            }
+            for entry in profile.custom_mods.iter_mut().filter(|m| m.file == file) {
+                entry.enabled = enabled;
+            }
         }
         cx.notify();
 
@@ -331,7 +333,7 @@ impl LibraryDetailView {
             let result = cx
                 .background_executor()
                 .spawn(
-                    async move { profile_service::set_mod_enabled(&profile_id, &mod_id, enabled) },
+                    async move { profile_service::set_plugin_enabled(&profile_id, &file, enabled) },
                 )
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -462,7 +464,7 @@ impl LibraryDetailView {
     /// be undone from here.
     fn confirm_delete_mod(
         &mut self,
-        mod_id: String,
+        target: ModRef,
         display: String,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -470,7 +472,7 @@ impl LibraryDetailView {
         let view = cx.entity();
         window.open_alert_dialog(cx, move |alert, _window, cx| {
             let view = view.clone();
-            let mod_id = mod_id.clone();
+            let target = target.clone();
             alert
                 .icon(Icon::new(IconName::TriangleAlert).text_color(cx.theme().danger))
                 .title(t!("profile.remove_mod_title"))
@@ -483,29 +485,39 @@ impl LibraryDetailView {
                         .show_cancel(true),
                 )
                 .on_ok(move |_, _window, cx| {
-                    let mod_id = mod_id.clone();
-                    view.update(cx, |this, cx| this.delete_mod(mod_id, cx));
+                    let target = target.clone();
+                    view.update(cx, |this, cx| this.delete_mod(target, cx));
                     true
                 })
         });
     }
 
-    fn delete_mod(&mut self, mod_id: String, cx: &mut Context<Self>) {
+    fn delete_mod(&mut self, target: ModRef, cx: &mut Context<Self>) {
         // Optimistically drop the row; the reload afterwards confirms it (or
         // brings it back if the on-disk op failed).
         if let LoadState::Loaded(profile) = &mut self.state {
-            profile.mods.retain(|m| m.mod_id != mod_id);
+            match &target {
+                ModRef::Catalog(mod_id) => profile.mods.retain(|m| &m.mod_id != mod_id),
+                ModRef::Custom(file) => profile.custom_mods.retain(|m| &m.file != file),
+            }
         }
         cx.notify();
 
         let profile_id = self.profile_id.clone();
         cx.spawn(async move |this, cx| {
-            let result =
-                cx.background_executor()
-                    .spawn(async move {
-                        profile_service::uninstall_mod_from_profile(&profile_id, &mod_id)
-                    })
-                    .await;
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    match target {
+                        ModRef::Catalog(mod_id) => {
+                            profile_service::uninstall_mod_from_profile(&profile_id, &mod_id)
+                        }
+                        ModRef::Custom(file) => {
+                            profile_service::remove_custom_mod(&profile_id, &file)
+                        }
+                    }
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 if let Err(e) = result {
                     warn!("delete mod failed: {e}");
@@ -1319,52 +1331,71 @@ impl LibraryDetailView {
         let outdated_count = updates.len();
         let updating_all = !self.updating_mods.is_empty();
         {
-            let entries: Vec<AnyElement> = profile
+            let rows: Vec<ModRow> = profile
                 .mods
                 .iter()
+                .map(|m| ModRow {
+                    target: ModRef::Catalog(m.mod_id.clone()),
+                    name: mod_display_name(m, &mod_names),
+                    file_note: None,
+                    version: m.version.clone(),
+                    thumbnail: Some(api::mod_thumbnail_url(&m.mod_id)),
+                    file: m.file.clone(),
+                    enabled: m.enabled,
+                    update: latest_versions
+                        .get(&m.mod_id)
+                        .filter(|latest| {
+                            m.enabled && mod_catalog_cache::is_version_outdated(&m.version, latest)
+                        })
+                        .map(|latest| (m.mod_id.clone(), latest.clone())),
+                    updating: self.updating_mods.contains(&m.mod_id),
+                })
+                .chain(profile.custom_mods.iter().map(|m| {
+                    ModRow {
+                        target: ModRef::Custom(m.file.clone()),
+                        name: m.display_name().to_string(),
+                        // The metadata name can be shared, e.g. by a native
+                        // library's helper DLLs.
+                        file_note: m.name.is_some().then(|| m.file_name().to_string()),
+                        version: m
+                            .version
+                            .clone()
+                            .unwrap_or_else(|| t!("profile.custom_mod").to_string()),
+                        thumbnail: None,
+                        file: Some(m.file.clone()),
+                        enabled: m.enabled,
+                        update: None,
+                        updating: false,
+                    }
+                }))
+                .collect();
+            let mod_count = rows.len();
+            let entries: Vec<AnyElement> = rows
+                .into_iter()
                 .enumerate()
                 .map(|(ix, m)| {
-                    let display = mod_display_name(m, &mod_names);
-                    let display_for_confirm = display.clone();
-                    let is_last = ix + 1 == profile.mods.len();
+                    let is_last = ix + 1 == mod_count;
                     let name_color = if m.enabled {
                         theme.foreground
                     } else {
                         theme.muted_foreground
                     };
-                    let mod_id = m.mod_id.clone();
-                    let enabled = m.enabled;
-                    let has_file = m.file.is_some();
-                    let updating = self.updating_mods.contains(&m.mod_id);
-                    let latest_version = latest_versions
-                        .get(&m.mod_id)
-                        .filter(|latest| {
-                            m.enabled && mod_catalog_cache::is_version_outdated(&m.version, latest)
-                        })
-                        .cloned();
-                    // Custom mods have no catalog entry, so no thumbnail to
-                    // fetch — they fall back to the placeholder icon.
+                    let updating = m.updating;
+                    // Custom mods fall back to the placeholder icon.
                     let thumbnail = Avatar::new()
                         .with_size(px(32.0))
                         .rounded_md()
                         .placeholder(Icon::new(IconName::File))
-                        .when(!m.is_custom(), |this| {
-                            this.src(api::mod_thumbnail_url(&m.mod_id))
-                        });
-                    let version_label = if m.is_custom() {
-                        t!("profile.custom_mod").to_string()
-                    } else {
-                        m.version.clone()
-                    };
-                    let version: AnyElement = match latest_version.as_ref() {
-                        Some(latest) => div()
+                        .when_some(m.thumbnail, |this, src| this.src(src));
+                    let version: AnyElement = match m.update.as_ref() {
+                        Some((_, latest)) => div()
                             .flex()
                             .items_center()
                             .gap_1()
                             .flex_none()
                             .text_sm()
                             .text_color(theme.muted_foreground)
-                            .child(version_label)
+                            .child(m.version)
                             .child(Icon::new(IconName::ArrowRight).xsmall())
                             .child(
                                 div()
@@ -1377,16 +1408,25 @@ impl LibraryDetailView {
                             .flex_none()
                             .text_sm()
                             .text_color(theme.muted_foreground)
-                            .child(version_label)
+                            .child(m.version)
                             .into_any_element(),
                     };
-                    let mut row = div().flex().items_center().gap_3().px_3().py_2().hover({
-                        let hover_bg = theme.accent;
-                        move |s| s.bg(hover_bg)
-                    });
+                    let group = SharedString::from(format!("mod-row-{ix}"));
+                    let mut row = div()
+                        .group(group.clone())
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .px_3()
+                        .py_2()
+                        .hover({
+                            let hover_bg = theme.accent;
+                            move |s| s.bg(hover_bg)
+                        });
                     if !is_last {
                         row = row.border_b_1().border_color(theme.border);
                     }
+                    let (target, name) = (m.target, m.name.clone());
                     row.child(thumbnail)
                         .child(
                             div()
@@ -1398,16 +1438,25 @@ impl LibraryDetailView {
                                 .child(
                                     div()
                                         .min_w_0()
-                                        .flex_1()
                                         .truncate()
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(name_color)
-                                        .child(display),
-                                ),
+                                        .child(m.name),
+                                )
+                                .children(m.file_note.map(|file| {
+                                    div()
+                                        .invisible()
+                                        .group_hover(group, |s| s.visible())
+                                        .min_w_0()
+                                        .flex_1()
+                                        .truncate()
+                                        .text_size(px(10.0))
+                                        .text_color(theme.muted_foreground)
+                                        .child(file)
+                                })),
                         )
                         .child(version)
-                        .children(latest_version.map(|latest| {
-                            let mod_id = mod_id.clone();
+                        .children(m.update.map(|update| {
                             Button::new(SharedString::from(format!("mod-update-{ix}")))
                                 .ghost()
                                 .small()
@@ -1419,17 +1468,16 @@ impl LibraryDetailView {
                                 })
                                 .disabled(updating)
                                 .on_click(cx.listener(move |this, _, _window, cx| {
-                                    this.update_mods(vec![(mod_id.clone(), latest.clone())], cx)
+                                    this.update_mods(vec![update.clone()], cx)
                                 }))
                         }))
                         // Mods imported without a known filename can't be toggled on disk.
-                        .children(has_file.then(|| {
-                            let mod_id = mod_id.clone();
+                        .children(m.file.map(|file| {
                             Switch::new(SharedString::from(format!("mod-toggle-{ix}")))
-                                .checked(enabled)
+                                .checked(m.enabled)
                                 .disabled(updating)
                                 .on_click(cx.listener(move |this, checked: &bool, _window, cx| {
-                                    this.toggle_mod(mod_id.clone(), *checked, cx)
+                                    this.toggle_mod(file.clone(), *checked, cx)
                                 }))
                         }))
                         .child(
@@ -1439,8 +1487,8 @@ impl LibraryDetailView {
                                 .disabled(updating)
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.confirm_delete_mod(
-                                        mod_id.clone(),
-                                        display_for_confirm.clone(),
+                                        target.clone(),
+                                        name.clone(),
                                         window,
                                         cx,
                                     )
@@ -1472,7 +1520,7 @@ impl LibraryDetailView {
                         .justify_between()
                         .gap_2()
                         .child(section_heading(
-                            t!("profile.mods_heading", count = profile.mods.len(),).as_ref(),
+                            t!("profile.mods_heading", count = mod_count).as_ref(),
                         ))
                         .child(
                             div()
@@ -1586,6 +1634,30 @@ fn section_heading(text: &str) -> impl IntoElement {
         .text_sm()
         .font_weight(FontWeight::SEMIBOLD)
         .child(text.to_string())
+}
+
+/// What a row's delete button removes: a catalog mod by id, a custom mod by
+/// its plugin file.
+#[derive(Clone)]
+enum ModRef {
+    Catalog(String),
+    Custom(String),
+}
+
+/// One row of the mods list; catalog and custom mods render alike.
+struct ModRow {
+    target: ModRef,
+    name: String,
+    /// The plugin file, shown beside a name that isn't derived from it.
+    file_note: Option<String>,
+    version: String,
+    thumbnail: Option<String>,
+    /// Without one the mod can't be toggled on disk.
+    file: Option<String>,
+    enabled: bool,
+    /// `(mod_id, latest version)` when a catalog update is available.
+    update: Option<(String, String)>,
+    updating: bool,
 }
 
 /// The label to show for a mod row. Falls back to the on-disk filename when
