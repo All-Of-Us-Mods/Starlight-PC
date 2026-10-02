@@ -223,7 +223,6 @@ fn read_legacy_settings() -> AppResult<Option<AppSettings>> {
         allow_multi_instance_launch: Option<bool>,
         game_platform: Option<GamePlatform>,
         cache_bepinex: Option<bool>,
-        xbox_app_id: Option<String>,
         linux_runner_kind: Option<LinuxRunnerKind>,
         linux_runner_binary: Option<String>,
         linux_wine_prefix: Option<String>,
@@ -261,9 +260,6 @@ fn read_legacy_settings() -> AppResult<Option<AppSettings>> {
     }
     if let Some(value) = patch.cache_bepinex {
         settings.cache_bepinex = value;
-    }
-    if let Some(value) = patch.xbox_app_id {
-        settings.game.xbox_app_id = Some(value);
     }
     if let Some(value) = patch.linux_runner_kind {
         settings.game.linux_runner_kind = value;
