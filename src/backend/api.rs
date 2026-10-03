@@ -206,13 +206,17 @@ pub fn fetch_servers() -> AppResult<Vec<Server>> {
 /// so this tries HTTPS first and falls back to plain HTTP. Short timeouts keep
 /// a non-implementing or unresponsive server from stalling a refresh — callers
 /// treat any error as "this server has no lobby list" and skip it.
-pub fn fetch_lobbies(host: &str, port: u16) -> AppResult<GamesResult> {
+///
+/// `Ok(None)` means the server answered but 404'd the endpoint: it doesn't
+/// implement it, as opposed to being down for now.
+pub fn fetch_lobbies(host: &str, port: u16) -> AppResult<Option<GamesResult>> {
     let client = crate::backend::services::http_download::http_client(
         std::time::Duration::from_secs(5),
         std::time::Duration::from_secs(8),
     )?;
 
     let mut last_err = None;
+    let mut not_found = false;
     for scheme in ["https", "http"] {
         let default_port = if scheme == "https" { 443 } else { 80 };
         let origin = if port == default_port {
@@ -226,10 +230,16 @@ pub fn fetch_lobbies(host: &str, port: u16) -> AppResult<GamesResult> {
                 .send()
                 .and_then(reqwest::blocking::Response::error_for_status)
             {
-                Ok(response) => return Ok(response.json::<GamesResult>()?),
-                Err(e) => last_err = Some(e),
+                Ok(response) => return Ok(Some(response.json::<GamesResult>()?)),
+                Err(e) => {
+                    not_found |= e.status() == Some(reqwest::StatusCode::NOT_FOUND);
+                    last_err = Some(e);
+                }
             }
         }
+    }
+    if not_found {
+        return Ok(None);
     }
     Err(last_err.expect("loop runs at least once").into())
 }

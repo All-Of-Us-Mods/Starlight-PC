@@ -4,7 +4,7 @@
 //! join code or launch straight into a lobby — picking an existing profile or
 //! a temporary one, with the lobby's required mods installed automatically.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use gpui_kit::{prelude::FluentBuilder as _, *};
@@ -31,6 +31,9 @@ use gpui_kit::component::{Disableable, Icon, IconName, Sizable, WindowExt};
 
 /// How often the lobby list re-polls every enabled region.
 const REFRESH_INTERVAL_SECS: u64 = 12;
+/// A server that 404s the lobby endpoint this many polls in a row doesn't
+/// implement it; it's skipped for the rest of the session.
+const MAX_NOT_FOUND: u8 = 3;
 
 pub struct LobbiesView {
     state: LoadState,
@@ -48,6 +51,9 @@ pub struct LobbiesView {
     /// The auto-refresh loop while the page is on screen (see
     /// [`Self::set_polling`]); dropping it cancels it.
     poll: Option<Task<()>>,
+    /// Consecutive 404s from each lobby server (host, port); see
+    /// [`MAX_NOT_FOUND`].
+    not_found: HashMap<(String, u16), u8>,
 }
 
 enum LoadState {
@@ -97,6 +103,7 @@ impl LobbiesView {
             refreshing: false,
             mod_lookup_pending: HashSet::new(),
             poll: None,
+            not_found: HashMap::new(),
         }
     }
 
@@ -107,6 +114,8 @@ impl LobbiesView {
             self.poll = None;
             self.refreshing = false;
         } else if self.poll.is_none() {
+            // Each visit gives every server a fresh set of tries.
+            self.not_found.clear();
             self.poll = Some(Self::poll(cx));
         }
     }
@@ -140,9 +149,17 @@ impl LobbiesView {
                     }
                     Ok(servers) => {
                         // Poll every enabled region concurrently; a server that
-                        // errors or doesn't implement the endpoint is skipped.
+                        // errors or doesn't implement the endpoint is skipped,
+                        // and one that keeps 404ing isn't asked again.
+                        let not_found = this
+                            .read_with(cx, |this, _| this.not_found.clone())
+                            .unwrap_or_default();
                         let tasks: Vec<_> = servers
                             .into_iter()
+                            .filter(|srv| {
+                                let key = (srv.host.clone(), srv.port);
+                                not_found.get(&key).copied().unwrap_or(0) < MAX_NOT_FOUND
+                            })
                             .map(|srv| {
                                 let host = srv.host.clone();
                                 let port = srv.port;
@@ -154,10 +171,18 @@ impl LobbiesView {
                             .collect();
 
                         let mut rows: Vec<LobbyRow> = Vec::new();
+                        let mut not_found_now = Vec::new();
                         for (srv, task) in tasks {
-                            let Ok(result) = task.await else {
-                                continue;
+                            let key = (srv.host.clone(), srv.port);
+                            let result = match task.await {
+                                Ok(Some(result)) => result,
+                                Ok(None) => {
+                                    not_found_now.push((key, true));
+                                    continue;
+                                }
+                                Err(_) => continue,
                             };
+                            not_found_now.push((key, false));
                             for game in result.games {
                                 // Skip finished games — they can't be joined.
                                 if game.status.as_deref() == Some("Ended") {
@@ -197,6 +222,13 @@ impl LobbiesView {
                             .collect();
 
                         let _ = this.update(cx, |this, cx| {
+                            for (key, missing) in not_found_now {
+                                if missing {
+                                    *this.not_found.entry(key).or_insert(0) += 1;
+                                } else {
+                                    this.not_found.remove(&key);
+                                }
+                            }
                             this.state = LoadState::Loaded(rows);
                             this.refreshing = false;
                             this.ensure_mod_info(mod_ids, cx);
