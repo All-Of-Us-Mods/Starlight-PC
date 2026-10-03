@@ -34,7 +34,7 @@ use crate::ui::format;
 use crate::ui::icon::AppIcon;
 use crate::ui::log_panel::LogPanel;
 use crate::ui::profile_icon::profile_icon;
-use crate::views::page_root;
+use crate::views::{empty_state, page_root};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::alert::Alert;
 use gpui_kit::component::avatar::Avatar;
@@ -83,10 +83,6 @@ pub struct LibraryDetailView {
     /// can share a dependency, and would download over the same file and roll
     /// back each other's manifest entries.
     update_lock: Arc<Mutex<()>>,
-    /// Whether the cursor is over the hero icon / name, revealing their
-    /// inline edit buttons.
-    icon_hovered: bool,
-    name_hovered: bool,
 }
 
 pub(super) enum LoadState {
@@ -118,8 +114,6 @@ impl LibraryDetailView {
             mod_latest_versions: mod_catalog_cache::cached_latest_versions(),
             updating_mods: HashSet::new(),
             update_lock: Arc::new(Mutex::new(())),
-            icon_hovered: false,
-            name_hovered: false,
         };
 
         view.spawn_load(cx);
@@ -1053,17 +1047,12 @@ impl LibraryDetailView {
             .child(
                 div()
                     .id("profile-name-area")
+                    .group("profile-name-area")
                     .flex()
                     .items_center()
                     .gap_2()
                     .min_w_0()
                     .cursor_pointer()
-                    .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
-                        if this.name_hovered != *hovered {
-                            this.name_hovered = *hovered;
-                            cx.notify();
-                        }
-                    }))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.open_rename_dialog(window, cx);
                     }))
@@ -1075,16 +1064,19 @@ impl LibraryDetailView {
                             .truncate()
                             .child(profile.name.clone()),
                     )
-                    .when(self.name_hovered, |row| {
-                        row.child(
-                            // Affordance only — the whole name area is the
-                            // click target.
-                            Icon::new(AppIcon::Pencil)
-                                .small()
-                                .flex_none()
-                                .text_color(theme.muted_foreground),
-                        )
-                    }),
+                    .child(
+                        // Affordance only — the whole name area is the click
+                        // target. Revealed on hover.
+                        div()
+                            .flex_none()
+                            .invisible()
+                            .group_hover("profile-name-area", |s| s.visible())
+                            .child(
+                                Icon::new(AppIcon::Pencil)
+                                    .small()
+                                    .text_color(theme.muted_foreground),
+                            ),
+                    ),
             )
             .child(
                 div().text_sm().text_color(theme.muted_foreground).child(
@@ -1124,36 +1116,31 @@ impl LibraryDetailView {
                     .flex_wrap()
                     .child(
                         div()
-                            .id("profile-icon-area")
+                            .group("profile-icon-area")
                             .relative()
                             .flex_none()
-                            .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
-                                if this.icon_hovered != *hovered {
-                                    this.icon_hovered = *hovered;
-                                    cx.notify();
-                                }
-                            }))
                             .child(profile_icon(profile, 80.0))
-                            .when(self.icon_hovered, |icon| {
-                                icon.child(
-                                    div()
-                                        .id("profile-icon-edit")
-                                        .absolute()
-                                        .inset_0()
-                                        .rounded_md()
-                                        .bg(black().opacity(0.55))
-                                        .cursor_pointer()
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.open_icon_dialog(window, cx);
-                                        }))
-                                        // White reads on the dark scrim
-                                        // regardless of image or theme.
-                                        .child(Icon::new(AppIcon::Pencil).text_color(white())),
-                                )
-                            }),
+                            .child(
+                                // Revealed on hover; hidden, it takes no clicks.
+                                div()
+                                    .id("profile-icon-edit")
+                                    .absolute()
+                                    .inset_0()
+                                    .rounded_md()
+                                    .bg(black().opacity(0.55))
+                                    .cursor_pointer()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .invisible()
+                                    .group_hover("profile-icon-area", |s| s.visible())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_icon_dialog(window, cx);
+                                    }))
+                                    // White reads on the dark scrim
+                                    // regardless of image or theme.
+                                    .child(Icon::new(AppIcon::Pencil).text_color(white())),
+                            ),
                     )
                     .child(title_col)
                     .children(primary_controls.map(|c| div().flex_none().child(c))),
@@ -1352,7 +1339,7 @@ impl LibraryDetailView {
                                 } else {
                                     t!("profile.update_mod")
                                 })
-                                .disabled(updating)
+                                .loading(updating)
                                 .on_click(cx.listener(move |this, _, _window, cx| {
                                     this.update_mods(vec![update.clone()], cx)
                                 }))
@@ -1370,6 +1357,7 @@ impl LibraryDetailView {
                             Button::new(SharedString::from(format!("mod-delete-{ix}")))
                                 .ghost()
                                 .icon(Icon::new(IconName::Delete))
+                                .tooltip(t!("profile.remove_mod_title"))
                                 .disabled(updating)
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.confirm_delete_mod(
@@ -1384,13 +1372,7 @@ impl LibraryDetailView {
                 })
                 .collect();
             let list: AnyElement = if entries.is_empty() {
-                div()
-                    .px_3()
-                    .py_2()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(t!("profile.no_mods").to_string())
-                    .into_any_element()
+                empty_state(t!("profile.no_mods")).into_any_element()
             } else {
                 div().children(entries).into_any_element()
             };
@@ -1423,7 +1405,7 @@ impl LibraryDetailView {
                                             t!("profile.update_all_mods", count = outdated_count,)
                                                 .to_string()
                                         })
-                                        .disabled(updating_all)
+                                        .loading(updating_all)
                                         .on_click(cx.listener(move |this, _, _window, cx| {
                                             this.update_mods(updates.clone(), cx)
                                         }))

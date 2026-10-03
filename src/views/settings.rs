@@ -6,10 +6,12 @@ use gpui_kit::component::{
     AxisExt as _, Icon, IconName, Sizable as _, WindowExt,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
+    link::Link,
     notification::Notification,
     progress::Progress,
     scroll::ScrollableElement as _,
     setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
+    tag::Tag,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use log::warn;
@@ -944,13 +946,9 @@ impl Render for SettingsView {
                                         .child("Starlight PC"),
                                 )
                                 .child(
-                                    div()
-                                        .px_2()
-                                        .py_0p5()
+                                    Tag::secondary()
+                                        .small()
                                         .rounded_full()
-                                        .bg(theme.accent)
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
                                         .child(concat!("v", env!("CARGO_PKG_VERSION"))),
                                 ),
                         )
@@ -964,14 +962,9 @@ impl Render for SettingsView {
                                 .child("♡ 2026 All Of Us Mods")
                                 .child("|")
                                 .child(
-                                    div()
-                                        .id("about-license-link")
-                                        .cursor_pointer()
-                                        .hover(|s| s.text_color(theme.foreground))
-                                        .child(t!("settings.license"))
-                                        .on_click(|_, _, cx| {
-                                            cx.open_url("https://www.gnu.org/licenses/gpl-3.0.html")
-                                        }),
+                                    Link::new("about-license-link")
+                                        .href("https://www.gnu.org/licenses/gpl-3.0.html")
+                                        .child(t!("settings.license")),
                                 ),
                         )
                         .child(

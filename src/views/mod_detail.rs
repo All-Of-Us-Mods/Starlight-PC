@@ -1,5 +1,5 @@
 use gpui_kit::component::{
-    Disableable as _, Icon, IconName, Sizable as _, WindowExt,
+    Disableable as _, Icon, IconName, IndexPath, Sizable as _, WindowExt,
     alert::Alert,
     button::{Button, ButtonVariants, Toggle, ToggleVariants as _},
     checkbox::Checkbox,
@@ -7,8 +7,10 @@ use gpui_kit::component::{
     notification::Notification,
     progress::Progress,
     scroll::ScrollableElement as _,
+    select::{Select, SelectEvent, SelectItem, SelectState},
     separator::Separator,
     skeleton::Skeleton,
+    spinner::Spinner,
     tag::Tag,
     text::TextView,
 };
@@ -64,10 +66,30 @@ struct InstallPanel {
     /// new-profile mode (the default), where the profile is created on install.
     selected_profile_id: Option<String>,
     selected_version: String,
+    version_select: Entity<SelectState<Vec<VersionItem>>>,
     deps: Vec<DepRow>,
     unresolved: Vec<String>,
     status: InstallStatus,
     new_profile: Option<NewProfileInput>,
+}
+
+/// One entry of the version picker: shows `v1.2.3`, yields `1.2.3`.
+#[derive(Clone)]
+struct VersionItem {
+    version: String,
+    label: SharedString,
+}
+
+impl SelectItem for VersionItem {
+    type Value = String;
+
+    fn title(&self) -> SharedString {
+        self.label.clone()
+    }
+
+    fn value(&self) -> &String {
+        &self.version
+    }
 }
 
 struct NewProfileInput {
@@ -183,9 +205,33 @@ impl ModDetailView {
         // Default to a fresh profile named after the mod, so mods stay isolated
         // from each other unless the user deliberately picks an existing profile.
         let default_name = unique_profile_name(&data.mod_info.name, &self.profiles);
+        let items: Vec<VersionItem> = data
+            .versions
+            .iter()
+            .map(|v| VersionItem {
+                version: v.version.clone(),
+                label: format!("v{}", v.version).into(),
+            })
+            .collect();
+        let version_select =
+            cx.new(|cx| SelectState::new(items, Some(IndexPath::default()), window, cx));
+        cx.subscribe_in(
+            &version_select,
+            window,
+            |this, _, event: &SelectEvent<Vec<VersionItem>>, _window, cx| {
+                if let SelectEvent::Confirm(Some(version)) = event {
+                    this.select_version(version.clone(), cx);
+                }
+            },
+        )
+        .detach();
+        // The open menu lives in this (cached) page, so it has to re-render
+        // when the picker's own state changes.
+        cx.observe(&version_select, |_, _, cx| cx.notify()).detach();
         self.install = Some(InstallPanel {
             selected_profile_id: None,
             selected_version: latest_version.clone(),
+            version_select,
             deps: Vec::new(),
             unresolved: Vec::new(),
             status: InstallStatus::Resolving,
@@ -656,9 +702,10 @@ impl Render for ModDetailView {
                         }
                     }));
 
-                let install_panel = self.install.as_ref().map(|panel| {
-                    render_install_panel(panel, &self.profiles, &data.versions, &theme, cx)
-                });
+                let install_panel = self
+                    .install
+                    .as_ref()
+                    .map(|panel| render_install_panel(panel, &self.profiles, &theme, cx));
 
                 div()
                     .flex()
@@ -804,15 +851,18 @@ impl Render for ModDetailView {
 fn render_install_panel(
     panel: &InstallPanel,
     profiles: &[ProfileEntry],
-    versions: &[ModVersion],
     theme: &gpui_kit::component::Theme,
     cx: &mut Context<ModDetailView>,
 ) -> AnyElement {
     let status_row = match &panel.status {
         InstallStatus::Resolving => Some(
             div()
+                .flex()
+                .items_center()
+                .gap_1()
                 .text_xs()
                 .text_color(theme.muted_foreground)
+                .child(Spinner::new().xsmall())
                 .child(t!("mod.resolving").to_string())
                 .into_any_element(),
         ),
@@ -889,19 +939,6 @@ fn render_install_panel(
     let profile_chips: Vec<AnyElement> = std::iter::once(new_profile_chip)
         .chain(profile_rows)
         .collect();
-
-    let version_rows = versions.iter().map(|v| {
-        let selected = panel.selected_version == v.version;
-        let version = v.version.clone();
-        Toggle::new(SharedString::from(format!("install-version-{}", v.version)))
-            .outline()
-            .small()
-            .label(format!("v{}", v.version))
-            .checked(selected)
-            .on_click(cx.listener(move |this, _: &bool, _window, cx| {
-                this.select_version(version.clone(), cx);
-            }))
-    });
 
     // The profile is created when Install runs, so this is just its name.
     let new_profile_row = panel.new_profile.as_ref().map(|np| {
@@ -997,7 +1034,11 @@ fn render_install_panel(
         .child(div().flex().flex_wrap().gap_2().children(profile_chips))
         .children(new_profile_row)
         .child(section_label(t!("mod.version"), theme))
-        .child(div().flex().flex_wrap().gap_2().children(version_rows))
+        .child(
+            Select::new(&panel.version_select)
+                .accessibility_label(t!("mod.version"))
+                .w(px(220.0)),
+        )
         .children(if panel.deps.is_empty() {
             None
         } else {

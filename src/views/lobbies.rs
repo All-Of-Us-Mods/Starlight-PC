@@ -16,14 +16,15 @@ use crate::backend::services::launch_service::{self, LobbyLaunchTarget};
 use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry};
 use crate::backend::services::region_service;
 use crate::backend::state::mod_catalog_cache;
-use crate::views::{page_root, section_label};
+use crate::views::{empty_state, page_root, section_label};
 use gpui_kit::component::alert::Alert;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
-use gpui_kit::component::radio::Radio;
+use gpui_kit::component::radio::{Radio, RadioGroup};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::skeleton::Skeleton;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tag::Tag;
 use gpui_kit::component::{ActiveTheme, Theme};
 use gpui_kit::component::{Disableable, Icon, IconName, Sizable, WindowExt};
@@ -79,7 +80,6 @@ struct LaunchDialog {
 
 /// Display fields for one row of the launch dialog's profile picker.
 struct TargetOption<'a> {
-    target: LobbyLaunchTarget,
     title: &'a str,
     subtitle: &'a str,
     /// Per-profile mod install preview (see `install_summary`); empty to hide.
@@ -340,7 +340,7 @@ impl LobbiesView {
                                     } else {
                                         t!("lobbies.launch")
                                     })
-                                    .disabled(busy),
+                                    .loading(busy),
                             ),
                         ),
                 )
@@ -441,11 +441,9 @@ impl LobbiesView {
             )
             .title(t!("lobbies.regions_unavailable_title"))
             .into_any_element(),
-            LoadState::Loaded(rows) if rows.is_empty() => div()
-                .text_sm()
-                .text_color(theme.muted_foreground)
-                .child(t!("lobbies.empty").to_string())
-                .into_any_element(),
+            LoadState::Loaded(rows) if rows.is_empty() => {
+                empty_state(t!("lobbies.empty")).into_any_element()
+            }
             LoadState::Loaded(rows) => div()
                 .flex()
                 .flex_col()
@@ -485,10 +483,10 @@ impl LobbiesView {
             .status
             .clone()
             .unwrap_or_else(|| t!("common.unknown").to_string());
-        let status_color = if is_open {
-            theme.success
+        let status_tag = if is_open {
+            Tag::success()
         } else {
-            theme.warning
+            Tag::warning()
         };
 
         let copy_code = code.clone();
@@ -526,7 +524,7 @@ impl LobbiesView {
                                         code.clone()
                                     }),
                             )
-                            .child(div().text_xs().text_color(status_color).child(status_text))
+                            .child(status_tag.small().outline().child(status_text))
                             .child(
                                 div()
                                     .min_w_0()
@@ -587,7 +585,7 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
     let required_mods = &dialog.lobby.game.mods;
     let no_mods: Vec<ProfileModEntry> = Vec::new();
 
-    let mut option_rows: Vec<AnyElement> = this
+    let (mut targets, mut options): (Vec<LobbyLaunchTarget>, Vec<Radio>) = this
         .profiles
         .iter()
         .map(|p| {
@@ -598,34 +596,52 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
             };
             let preview = preview_mod_installs(required_mods, &p.mods);
             let (detail, detail_color) = install_summary(&preview, &theme);
-            render_target_option(
-                view,
+            let target = LobbyLaunchTarget::Existing(p.id.clone());
+            let radio = render_target_option(
                 TargetOption {
-                    target: LobbyLaunchTarget::Existing(p.id.clone()),
                     title: &p.name,
                     subtitle: &bep_subtitle,
                     detail: &detail,
                     detail_color,
                 },
-                &dialog.target,
+                target == dialog.target,
                 &theme,
-            )
+            );
+            (target, radio)
         })
-        .collect();
+        .unzip();
     let temp_preview = preview_mod_installs(required_mods, &no_mods);
     let (temp_detail, temp_detail_color) = install_summary(&temp_preview, &theme);
-    option_rows.push(render_target_option(
-        view,
+    options.push(render_target_option(
         TargetOption {
-            target: LobbyLaunchTarget::Temporary,
             title: t!("lobbies.temporary_profile").as_ref(),
             subtitle: t!("lobbies.temporary_profile_subtitle").as_ref(),
             detail: &temp_detail,
             detail_color: temp_detail_color,
         },
-        &dialog.target,
+        dialog.target == LobbyLaunchTarget::Temporary,
         &theme,
     ));
+    targets.push(LobbyLaunchTarget::Temporary);
+
+    let selected = targets.iter().position(|t| *t == dialog.target);
+    let on_pick = view.clone();
+    let picker = RadioGroup::vertical("launch-profile-picker")
+        // Keep its natural height inside the scrolling list.
+        .flex_none()
+        .selected_index(selected)
+        .children(options)
+        .on_change(move |ix, _window, cx| {
+            let Some(target) = targets.get(*ix).cloned() else {
+                return;
+            };
+            on_pick.update(cx, |this, cx| {
+                if let Some(d) = this.launch_dialog.as_mut() {
+                    d.target = target;
+                }
+                cx.notify();
+            });
+        });
 
     let mut items: Vec<AnyElement> = vec![
         div()
@@ -638,10 +654,9 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
             .id("launch-profile-list")
             .flex()
             .flex_col()
-            .gap_2()
             .max_h(px(220.0))
             .overflow_y_scrollbar()
-            .children(option_rows)
+            .child(picker)
             .into_any_element(),
     ];
     if required_mods.is_empty() {
@@ -672,97 +687,50 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// One row of the launch dialog's profile picker: a radio plus the profile's
-/// name, BepInEx state and mod-install preview.
-fn render_target_option(
-    view: &Entity<LobbiesView>,
-    option: TargetOption,
-    selected: &LobbyLaunchTarget,
-    theme: &Theme,
-) -> AnyElement {
+/// One option of the launch dialog's profile picker: the profile's name,
+/// BepInEx state and mod-install preview, framed as a selectable row.
+fn render_target_option(option: TargetOption, selected: bool, theme: &Theme) -> Radio {
     let TargetOption {
-        target,
         title,
         subtitle,
         detail,
         detail_color,
     } = option;
-    let is_selected = &target == selected;
-    let id = match &target {
-        LobbyLaunchTarget::Existing(pid) => format!("target-{pid}"),
-        LobbyLaunchTarget::Temporary => "target-temporary".to_string(),
-    };
-    let border = if is_selected {
-        theme.primary
-    } else {
-        theme.border
-    };
-    // The whole row is the hit target, and so is the radio inside it (which
-    // would otherwise swallow clicks aimed straight at it).
-    let pick = move |view: &Entity<LobbiesView>, target: &LobbyLaunchTarget| {
-        let view = view.clone();
-        let target = target.clone();
-        move |cx: &mut App| {
-            let target = target.clone();
-            view.update(cx, |this, cx| {
-                if let Some(d) = this.launch_dialog.as_mut() {
-                    d.target = target;
-                }
-                cx.notify();
-            });
-        }
-    };
-    let on_row_click = pick(view, &target);
-    let on_radio_click = pick(view, &target);
-    div()
-        .id(SharedString::from(id.clone()))
-        .flex()
-        .items_center()
-        .gap_3()
+    // The group assigns ids by position.
+    Radio::new("target")
+        .small()
+        .accessibility_label(title.to_string())
+        .w_full()
         .px_3()
         .py_2()
         .rounded_lg()
         .bg(theme.background)
         .border_1()
-        .border_color(border)
-        .cursor_pointer()
+        .border_color(if selected {
+            theme.primary
+        } else {
+            theme.border
+        })
         .hover(|s| s.bg(theme.accent))
-        .on_click(move |_, _window, cx| on_row_click(cx))
         .child(
-            Radio::new(SharedString::from(format!("{id}-radio")))
-                .checked(is_selected)
-                .on_click(move |_, _window, cx| on_radio_click(cx)),
+            div()
+                .font_weight(FontWeight::MEDIUM)
+                .child(title.to_string()),
         )
         .child(
             div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .truncate()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(title.to_string()),
-                )
-                .child(
-                    div()
-                        .truncate()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(subtitle.to_string()),
-                )
-                .when(!detail.is_empty(), |s| {
-                    s.child(
-                        div()
-                            .truncate()
-                            .text_xs()
-                            .text_color(detail_color)
-                            .child(detail.to_string()),
-                    )
-                }),
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child(subtitle.to_string()),
         )
-        .into_any_element()
+        .when(!detail.is_empty(), |s| {
+            s.child(
+                div()
+                    .text_xs()
+                    .text_color(detail_color)
+                    .child(detail.to_string()),
+            )
+        })
 }
 
 impl Render for LobbiesView {
@@ -792,8 +760,12 @@ impl Render for LobbiesView {
                             .when(self.refreshing, |s| {
                                 s.child(
                                     div()
+                                        .flex()
+                                        .items_center()
+                                        .gap_1()
                                         .text_xs()
                                         .text_color(theme.muted_foreground)
+                                        .child(Spinner::new().xsmall())
                                         .child(t!("lobbies.refreshing").to_string()),
                                 )
                             }),

@@ -7,12 +7,12 @@ use crate::backend::deeplink::ServerLink;
 use crate::backend::error::AppResult;
 use crate::backend::services::region_service::{self, RegionInfo};
 use crate::ui::icon::AppIcon;
-use crate::views::{page_root, section_label};
+use crate::views::{empty_state, page_root, section_label};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::alert::Alert;
-use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants};
 use gpui_kit::component::checkbox::Checkbox;
-use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
+use gpui_kit::component::dialog::{DialogAction, DialogButtonProps, DialogClose, DialogFooter};
 use gpui_kit::component::form::{field, v_form};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -199,6 +199,31 @@ impl ServersView {
             });
         })
         .detach();
+    }
+
+    /// Ask before removing a region: a custom one's address is gone with it.
+    fn confirm_remove_region(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        let view = cx.entity();
+        window.open_alert_dialog(cx, move |alert, _window, cx| {
+            let view = view.clone();
+            let name = name.clone();
+            alert
+                .icon(Icon::new(IconName::TriangleAlert).text_color(cx.theme().danger))
+                .title(t!("servers.remove_title"))
+                .description(t!("servers.remove_desc", name = name).to_string())
+                .button_props(
+                    DialogButtonProps::default()
+                        .ok_variant(ButtonVariant::Danger)
+                        .ok_text(t!("profile.remove"))
+                        .cancel_text(t!("common.cancel"))
+                        .show_cancel(true),
+                )
+                .on_ok(move |_, _window, cx| {
+                    let name = name.clone();
+                    view.update(cx, |this, cx| this.remove_region(name, cx));
+                    true
+                })
+        });
     }
 
     fn remove_region(&mut self, name: String, cx: &mut Context<Self>) {
@@ -522,11 +547,7 @@ impl ServersView {
         };
 
         if info.regions.is_empty() {
-            return div()
-                .text_sm()
-                .text_color(theme.muted_foreground)
-                .child(t!("servers.no_regions").to_string())
-                .into_any_element();
+            return empty_state(t!("servers.no_regions")).into_any_element();
         }
 
         let rows = info.regions.iter().map(|region| {
@@ -587,8 +608,8 @@ impl ServersView {
                         .danger()
                         .icon(Icon::new(IconName::Delete))
                         .tooltip(t!("servers.remove_tooltip").to_string())
-                        .on_click(cx.listener(move |this, _, _window, cx| {
-                            this.remove_region(remove_name.clone(), cx)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.confirm_remove_region(remove_name.clone(), window, cx)
                         })),
                 )
                 .into_any_element()
@@ -641,20 +662,15 @@ impl ServersView {
                         })),
                 )
                 .into_any_element(),
-            LoadState::Loaded(servers) if servers.is_empty() => div()
-                .text_color(theme.muted_foreground)
-                .child(t!("servers.none_available").to_string())
-                .into_any_element(),
+            LoadState::Loaded(servers) if servers.is_empty() => {
+                empty_state(t!("servers.none_available")).into_any_element()
+            }
             LoadState::Loaded(servers) => {
                 // Hide servers that are already configured (matched on host:port).
                 let available: Vec<&Server> =
                     servers.iter().filter(|s| !self.is_installed(s)).collect();
                 if available.is_empty() {
-                    return div()
-                        .text_sm()
-                        .text_color(theme.muted_foreground)
-                        .child(t!("servers.all_added").to_string())
-                        .into_any_element();
+                    return empty_state(t!("servers.all_added")).into_any_element();
                 }
                 let rows = available.into_iter().map(|server| {
                     let server_for_add = server.clone();

@@ -675,6 +675,7 @@ impl Workspace {
                             .ghost()
                             .small()
                             .icon(Icon::new(IconName::ArrowLeft))
+                            .tooltip(t!("titlebar.back"))
                             .disabled(!self.can_go_back())
                             .on_click(cx.listener(|this, _, _window, cx| this.go_back(cx))),
                     )
@@ -683,6 +684,7 @@ impl Workspace {
                             .ghost()
                             .small()
                             .icon(Icon::new(IconName::ArrowRight))
+                            .tooltip(t!("titlebar.forward"))
                             .disabled(!self.can_go_forward())
                             .on_click(cx.listener(|this, _, _window, cx| this.go_forward(cx))),
                     ),
