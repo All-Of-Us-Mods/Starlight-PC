@@ -20,7 +20,7 @@ impl LibraryDetailView {
             .disabled(
                 self.bep_progress.is_some()
                     || !self.updating_mods.is_empty()
-                    || self.running_count + self.pending_launches > 0,
+                    || self.running_count > 0,
             )
             .dropdown_menu(move |mut menu, _, _| {
                 let options = std::iter::once((None, t!("profile.default_install").to_string()))

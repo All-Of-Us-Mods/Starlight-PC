@@ -4,7 +4,7 @@
 //! join code or launch straight into a lobby — picking an existing profile or
 //! a temporary one, with the lobby's required mods installed automatically.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::time::Duration;
 
 use gpui_kit::{prelude::FluentBuilder as _, *};
@@ -13,11 +13,9 @@ use rust_i18n::t;
 
 use crate::backend::api::{self, Game, LobbyMod};
 use crate::backend::error::{AppError, AppResult};
-use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::mod_install_service::{self, InstallModInput};
 use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry};
 use crate::backend::services::{launch_service, region_service};
-use crate::backend::state::game_runtime::{self, GameStatePayload};
 use crate::backend::state::mod_catalog_cache;
 use crate::views::{page_root, section_label};
 use gpui_kit::component::alert::Alert;
@@ -43,11 +41,6 @@ pub struct LobbiesView {
     /// True while a poll is in flight (drives the header spinner without
     /// flashing the list back to skeletons).
     refreshing: bool,
-    /// Temporary profiles created for "Temporary profile" launches, pending
-    /// deletion once their game exits. Value is whether we've yet observed the
-    /// profile with a running instance (so we don't delete it before its game
-    /// even started).
-    temp_cleanup: HashMap<String, bool>,
     /// Mod ids with a catalog lookup currently in flight from this view, so a
     /// later refresh doesn't kick off a duplicate fetch. Resolved info itself
     /// lives in the shared `mod_catalog_cache`, not here.
@@ -102,26 +95,6 @@ struct TargetOption<'a> {
 
 impl LobbiesView {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        // Subscribed up front (before any launch can happen) so the event that
-        // marks a freshly-launched temp profile as running is never missed.
-        let mut rx = events::subscribe();
-        cx.spawn(async move |this, cx| {
-            while let Ok(event) = rx.recv().await {
-                let BackendEvent::GameStateChanged(payload) = event else {
-                    continue;
-                };
-                if this
-                    .update(cx, |this, cx| {
-                        this.reap_finished_temp_profiles(&payload, cx)
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        })
-        .detach();
-
         let refresh = cx.spawn(async move |this, cx| {
             loop {
                 // Bail out if the view is gone (also covered by Task drop).
@@ -242,7 +215,6 @@ impl LobbiesView {
             launch_dialog: None,
             notice: None,
             refreshing: false,
-            temp_cleanup: HashMap::new(),
             mod_lookup_pending: HashSet::new(),
             _refresh: refresh,
         }
@@ -250,55 +222,6 @@ impl LobbiesView {
 
     fn copy_code(&self, code: String, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(code));
-    }
-
-    /// Start watching a temporary profile so it's deleted once its game exits.
-    /// Seeds the "seen running" flag from the current snapshot in case the
-    /// launch's `GameStateChanged` event already fired before this call (the
-    /// background launch thread registers the process, and may finish, before
-    /// this runs on the main thread).
-    fn track_temp_profile(&mut self, profile_id: String) {
-        let already_running = game_runtime::current_state()
-            .profile_instance_counts
-            .contains_key(&profile_id);
-        self.temp_cleanup.insert(profile_id, already_running);
-    }
-
-    /// Stop watching a temporary profile without deleting it here — used when
-    /// the caller has already deleted it (e.g. a launch failure cleanup), so
-    /// a later `GameStateChanged` doesn't attempt a redundant delete.
-    fn forget_temp_profile(&mut self, profile_id: &str) {
-        self.temp_cleanup.remove(profile_id);
-    }
-
-    /// Delete any temporary profile whose tracked instance count has dropped
-    /// back to zero after having been seen running at least once.
-    fn reap_finished_temp_profiles(&mut self, payload: &GameStatePayload, cx: &mut Context<Self>) {
-        let mut finished = Vec::new();
-        self.temp_cleanup.retain(|id, seen_running| {
-            if payload.profile_instance_counts.contains_key(id) {
-                *seen_running = true;
-                true
-            } else if *seen_running {
-                finished.push(id.clone());
-                false
-            } else {
-                true
-            }
-        });
-        for id in finished {
-            cx.spawn(async move |_this, cx| {
-                let id_for_delete = id.clone();
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { profile_service::delete_profile(&id_for_delete) })
-                    .await;
-                if let Err(e) = result {
-                    warn!("failed to delete temporary lobby profile {id}: {e}");
-                }
-            })
-            .detach();
-        }
     }
 
     /// Kick off background catalog lookups (via the shared `mod_catalog_cache`,
@@ -464,11 +387,8 @@ impl LobbiesView {
         }
 
         cx.spawn(async move |this, cx| {
-            // Resolve (or create) the target profile first and start watching
-            // it for cleanup immediately if it's temporary — before any
-            // further work that could fail, and before the game itself could
-            // even exit, closing the race where a fast-exiting game leaves a
-            // temp profile unwatched (and so never reaped).
+            // Resolve (or create) the target profile first. A temporary one is
+            // deleted by the backend once its game exits.
             let resolved = cx
                 .background_executor()
                 .spawn(async move { resolve_launch_profile(target) })
@@ -487,13 +407,6 @@ impl LobbiesView {
                     return;
                 }
             };
-            if let Some(id) = temp_profile_id.clone() {
-                let _ = this.update(cx, |this, cx| {
-                    this.track_temp_profile(id);
-                    cx.notify();
-                });
-            }
-
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
@@ -522,12 +435,9 @@ impl LobbiesView {
                     }
                     Err(e) => {
                         warn!("launch into lobby failed: {e}");
-                        // The launch never succeeded, so there's no game
-                        // process to wait for — clean up a temp profile right
-                        // away instead of leaving it tracked with nothing to
-                        // ever transition it out of "pending".
+                        // The launch never succeeded, so no game exit will
+                        // clean up a temp profile — delete it right away.
                         if let Some(id) = temp_profile_id {
-                            this.forget_temp_profile(&id);
                             cx.spawn(async move |_this, cx| {
                                 let id_for_delete = id.clone();
                                 let result = cx
@@ -1120,9 +1030,8 @@ fn map_name(map_id: Option<u32>) -> String {
 
 /// Resolve a launch target to a concrete profile: an existing profile by id,
 /// or a freshly-created temporary one. Returns the temp profile's id again
-/// (`None` for an existing profile) so the caller can start watching it for
-/// cleanup right away, before doing anything else that could fail or race the
-/// launched game's own exit. Blocking; run on the background executor.
+/// (`None` for an existing profile) so the caller can delete it if the launch
+/// fails. Blocking; run on the background executor.
 fn resolve_launch_profile(target: LaunchTarget) -> AppResult<(ProfileEntry, Option<String>)> {
     match target {
         LaunchTarget::Existing(id) => {
@@ -1207,12 +1116,12 @@ fn launch_into_lobby_for_profile(
 }
 
 /// Create a fresh throwaway profile for a one-off lobby launch, uniquely named
-/// so repeated temporary launches don't collide. The caller (`LobbiesView`)
-/// deletes it once the launched game exits.
+/// so repeated temporary launches don't collide. The backend deletes it once
+/// the launched game exits.
 fn create_temp_profile() -> AppResult<ProfileEntry> {
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    profile_service::create_profile(&format!("Temporary Lobby {millis}"))
+    profile_service::create_temporary_profile(&format!("Temporary Lobby {millis}"))
 }

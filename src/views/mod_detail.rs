@@ -1028,6 +1028,7 @@ mod tests {
             mods: vec![],
             custom_mods: vec![],
             installation_id: None,
+            temporary: false,
         }
     }
 

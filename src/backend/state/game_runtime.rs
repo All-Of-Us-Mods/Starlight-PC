@@ -1,5 +1,6 @@
-//! The game instances Starlight launched, and a poller that settles them
-//! (play time, instance copy) once they exit.
+//! The game instances Starlight launched (and modded launches on their way),
+//! and a poller that settles them (play time, instance copy, temporary
+//! profile) once they exit.
 
 use crate::backend::services::{profile_instance_service, profile_service};
 use log::{info, warn};
@@ -76,7 +77,7 @@ impl Instance {
             #[cfg(target_os = "linux")]
             Process::Steam { .. } => {}
         }
-        record_play_time(self.profile_id, self.launched_at);
+        settle_profile(self.profile_id, self.launched_at);
         if let Some(directory) = self.launch.temporary_dir {
             std::thread::spawn(move || profile_instance_service::release(&directory));
         }
@@ -84,10 +85,48 @@ impl Instance {
 }
 
 static INSTANCES: LazyLock<Mutex<Vec<Instance>>> = LazyLock::new(Mutex::default);
+/// Modded launches requested but not yet running or failed, by key and
+/// profile id. Locked after `INSTANCES` when both are needed.
+static PENDING: Mutex<Vec<(u64, String)>> = Mutex::new(Vec::new());
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 fn instances() -> std::sync::MutexGuard<'static, Vec<Instance>> {
     INSTANCES.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn pending() -> std::sync::MutexGuard<'static, Vec<(u64, String)>> {
+    PENDING.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// A modded launch from request until it runs or fails. Counts toward its
+/// profile in [`GameStatePayload`] so Stop shows at once; Stop cancels it.
+pub struct PendingLaunch(u64);
+
+pub fn begin_launch(profile_id: &str) -> PendingLaunch {
+    let key = next_instance_id();
+    pending().push((key, profile_id.to_string()));
+    publish(&instances());
+    PendingLaunch(key)
+}
+
+impl PendingLaunch {
+    pub fn cancelled(&self) -> bool {
+        !pending().iter().any(|(key, _)| *key == self.0)
+    }
+}
+
+impl Drop for PendingLaunch {
+    fn drop(&mut self) {
+        let instances = instances();
+        let mut pending = pending();
+        let before = pending.len();
+        pending.retain(|(key, _)| *key != self.0);
+        let removed = pending.len() != before;
+        drop(pending);
+        if removed {
+            publish(&instances);
+        }
+    }
 }
 
 pub fn next_instance_id() -> u64 {
@@ -105,8 +144,19 @@ pub fn instance_arg(id: u64) -> String {
 
 #[derive(Clone, Debug, Default)]
 pub struct GameStatePayload {
+    /// Running instances.
     pub running_count: usize,
+    /// Running instances plus pending launches, per profile.
     pub profile_instance_counts: HashMap<String, usize>,
+}
+
+impl GameStatePayload {
+    pub fn profile_count(&self, profile_id: &str) -> usize {
+        self.profile_instance_counts
+            .get(profile_id)
+            .copied()
+            .unwrap_or(0)
+    }
 }
 
 pub fn current_state() -> GameStatePayload {
@@ -115,7 +165,8 @@ pub fn current_state() -> GameStatePayload {
 
 fn state_of(instances: &[Instance]) -> GameStatePayload {
     let mut profile_instance_counts = HashMap::new();
-    for profile_id in instances.iter().filter_map(|i| i.profile_id.clone()) {
+    let running = instances.iter().filter_map(|i| i.profile_id.clone());
+    for profile_id in running.chain(pending().iter().map(|(_, id)| id.clone())) {
         *profile_instance_counts.entry(profile_id).or_insert(0) += 1;
     }
     GameStatePayload {
@@ -204,9 +255,15 @@ fn start_poller() {
     });
 }
 
-fn stop_where(predicate: impl Fn(&Instance) -> bool) -> usize {
+/// Cancel pending launches and stop instances of `profile_id`, or of every
+/// profile (and vanilla) when `None`.
+fn stop_where(profile_id: Option<&str>) -> usize {
+    let matches = |id: Option<&str>| profile_id.is_none_or(|p| id == Some(p));
     let mut instances = instances();
-    let mut stopped: Vec<Instance> = instances.extract_if(.., |i| predicate(i)).collect();
+    pending().retain(|(_, id)| !matches(Some(id)));
+    let mut stopped: Vec<Instance> = instances
+        .extract_if(.., |i| matches(i.profile_id.as_deref()))
+        .collect();
     publish(&instances);
     drop(instances);
     for instance in &mut stopped {
@@ -218,11 +275,11 @@ fn stop_where(predicate: impl Fn(&Instance) -> bool) -> usize {
 }
 
 pub fn stop_profile_instances(profile_id: &str) -> usize {
-    stop_where(|i| i.profile_id.as_deref() == Some(profile_id))
+    stop_where(Some(profile_id))
 }
 
 pub fn stop_all_tracked_instances() -> usize {
-    stop_where(|_| true)
+    stop_where(None)
 }
 
 fn mark_launched(profile_id: Option<&str>) {
@@ -236,13 +293,22 @@ fn mark_launched(profile_id: Option<&str>) {
     }
 }
 
-fn record_play_time(profile_id: Option<String>, launched_at: Instant) {
+/// Credit an exited instance's play time to its profile, or delete the
+/// profile if it's temporary and nothing else is running from it.
+fn settle_profile(profile_id: Option<String>, launched_at: Instant) {
     let Some(id) = profile_id else { return };
     let duration_ms = launched_at.elapsed().as_millis().min(i64::MAX as u128) as i64;
-    if duration_ms <= 0 {
-        return;
-    }
     std::thread::spawn(move || {
+        if let Ok(Some(profile)) = profile_service::get_profile_by_id(&id)
+            && profile.temporary
+        {
+            if !current_state().profile_instance_counts.contains_key(&id)
+                && let Err(e) = profile_service::delete_profile(&id)
+            {
+                warn!("failed to delete temporary profile {id}: {e}");
+            }
+            return;
+        }
         if let Err(e) = profile_service::add_play_time(&id, duration_ms) {
             warn!("add_play_time failed for profile {id}: {e}");
         }

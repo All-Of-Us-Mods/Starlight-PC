@@ -70,12 +70,8 @@ pub struct LibraryDetailView {
     /// 0–100 while an export is running; `None` otherwise.
     export_progress: Option<f64>,
     pub(super) icon_dialog: Option<IconDialogState>,
+    /// This profile's running instances plus launches still being prepared.
     running_count: usize,
-    /// Launches the user has requested but that haven't shown up in a backend
-    /// GameStateChanged yet (launches are serialized, and one that needs its
-    /// own copy of the profile spends a moment preparing it). Added on top of
-    /// the backend count so the UI reflects the click immediately.
-    pending_launches: usize,
     log_panel: Entity<LogPanel>,
     /// API-resolved display names per mod_id, populated lazily after load.
     mod_names: HashMap<String, String>,
@@ -84,8 +80,9 @@ pub struct LibraryDetailView {
     /// Mod ids currently being updated. Kept per row so unrelated controls
     /// remain available while one download is in flight.
     updating_mods: HashSet<String>,
-    /// Serializes separately requested updates for this profile so their
-    /// manifest writes cannot race while the UI keeps unrelated rows usable.
+    /// Serializes separately requested updates for this profile: two batches
+    /// can share a dependency, and would download over the same file and roll
+    /// back each other's manifest entries.
     update_lock: Arc<Mutex<()>>,
     /// Whether the cursor is over the hero icon / name, revealing their
     /// inline edit buttons.
@@ -113,8 +110,7 @@ impl LibraryDetailView {
             rename_dialog: None,
             export_progress: None,
             icon_dialog: None,
-            running_count: 0,
-            pending_launches: 0,
+            running_count: game_runtime::current_state().profile_count(&profile_id),
             log_panel,
             mod_names: mod_catalog_cache::cached_names(),
             mod_latest_versions: mod_catalog_cache::cached_latest_versions(),
@@ -161,18 +157,8 @@ impl LibraryDetailView {
                         }
                     }
                     BackendEvent::GameStateChanged(payload) => {
-                        let running = payload
-                            .profile_instance_counts
-                            .get(&id_for_events)
-                            .copied()
-                            .unwrap_or(0);
+                        let running = payload.profile_count(&id_for_events);
                         let _ = this.update(cx, |this, cx| {
-                            // A real instance appearing settles one pending launch.
-                            if running > this.running_count {
-                                this.pending_launches = this
-                                    .pending_launches
-                                    .saturating_sub(running - this.running_count);
-                            }
                             this.running_count = running;
                             cx.notify();
                             // Game state change ≈ new log content / mod changes.
@@ -182,7 +168,9 @@ impl LibraryDetailView {
                     BackendEvent::ProfileStatsUpdated(id) if id == id_for_events => {
                         let _ = this.update(cx, |this, cx| this.spawn_load(cx));
                     }
-                    BackendEvent::ZipProgress(p) if matches!(p.op, ZipOp::Export) => {
+                    BackendEvent::ZipProgress(p)
+                        if matches!(&p.op, ZipOp::Export(id) if *id == id_for_events) =>
+                    {
                         let _ = this.update(cx, |this, cx| {
                             this.export_progress = Some(p.progress);
                             cx.notify();
@@ -545,7 +533,6 @@ impl LibraryDetailView {
         };
         let profile = profile.as_ref().clone();
         self.launch_error = None;
-        self.pending_launches += 1;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -555,8 +542,6 @@ impl LibraryDetailView {
             let _ = this.update(cx, |this, cx| {
                 if let Err(e) = result {
                     warn!("launch failed: {e}");
-                    // No instance will appear for this one — undo the optimistic bump.
-                    this.pending_launches = this.pending_launches.saturating_sub(1);
                     this.launch_error = Some(e.to_string());
                     cx.notify();
                 }
@@ -568,15 +553,9 @@ impl LibraryDetailView {
     fn stop(&mut self, cx: &mut Context<Self>) {
         let id = self.profile_id.clone();
         self.launch_error = None;
-        // Drop any launches still waiting to be prepared, both in the UI and
-        // in the backend so they abort instead of spawning.
-        self.pending_launches = 0;
         cx.notify();
         cx.background_executor()
-            .spawn(async move {
-                launch_service::cancel_pending_launches(&id);
-                game_runtime::stop_profile_instances(&id);
-            })
+            .spawn(async move { game_runtime::stop_profile_instances(&id) })
             .detach();
     }
 
@@ -978,7 +957,7 @@ impl LibraryDetailView {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         // Pending launches count as running: Stop cancels them too.
-        let running = self.running_count + self.pending_launches;
+        let running = self.running_count;
         let allow_multi = app_settings::get(cx).allow_multi_instance_launch;
 
         if installing {

@@ -40,8 +40,8 @@ struct CustomServerInput {
     port: Entity<InputState>,
     dtls: bool,
     error: Option<String>,
-    /// Index of the region being edited, or `None` when adding a new one.
-    editing: Option<usize>,
+    /// Name of the region being edited, or `None` when adding a new one.
+    editing: Option<String>,
 }
 
 enum LoadState {
@@ -236,12 +236,12 @@ impl ServersView {
             return;
         };
         let fields = region_service::region_fields(region);
-        self.open_dialog(Some(index), fields, window, cx);
+        self.open_dialog(Some(fields.name.clone()), fields, window, cx);
     }
 
     fn open_dialog(
         &mut self,
-        editing: Option<usize>,
+        editing: Option<String>,
         fields: region_service::RegionFields,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -383,7 +383,7 @@ impl ServersView {
         let address = dialog.address.read(cx).value().trim().to_string();
         let port_text = dialog.port.read(cx).value().trim().to_string();
         let dtls = dialog.dtls;
-        let editing = dialog.editing;
+        let editing = dialog.editing.clone();
 
         if name.is_empty() || address.is_empty() {
             if let Some(d) = self.custom_dialog.as_mut() {
@@ -403,7 +403,7 @@ impl ServersView {
         // the loaded region list so a duplicate is caught while the dialog is
         // still open (and the typed address still on screen).
         let clash = self.regions.as_ref().and_then(|info| {
-            region_service::conflicting_region_name(info, editing, &address, port)
+            region_service::conflicting_region_name(info, editing.as_deref(), &address, port)
         });
         if let Some(other) = clash {
             if let Some(d) = self.custom_dialog.as_mut() {
@@ -419,8 +419,8 @@ impl ServersView {
         self.error = None;
         cx.notify();
 
-        if let Some(index) = editing {
-            self.save_region_edit(index, name, address, port, dtls, cx);
+        if let Some(original_name) = editing {
+            self.save_region_edit(original_name, name, address, port, dtls, cx);
             return;
         }
 
@@ -456,12 +456,12 @@ impl ServersView {
         .detach();
     }
 
-    /// Write an edited region back in place. The index comes from the row the
-    /// user opened, so a region file changed underneath us (another edit, an
-    /// in-game change) is caught by `update_region`'s bounds check.
+    /// Write an edited region back in place, found by the name it had when
+    /// the dialog opened, so a region file changed underneath us (a lobby
+    /// launch, a deep link, an in-game change) can't redirect the edit.
     fn save_region_edit(
         &mut self,
-        index: usize,
+        original_name: String,
         name: String,
         address: String,
         port: u16,
@@ -478,7 +478,7 @@ impl ServersView {
                         port,
                         dtls,
                     };
-                    region_service::update_region(index, &fields).map(|()| name)
+                    region_service::update_region(&original_name, &fields).map(|()| name)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {

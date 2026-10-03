@@ -5,7 +5,7 @@ use crate::backend::services::profile_instance_service;
 use crate::backend::services::profile_service::ProfileEntry;
 #[cfg(windows)]
 use crate::backend::services::xbox_service;
-use crate::backend::state::game_runtime::{self, LaunchInstance};
+use crate::backend::state::game_runtime::{self, LaunchInstance, PendingLaunch};
 use log::{debug, info, warn};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,29 +14,6 @@ use std::process::Command;
 /// Held from prep through spawn so concurrent launches can't claim the same
 /// instance slot or race over the shared game directory.
 static LAUNCH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Bumped by Stop; a launch queued on [`LAUNCH_LOCK`] aborts if its profile's
-/// generation changed while it waited.
-static CANCEL_GENERATIONS: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashMap<String, u64>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-
-fn cancel_generation(profile_id: &str) -> u64 {
-    CANCEL_GENERATIONS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(profile_id)
-        .copied()
-        .unwrap_or(0)
-}
-
-pub fn cancel_pending_launches(profile_id: &str) {
-    *CANCEL_GENERATIONS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .entry(profile_id.to_string())
-        .or_insert(0) += 1;
-}
 
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone)]
@@ -425,7 +402,8 @@ fn launch_modded_via_steam(
     Ok(())
 }
 
-pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
+/// Aborts without launching if Stop cancels `pending` while it is queued.
+fn launch_modded(args: LaunchModdedArgs, pending: &PendingLaunch) -> AppResult<()> {
     info!("game_launch_modded: game_exe={}", args.game_exe);
 
     let game_dir = PathBuf::from(&args.game_exe)
@@ -441,9 +419,8 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
         )?;
     }
 
-    let cancel_gen = cancel_generation(&args.profile_id);
     let _launch_guard = LAUNCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    if cancel_generation(&args.profile_id) != cancel_gen {
+    if pending.cancelled() {
         info!("launch cancelled while queued: profile={}", args.profile_id);
         return Ok(());
     }
@@ -452,9 +429,8 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
     // it); later ones replay its launch below.
     #[cfg(target_os = "linux")]
     if let LinuxRunner::Steam { compat_data_path } = &args.runner {
-        let cancelled = || cancel_generation(&args.profile_id) != cancel_gen;
-        let steam_running = steam_game_running(cancelled);
-        if cancelled() {
+        let steam_running = steam_game_running(|| pending.cancelled());
+        if pending.cancelled() {
             info!("launch cancelled while queued: profile={}", args.profile_id);
             return Ok(());
         }
@@ -670,6 +646,7 @@ fn allow_multiple_game_processes(settings: &core_service::AppSettings, game: &Ga
 }
 
 pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
+    let pending = game_runtime::begin_launch(&profile.id);
     let settings = core_service::get_settings()?;
     let game = profile.installation(&settings)?;
     if profile.needs_bepinex(&settings) {
@@ -710,16 +687,19 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
     #[cfg(target_os = "linux")]
     let runner = build_linux_runner(game)?;
 
-    launch_modded(LaunchModdedArgs {
-        game_exe: game_exe.to_string_lossy().to_string(),
-        profile_id: profile.id.clone(),
-        profile_path: profile.path.clone(),
-        bepinex_dll: bepinex_dll.to_string_lossy().to_string(),
-        dotnet_dir: dotnet_dir.to_string_lossy().to_string(),
-        coreclr_path: coreclr_path.to_string_lossy().to_string(),
-        platform: game.game_platform,
-        allow_instance_copy: settings.allow_multi_instance_launch,
-        #[cfg(target_os = "linux")]
-        runner,
-    })
+    launch_modded(
+        LaunchModdedArgs {
+            game_exe: game_exe.to_string_lossy().to_string(),
+            profile_id: profile.id.clone(),
+            profile_path: profile.path.clone(),
+            bepinex_dll: bepinex_dll.to_string_lossy().to_string(),
+            dotnet_dir: dotnet_dir.to_string_lossy().to_string(),
+            coreclr_path: coreclr_path.to_string_lossy().to_string(),
+            platform: game.game_platform,
+            allow_instance_copy: settings.allow_multi_instance_launch,
+            #[cfg(target_os = "linux")]
+            runner,
+        },
+        &pending,
+    )
 }
