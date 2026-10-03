@@ -44,21 +44,7 @@ pub(super) fn group() -> SettingGroup {
                                         Button::new(SharedString::from(format!("unlink-{id}")))
                                             .label(t!("settings.unlink_install"))
                                             .on_click(move |_, window, cx| {
-                                                let mut settings = app_settings::get(cx).clone();
-                                                match profile_service::get_profiles().and_then(
-                                                    |profiles| {
-                                                        settings.unlink_installation(&id, &profiles)
-                                                    },
-                                                ) {
-                                                    Ok(()) => app_settings::update(cx, |s| {
-                                                        s.game_installations =
-                                                            settings.game_installations
-                                                    }),
-                                                    Err(error) => window.push_notification(
-                                                        Notification::error(error.to_string()),
-                                                        cx,
-                                                    ),
-                                                }
+                                                unlink(id.clone(), window, cx)
                                             }),
                                     )
                             }),
@@ -66,4 +52,28 @@ pub(super) fn group() -> SettingGroup {
                 }),
             ),
         ])
+}
+
+/// Unlink installation `id` unless a profile still launches through it. The
+/// profile scan runs on the background executor.
+fn unlink(id: String, window: &mut Window, cx: &mut App) {
+    let profiles = cx
+        .background_executor()
+        .spawn(async { profile_service::get_profiles() });
+    window
+        .spawn(cx, async move |cx| {
+            let profiles = profiles.await;
+            let _ = cx.update(|window, cx| {
+                let mut settings = app_settings::get(cx).clone();
+                match profiles.and_then(|profiles| settings.unlink_installation(&id, &profiles)) {
+                    Ok(()) => app_settings::update(cx, |s| {
+                        s.game_installations = settings.game_installations
+                    }),
+                    Err(error) => {
+                        window.push_notification(Notification::error(error.to_string()), cx)
+                    }
+                }
+            });
+        })
+        .detach();
 }

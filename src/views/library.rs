@@ -75,27 +75,20 @@ impl LibraryView {
         cx.observe_global::<crate::settings::SettingsGlobal>(|_, cx| cx.notify())
             .detach();
 
-        let mut rx = events::subscribe();
-        cx.spawn(async move |this, cx| {
-            while let Ok(event) = rx.recv().await {
-                match event {
-                    BackendEvent::GameStateChanged(payload) => {
-                        let _ = this.update(cx, |this, cx| {
-                            this.running_count = payload.running_count;
-                            cx.notify();
-                        });
-                    }
-                    BackendEvent::ZipProgress(p) if matches!(p.op, ZipOp::Import) => {
-                        let _ = this.update(cx, |this, cx| {
-                            this.import_progress = Some(p.progress);
-                            cx.notify();
-                        });
-                    }
-                    _ => {}
-                }
+        events::listen(cx, |this, event, cx| match event {
+            BackendEvent::GameStateChanged(payload) => {
+                this.running_count = payload.running_count;
+                cx.notify();
             }
-        })
-        .detach();
+            BackendEvent::ZipProgress(p) if matches!(p.op, ZipOp::Import) => {
+                this.import_progress = Some(p.progress);
+                cx.notify();
+            }
+            // Reload in place: a launch or a game exit shouldn't flash the
+            // list back to skeletons.
+            BackendEvent::ProfileChanged(_) => this.load_profiles(cx),
+            _ => {}
+        });
 
         view
     }

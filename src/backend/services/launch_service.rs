@@ -1,12 +1,15 @@
+use crate::backend::api::LobbyMod;
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::core_service::{self, GamePlatform};
 use crate::backend::services::installation_service::GameSetup;
-use crate::backend::services::profile_instance_service;
-use crate::backend::services::profile_service::ProfileEntry;
+use crate::backend::services::mod_install_service::{self, InstallModInput};
+use crate::backend::services::profile_service::{self, ProfileEntry};
 #[cfg(windows)]
 use crate::backend::services::xbox_service;
+use crate::backend::services::{profile_instance_service, region_service};
 use crate::backend::state::game_runtime::{self, LaunchInstance, PendingLaunch};
 use log::{debug, info, warn};
+use rust_i18n::t;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -670,10 +673,6 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
         if let Err(e) = crate::backend::services::profile_service::update_last_launched(&profile.id)
         {
             debug!("update_last_launched failed for Xbox launch: {e}");
-        } else {
-            crate::backend::events::publish(
-                crate::backend::events::BackendEvent::ProfileStatsUpdated(profile.id.clone()),
-            );
         }
         return Ok(());
     }
@@ -702,4 +701,148 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
         },
         &pending,
     )
+}
+
+/// Which profile a lobby launch runs from.
+#[derive(Clone, PartialEq)]
+pub enum LobbyLaunchTarget {
+    Existing(String),
+    /// A fresh throwaway profile, deleted once its game exits.
+    Temporary,
+}
+
+/// Launch into a lobby: resolve `target` to a profile, install the lobby's
+/// required `mods` into it, point Among Us at the lobby's region and launch.
+/// A temporary profile is deleted again if the launch fails, since no game
+/// exit will clean it up. Returns a summary for the user. Blocking; run on the
+/// background executor.
+pub fn launch_into_lobby(
+    target: LobbyLaunchTarget,
+    mods: &[LobbyMod],
+    server_host: &str,
+    server_port: u16,
+) -> AppResult<String> {
+    // Mods with an id but no version can't be installed (we don't know
+    // which version), but still count toward the "skipped" total so the
+    // launch summary doesn't silently omit them.
+    let mut required: Vec<InstallModInput> = Vec::new();
+    let mut versionless = 0usize;
+    for m in mods {
+        let Some(id) = m.id.clone() else { continue };
+        match m.version.clone() {
+            Some(version) => required.push(InstallModInput {
+                mod_id: id,
+                version,
+            }),
+            None => versionless += 1,
+        }
+    }
+
+    let (profile, temp_profile_id) = resolve_launch_profile(target)?;
+    let launched =
+        launch_into_lobby_for_profile(profile, required, versionless, server_host, server_port);
+    if launched.is_err()
+        && let Some(id) = temp_profile_id
+        && let Err(e) = profile_service::delete_profile(&id)
+    {
+        warn!("failed to clean up temp profile {id} after launch error: {e}");
+    }
+    launched
+}
+
+/// Resolve a launch target to a concrete profile: an existing profile by id,
+/// or a freshly-created temporary one. Returns the temp profile's id again
+/// (`None` for an existing profile) so the caller can delete it if the launch
+/// fails.
+fn resolve_launch_profile(target: LobbyLaunchTarget) -> AppResult<(ProfileEntry, Option<String>)> {
+    match target {
+        LobbyLaunchTarget::Existing(id) => {
+            let profile = profile_service::get_profile_by_id(&id)?
+                .ok_or_else(|| AppError::validation(t!("lobbies.profile_gone").to_string()))?;
+            Ok((profile, None))
+        }
+        LobbyLaunchTarget::Temporary => {
+            let profile = create_temp_profile()?;
+            let id = profile.id.clone();
+            Ok((profile, Some(id)))
+        }
+    }
+}
+
+/// Install the lobby's required mods into `profile`, point Among Us at the
+/// lobby's region, and launch. `versionless` is the count of required mods
+/// the lobby sent with no version (uninstallable, but still reported as
+/// skipped rather than silently dropped).
+fn launch_into_lobby_for_profile(
+    profile: ProfileEntry,
+    required: Vec<InstallModInput>,
+    versionless: usize,
+    server_host: &str,
+    server_port: u16,
+) -> AppResult<String> {
+    profile_service::install_bepinex_for_profile(&profile.id)?;
+
+    let mut skipped = versionless;
+    let mut failed = 0usize;
+    if !required.is_empty() {
+        let (installable, unresolved) = mod_install_service::plan_lobby_mods(&required);
+        skipped += unresolved.len();
+        // Skip mods already present at the exact version the lobby wants.
+        let missing: Vec<InstallModInput> = installable
+            .into_iter()
+            .filter(|m| {
+                !profile
+                    .mods
+                    .iter()
+                    .any(|p| p.mod_id == m.mod_id && p.version == m.version)
+            })
+            .collect();
+        // Install one mod at a time: install_mods_for_profile rolls back its
+        // whole batch on a single failure, which is right for one coherent
+        // "install this mod" user action but wrong here — a lobby launch
+        // wants each required mod to be independently best-effort, so one
+        // flaky download doesn't sink mods that already succeeded.
+        for item in missing {
+            let mod_id = item.mod_id.clone();
+            if let Err(e) = mod_install_service::install_mods_for_profile(
+                &profile.id,
+                std::slice::from_ref(&item),
+            ) {
+                warn!("failed to install mod {mod_id} for lobby launch: {e}");
+                failed += 1;
+            }
+        }
+    }
+
+    let region_set =
+        region_service::select_region_by_host_port(server_host, server_port).unwrap_or(false);
+
+    // Reload so the launch sees the freshly installed BepInEx / mods.
+    let profile = profile_service::get_profile_by_id(&profile.id)?
+        .ok_or_else(|| AppError::validation(t!("lobbies.profile_gone_launch").to_string()))?;
+    launch_modded_for_profile(profile)?;
+
+    let mut summary = if region_set {
+        t!("lobbies.launched_region_set").to_string()
+    } else {
+        t!("lobbies.launched").to_string()
+    };
+    if skipped > 0 {
+        summary.push_str(t!("lobbies.skipped_catalog", count = skipped).as_ref());
+    }
+    if failed > 0 {
+        summary.push_str(t!("lobbies.skipped_failed", count = failed).as_ref());
+    }
+    Ok(summary)
+}
+
+/// Create a fresh throwaway profile for a one-off lobby launch, uniquely named
+/// so repeated temporary launches don't collide. The backend deletes it once
+/// the launched game exits.
+fn create_temp_profile() -> AppResult<ProfileEntry> {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    profile_service::create_temporary_profile(&format!("Temporary Lobby {millis}"))
 }

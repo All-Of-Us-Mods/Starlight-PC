@@ -227,15 +227,15 @@ impl ServersView {
 
     /// Open the same dialog pre-filled with an installed region's current
     /// values; saving replaces that region in place.
-    fn open_edit_dialog(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(region) = self
-            .regions
-            .as_ref()
-            .and_then(|info| info.regions.get(index))
-        else {
+    fn open_edit_dialog(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(fields) = self.regions.as_ref().and_then(|info| {
+            info.regions
+                .iter()
+                .map(region_service::region_fields)
+                .find(|fields| fields.name == name)
+        }) else {
             return;
         };
-        let fields = region_service::region_fields(region);
         self.open_dialog(Some(fields.name.clone()), fields, window, cx);
     }
 
@@ -529,8 +529,9 @@ impl ServersView {
                 .into_any_element();
         }
 
-        let rows = info.regions.iter().enumerate().map(|(ix, region)| {
+        let rows = info.regions.iter().map(|region| {
             let fields = region_service::region_fields(region);
+            let name = fields.name.clone();
             let remove_name = fields.name.clone();
             let target = format!(
                 "{}:{}{}",
@@ -570,17 +571,17 @@ impl ServersView {
                         ),
                 )
                 .child(
-                    Button::new(SharedString::from(format!("edit-region-{ix}")))
+                    Button::new(SharedString::from(format!("edit-region-{name}")))
                         .ghost()
                         .xsmall()
                         .icon(Icon::new(AppIcon::Pencil))
                         .tooltip(t!("servers.edit_tooltip").to_string())
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            this.open_edit_dialog(ix, window, cx)
+                            this.open_edit_dialog(&name, window, cx)
                         })),
                 )
                 .child(
-                    Button::new(SharedString::from(format!("remove-region-{ix}")))
+                    Button::new(SharedString::from(format!("remove-region-{remove_name}")))
                         .ghost()
                         .xsmall()
                         .danger()

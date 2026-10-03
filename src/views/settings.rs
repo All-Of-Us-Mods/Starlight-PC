@@ -15,15 +15,14 @@ use log::warn;
 
 use crate::backend::binary::BinaryArch;
 use crate::backend::events::{self, BackendEvent};
-#[cfg(unix)]
-use crate::backend::services::core_service::LinuxRunnerKind;
 #[cfg(windows)]
 use crate::backend::services::core_service::ReleaseChannel;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
     core_service::{self, GamePlatform, ScrollbarVisibility},
-    finder_service,
 };
+#[cfg(unix)]
+use crate::backend::services::{core_service::LinuxRunnerKind, finder_service};
 use crate::settings as app_settings;
 use crate::ui::icon::AppIcon;
 use gpui_kit::component::ActiveTheme;
@@ -70,17 +69,13 @@ impl SettingsView {
             .detach();
 
         // Refresh on cache state changes (download / clear).
-        let mut rx = events::subscribe();
-        cx.spawn(async move |this, cx| {
-            while let Ok(event) = rx.recv().await {
-                if let BackendEvent::BepInExProgress(p) = event
-                    && matches!(p.target_type, BepInExTargetType::Cache)
-                {
-                    let _ = this.update(cx, |_, cx| cx.notify());
-                }
+        events::listen(cx, |_, event, cx| {
+            if let BackendEvent::BepInExProgress(p) = event
+                && matches!(p.target_type, BepInExTargetType::Cache)
+            {
+                cx.notify();
             }
-        })
-        .detach();
+        });
 
         Self
     }
@@ -210,12 +205,17 @@ fn patch_linux_runner_kind(value: SharedString, cx: &mut App) {
 
 struct PathFieldState {
     input: Entity<InputState>,
+    /// The setting's value as last mirrored into `input`. Only a change to
+    /// the setting itself (Browse, Auto-detect) overwrites the input, so a
+    /// re-render mid-edit leaves the user's unsaved text alone.
+    synced: SharedString,
     _sub: Subscription,
 }
 
-/// File-path setting field. The input mirrors the global in real time (so an
-/// external write like Auto-detect updates the visible text), edits write back
-/// through `set`, and the Browse button opens the platform file picker.
+/// File-path setting field. The input mirrors the global (so an external
+/// write like Auto-detect updates the visible text), edits are saved through
+/// `set` on Enter or when the input loses focus — not on every keystroke —
+/// and the Browse button opens the platform file picker.
 fn path_field(
     key: &'static str,
     directories_only: bool,
@@ -225,32 +225,33 @@ fn path_field(
     SettingField::render(move |options, window, cx| {
         let value = get(cx);
 
-        let state_key: SharedString = format!(
-            "path-field-{}-{}-{}-{}",
-            key,
-            options.page_ix(),
-            options.group_ix(),
-            options.item_ix()
-        )
-        .into();
-
+        let state_key = SharedString::from(format!("path-field-{key}"));
         let value_for_init = value.clone();
         let state = window.use_keyed_state(state_key, cx, move |window, cx| {
             let input =
                 cx.new(|cx| InputState::new(window, cx).default_value(value_for_init.clone()));
             let _sub = cx.subscribe(&input, move |_, input, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    let v = input.read(cx).value();
-                    set(v, cx);
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    let edited = input.read(cx).value();
+                    if edited != get(cx) {
+                        set(edited, cx);
+                    }
                 }
             });
-            PathFieldState { input, _sub }
+            PathFieldState {
+                input,
+                synced: value_for_init,
+                _sub,
+            }
         });
 
         let input_entity = state.read(cx).input.clone();
-        if input_entity.read(cx).value() != value {
-            let val = value.clone();
-            input_entity.update(cx, |s, cx| s.set_value(val, window, cx));
+        if state.read(cx).synced != value {
+            state.update(cx, |state, _| state.synced = value.clone());
+            if input_entity.read(cx).value() != value {
+                let val = value.clone();
+                input_entity.update(cx, |s, cx| s.set_value(val, window, cx));
+            }
         }
 
         let prompt: SharedString = if directories_only {
@@ -258,14 +259,7 @@ fn path_field(
         } else {
             t!("settings.path.select_file").into()
         };
-        let button_id: SharedString = format!(
-            "path-browse-{}-{}-{}-{}",
-            key,
-            options.page_ix(),
-            options.group_ix(),
-            options.item_ix()
-        )
-        .into();
+        let button_id = SharedString::from(format!("path-browse-{key}"));
         let setter: PathSetter = Rc::new(set);
 
         let input_el = Input::new(&input_entity)
@@ -314,68 +308,75 @@ fn path_field(
 fn detect_linux_runtime(window: &mut Window, cx: &mut App) {
     let among_us_path = app_settings::get(cx).game.among_us_path.clone();
     let path_arg = (!among_us_path.trim().is_empty()).then_some(among_us_path);
-    match finder_service::detect_linux_runner(path_arg) {
-        Ok(detection) => {
-            app_settings::update(cx, |s| {
-                s.game.linux_runner_kind = detection.runner_kind;
-                s.game.linux_runner_binary = detection.runner_binary.unwrap_or_default();
-                s.game.linux_wine_prefix = detection.wine_prefix.unwrap_or_default();
-                s.game.linux_proton_compat_data_path =
-                    detection.proton_compat_data_path.unwrap_or_default();
-                s.game.linux_proton_steam_client_path =
-                    detection.proton_steam_client_path.unwrap_or_default();
-                s.game.linux_proton_use_steam_run = detection.proton_use_steam_run;
+    let detection = cx
+        .background_executor()
+        .spawn(async move { finder_service::detect_linux_runner(path_arg) });
+    window
+        .spawn(cx, async move |cx| {
+            let detection = detection.await;
+            let _ = cx.update(|window, cx| match detection {
+                Ok(detection) => {
+                    app_settings::update(cx, |s| {
+                        s.game.linux_runner_kind = detection.runner_kind;
+                        s.game.linux_runner_binary = detection.runner_binary.unwrap_or_default();
+                        s.game.linux_wine_prefix = detection.wine_prefix.unwrap_or_default();
+                        s.game.linux_proton_compat_data_path =
+                            detection.proton_compat_data_path.unwrap_or_default();
+                        s.game.linux_proton_steam_client_path =
+                            detection.proton_steam_client_path.unwrap_or_default();
+                        s.game.linux_proton_use_steam_run = detection.proton_use_steam_run;
+                    });
+                    window.push_notification(
+                        Notification::success(t!("settings.linux.detected").to_string()),
+                        cx,
+                    );
+                }
+                Err(e) => {
+                    warn!("detect_linux_runner failed: {e}");
+                    window.push_notification(
+                        Notification::error(t!("settings.detection_failed", error = e).to_string()),
+                        cx,
+                    );
+                }
             });
-            window.push_notification(
-                Notification::success(t!("settings.linux.detected").to_string()),
-                cx,
-            );
-        }
-        Err(e) => {
-            warn!("detect_linux_runner failed: {e}");
-            window.push_notification(
-                Notification::error(t!("settings.detection_failed", error = e).to_string()),
-                cx,
-            );
-        }
-    }
+        })
+        .detach();
 }
 
 fn detect_among_us(window: &mut Window, cx: &mut App) {
-    match finder_service::detect_among_us_installation() {
-        Ok(Some(path)) => {
-            let detected_platform = finder_service::detect_game_store(&path).ok();
-            app_settings::update(cx, |s| {
-                s.game.among_us_path = path.clone();
-                if let Some(platform) = detected_platform {
-                    s.game.game_platform = platform;
+    let detection = app_settings::detect_among_us(cx);
+    window
+        .spawn(cx, async move |cx| {
+            let detection = detection.await;
+            let _ = cx.update(|window, cx| match detection {
+                Ok(Some((path, store))) => {
+                    let msg = match store {
+                        Some(p) => t!(
+                            "settings.detected_store",
+                            store = p.display_name(),
+                            path = path
+                        )
+                        .to_string(),
+                        None => t!("settings.detected", path = path).to_string(),
+                    };
+                    window.push_notification(Notification::success(msg), cx);
+                }
+                Ok(None) => {
+                    window.push_notification(
+                        Notification::warning(t!("settings.not_detected").to_string()),
+                        cx,
+                    );
+                }
+                Err(e) => {
+                    warn!("detect_among_us failed: {e}");
+                    window.push_notification(
+                        Notification::error(t!("settings.detection_failed", error = e).to_string()),
+                        cx,
+                    );
                 }
             });
-            let msg = match detected_platform {
-                Some(p) => t!(
-                    "settings.detected_store",
-                    store = p.display_name(),
-                    path = path
-                )
-                .to_string(),
-                None => t!("settings.detected", path = path).to_string(),
-            };
-            window.push_notification(Notification::success(msg), cx);
-        }
-        Ok(None) => {
-            window.push_notification(
-                Notification::warning(t!("settings.not_detected").to_string()),
-                cx,
-            );
-        }
-        Err(e) => {
-            warn!("detect_among_us failed: {e}");
-            window.push_notification(
-                Notification::error(t!("settings.detection_failed", error = e).to_string()),
-                cx,
-            );
-        }
-    }
+        })
+        .detach();
 }
 
 fn download_bepinex_cache(arch: BinaryArch, window: &mut Window, cx: &mut App) {
@@ -429,48 +430,56 @@ fn download_bepinex_cache(arch: BinaryArch, window: &mut Window, cx: &mut App) {
 }
 
 fn clear_bepinex_cache(arch: BinaryArch, window: &mut Window, cx: &mut App) {
-    match core_service::get_bepinex_cache_path(arch) {
-        Ok(path) => match bepinex_service::clear_cache(path, arch.as_str().to_string()) {
-            Ok(()) => window.push_notification(
-                Notification::success(
-                    t!("settings.cache.cleared", arch = arch.as_str()).to_string(),
-                ),
-                cx,
-            ),
-            Err(e) => {
-                warn!("clear_bepinex_cache failed: {e}");
-                window.push_notification(
-                    Notification::error(t!("settings.cache.clear_failed", error = e).to_string()),
-                    cx,
-                );
-            }
-        },
+    let path = match core_service::get_bepinex_cache_path(arch) {
+        Ok(path) => path,
         Err(e) => {
             window.push_notification(
                 Notification::error(t!("settings.cache.path_error", error = e).to_string()),
                 cx,
             );
+            return;
         }
-    }
+    };
+    let cleared = cx
+        .background_executor()
+        .spawn(async move { bepinex_service::clear_cache(path, arch.as_str().to_string()) });
+    window
+        .spawn(cx, async move |cx| {
+            let cleared = cleared.await;
+            let _ = cx.update(|window, cx| match cleared {
+                Ok(()) => window.push_notification(
+                    Notification::success(
+                        t!("settings.cache.cleared", arch = arch.as_str()).to_string(),
+                    ),
+                    cx,
+                ),
+                Err(e) => {
+                    warn!("clear_bepinex_cache failed: {e}");
+                    window.push_notification(
+                        Notification::error(
+                            t!("settings.cache.clear_failed", error = e).to_string(),
+                        ),
+                        cx,
+                    );
+                }
+            });
+        })
+        .detach();
 }
 
 /// Open the app's data directory (settings, profiles, logs) in the platform
 /// file manager — the folder support asks users to look in.
-fn open_data_folder() {
+fn open_data_folder(cx: &App) {
     let Ok(dir) = crate::backend::directories::app_data_dir() else {
         return;
     };
-    open_in_file_manager(&dir);
+    open_folder(&dir, cx);
 }
 
-fn open_in_file_manager(dir: &std::path::Path) {
+/// Open `dir` in the platform file manager, creating it first if needed.
+fn open_folder(dir: &std::path::Path, cx: &App) {
     let _ = std::fs::create_dir_all(dir);
-    #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("explorer").arg(dir).spawn();
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(dir).spawn();
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+    cx.open_with_system(dir);
 }
 
 // ---------- view ----------
@@ -604,8 +613,8 @@ impl Render for SettingsView {
                             Button::new("open-themes-folder")
                                 .icon(Icon::new(IconName::FolderOpen))
                                 .label(t!("settings.open_themes_folder"))
-                                .on_click(|_, _, _| {
-                                    open_in_file_manager(&crate::theme::themes_dir())
+                                .on_click(|_, _, cx| {
+                                    open_folder(&crate::theme::themes_dir(), cx)
                                 }),
                         )
                         .child(
@@ -935,7 +944,7 @@ impl Render for SettingsView {
                                     Button::new("about-open-data")
                                         .icon(Icon::new(IconName::FolderOpen))
                                         .label(t!("settings.open_data_folder"))
-                                        .on_click(|_, _, _| open_data_folder()),
+                                        .on_click(|_, _, cx| open_data_folder(cx)),
                                 ),
                         )
                 }),

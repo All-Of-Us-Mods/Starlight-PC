@@ -1,9 +1,9 @@
 //! Decorative drifting starfield, modeled on upstream's StarBackground:
 //! stars distributed by Poisson-disc-style sampling (minimum spacing, so
 //! they never overlap or clump), tiled 2×2 and translated by exactly one
-//! tile per cycle so the drift loops seamlessly. Star color is fixed amber
-//! (upstream's `#fbbf24`) regardless of theme; toggled by the "Floating
-//! stars background" setting.
+//! tile per cycle so the drift loops seamlessly. Stars are the brand amber
+//! regardless of theme; toggled by the "Floating stars background" setting,
+//! and held still while the system asks for reduced motion.
 //!
 //! Perf notes: the whole field is ONE `canvas` element that paints every
 //! star directly via `paint_svg` — no per-star elements, so the per-frame
@@ -14,7 +14,8 @@
 //! of per-vsync animation — at ~11px/s drift that's sub-pixel per step
 //! (indistinguishable from 60fps) for half the redraws. The offset derives
 //! from wall-clock elapsed time, so tick jitter never accumulates drift
-//! error.
+//! error. The workspace embeds pages as cached views, so a tick re-renders
+//! the window chrome but not the page underneath.
 
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -24,8 +25,6 @@ use gpui_kit::*;
 use crate::ui::icon::AppIcon;
 use gpui_kit::component::IconNamed;
 
-/// Upstream's star color (Tailwind amber-400).
-const STAR_COLOR: u32 = 0xfbbf24;
 /// Minimum spacing between star centers, as a fraction of the window.
 const MIN_DIST: f32 = 0.09;
 const MAX_STARS: usize = 60;
@@ -95,7 +94,12 @@ impl StarsBackground {
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(TICK).await;
-                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                let step = this.update(cx, |_, cx| {
+                    if !cx.reduce_motion() {
+                        cx.notify();
+                    }
+                });
+                if step.is_err() {
                     break;
                 }
             }
@@ -113,7 +117,7 @@ impl Render for StarsBackground {
         // which the repeated tiles line up exactly with the start.
         let offset = (self.start.elapsed().as_secs_f32() / DRIFT_SECS).fract();
 
-        let amber: Hsla = rgb(STAR_COLOR).into();
+        let amber: Hsla = rgb(crate::theme::BRAND_AMBER).into();
 
         canvas(
             |_, _, _| {},

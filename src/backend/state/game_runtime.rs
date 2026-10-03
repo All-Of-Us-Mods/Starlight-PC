@@ -286,10 +286,6 @@ fn mark_launched(profile_id: Option<&str>) {
     let Some(id) = profile_id else { return };
     if let Err(e) = profile_service::update_last_launched(id) {
         warn!("update_last_launched failed for profile {id}: {e}");
-    } else {
-        crate::backend::events::publish(crate::backend::events::BackendEvent::ProfileStatsUpdated(
-            id.to_string(),
-        ));
     }
 }
 
@@ -312,8 +308,5 @@ fn settle_profile(profile_id: Option<String>, launched_at: Instant) {
         if let Err(e) = profile_service::add_play_time(&id, duration_ms) {
             warn!("add_play_time failed for profile {id}: {e}");
         }
-        crate::backend::events::publish(crate::backend::events::BackendEvent::ProfileStatsUpdated(
-            id,
-        ));
     });
 }

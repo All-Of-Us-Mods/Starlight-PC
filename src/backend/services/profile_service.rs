@@ -1,5 +1,6 @@
 use crate::backend::binary::read_pe_version_info;
 use crate::backend::error::{AppError, AppResult};
+use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_runtime::BepInExRuntime;
 use crate::backend::services::core_service::AppSettings;
 use crate::backend::services::installation_service::GameSetup;
@@ -260,6 +261,8 @@ fn modify_profile_in(
     Ok(true)
 }
 
+/// Every metadata write (create, modify, import) lands here, so this is where
+/// [`BackendEvent::ProfileChanged`] goes out — along with [`delete_profile`].
 fn write_profile(profile: &ProfileEntry) -> AppResult<()> {
     let profile_dir = PathBuf::from(&profile.path);
     fs::create_dir_all(&profile_dir)?;
@@ -268,6 +271,7 @@ fn write_profile(profile: &ProfileEntry) -> AppResult<()> {
     let temporary_path = metadata_path.with_extension("json.tmp");
     fs::write(&temporary_path, metadata)?;
     fs::rename(&temporary_path, &metadata_path)?;
+    events::publish(BackendEvent::ProfileChanged(profile.id.clone()));
     Ok(())
 }
 
@@ -488,6 +492,7 @@ pub fn delete_profile(profile_id: &str) -> AppResult<()> {
     if path.exists() {
         fs::remove_dir_all(path)?;
     }
+    events::publish(BackendEvent::ProfileChanged(profile_id.to_string()));
     Ok(())
 }
 

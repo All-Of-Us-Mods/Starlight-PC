@@ -14,14 +14,13 @@ use rust_i18n::t;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use crate::backend::api;
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_service::{BepInExProgress, BepInExTargetType};
 use crate::backend::services::launch_service;
-use crate::backend::services::mod_install_service::{self, InstallModInput};
+use crate::backend::services::mod_install_service;
 use crate::backend::services::profile_service::{
     self, BepInExStatus, ProfileEntry, ProfileModEntry, ZipOp,
 };
@@ -100,6 +99,9 @@ pub(super) enum LoadState {
 impl LibraryDetailView {
     pub fn new(profile_id: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let log_panel = cx.new(|cx| LogPanel::new(window, cx));
+        // `render` reads `has_content` even while the panel isn't shown, and
+        // a hidden panel's notify doesn't reach this (cached) view on its own.
+        cx.observe(&log_panel, |_, _, cx| cx.notify()).detach();
 
         let view = Self {
             profile_id: profile_id.clone(),
@@ -134,53 +136,36 @@ impl LibraryDetailView {
         })
         .detach();
 
-        // Subscribe to backend events for *this* profile.
-        let id_for_events = profile_id.clone();
-        let mut rx = events::subscribe();
-        cx.spawn(async move |this, cx| {
-            while let Ok(event) = rx.recv().await {
-                match event {
-                    BackendEvent::BepInExProgress(p)
-                        if matches!(p.target_type, BepInExTargetType::Profile)
-                            && p.target_id == id_for_events =>
-                    {
-                        let done = matches!(p.stage.as_str(), "complete" | "failed");
-                        let _ = this.update(cx, |this, cx| {
-                            if p.stage == "failed" {
-                                this.launch_error = Some(p.message.clone());
-                            }
-                            this.bep_progress = if done { None } else { Some(p) };
-                            cx.notify();
-                        });
-                        if done {
-                            let _ = this.update(cx, |this, cx| this.spawn_load(cx));
-                        }
-                    }
-                    BackendEvent::GameStateChanged(payload) => {
-                        let running = payload.profile_count(&id_for_events);
-                        let _ = this.update(cx, |this, cx| {
-                            this.running_count = running;
-                            cx.notify();
-                            // Game state change ≈ new log content / mod changes.
-                            this.refresh_disk_state(cx);
-                        });
-                    }
-                    BackendEvent::ProfileStatsUpdated(id) if id == id_for_events => {
-                        let _ = this.update(cx, |this, cx| this.spawn_load(cx));
-                    }
-                    BackendEvent::ZipProgress(p)
-                        if matches!(&p.op, ZipOp::Export(id) if *id == id_for_events) =>
-                    {
-                        let _ = this.update(cx, |this, cx| {
-                            this.export_progress = Some(p.progress);
-                            cx.notify();
-                        });
-                    }
-                    _ => {}
+        // Backend events for *this* profile.
+        events::listen(cx, |this, event, cx| match event {
+            BackendEvent::BepInExProgress(p)
+                if matches!(p.target_type, BepInExTargetType::Profile)
+                    && p.target_id == this.profile_id =>
+            {
+                let done = matches!(p.stage.as_str(), "complete" | "failed");
+                if p.stage == "failed" {
+                    this.launch_error = Some(p.message.clone());
+                }
+                this.bep_progress = if done { None } else { Some(p) };
+                cx.notify();
+                if done {
+                    this.spawn_load(cx);
                 }
             }
-        })
-        .detach();
+            BackendEvent::GameStateChanged(payload) => {
+                this.running_count = payload.profile_count(&this.profile_id);
+                cx.notify();
+                // Game state change ≈ new log content / mod changes.
+                this.refresh_disk_state(cx);
+            }
+            BackendEvent::ProfileChanged(id) if id == this.profile_id => this.spawn_load(cx),
+            BackendEvent::ZipProgress(p) if matches!(&p.op, ZipOp::Export(id) if *id == this.profile_id) =>
+            {
+                this.export_progress = Some(p.progress);
+                cx.notify();
+            }
+            _ => {}
+        });
 
         view
     }
@@ -361,66 +346,7 @@ impl LibraryDetailView {
                     let _update_guard = update_lock.lock().map_err(|_| {
                         crate::backend::error::AppError::state("Mod update lock was poisoned")
                     })?;
-                    let profile =
-                        profile_service::get_profile_by_id(&profile_id)?.ok_or_else(|| {
-                            crate::backend::error::AppError::validation(format!(
-                                "Profile '{profile_id}' not found"
-                            ))
-                        })?;
-                    let root_versions: HashMap<String, String> = updates.iter().cloned().collect();
-                    let mut planned_ids: HashSet<String> = root_versions.keys().cloned().collect();
-                    let mut items = Vec::new();
-
-                    // Resolve every root before appending roots themselves, so
-                    // the combined batch remains dependencies-first.
-                    for (mod_id, latest) in &updates {
-                        let version_info = api::fetch_mod_version_info(mod_id, latest)?;
-                        let (dependencies, unresolved) =
-                            mod_install_service::resolve_required_dependencies_with_pins(
-                                &version_info.dependencies,
-                                &root_versions,
-                            )?;
-                        if !unresolved.is_empty() {
-                            return Err(crate::backend::error::AppError::validation(format!(
-                                "Could not resolve dependencies: {}",
-                                unresolved.join(", ")
-                            )));
-                        }
-                        for dependency in dependencies {
-                            if !planned_ids.insert(dependency.mod_id.clone()) {
-                                continue;
-                            }
-                            let installed = profile
-                                .mods
-                                .iter()
-                                .find(|installed| installed.mod_id == dependency.mod_id);
-                            let already_current = installed.is_some_and(|installed| {
-                                installed.version == dependency.resolved_version
-                            });
-                            if !already_current
-                                && installed.is_some_and(|installed| !installed.enabled)
-                            {
-                                return Err(crate::backend::error::AppError::validation(format!(
-                                    "Enable '{}' before updating; it is a required dependency",
-                                    dependency.mod_name
-                                )));
-                            }
-                            if !already_current {
-                                items.push(InstallModInput {
-                                    mod_id: dependency.mod_id,
-                                    version: dependency.resolved_version,
-                                });
-                            }
-                        }
-                    }
-
-                    items.extend(
-                        updates
-                            .into_iter()
-                            .map(|(mod_id, version)| InstallModInput { mod_id, version }),
-                    );
-                    mod_install_service::install_mods_for_profile(&profile_id, &items)?;
-                    Ok::<(), crate::backend::error::AppError>(())
+                    mod_install_service::update_profile_mods(&profile_id, updates)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -518,12 +444,9 @@ impl LibraryDetailView {
         .detach();
     }
 
-    fn open_profile_folder(&self) {
-        let LoadState::Loaded(profile) = &self.state else {
-            return;
-        };
-        if let Err(e) = open_folder(Path::new(&profile.path)) {
-            warn!("open profile folder failed: {e}");
+    fn open_profile_folder(&self, cx: &App) {
+        if let LoadState::Loaded(profile) = &self.state {
+            cx.open_with_system(Path::new(&profile.path));
         }
     }
 
@@ -852,22 +775,6 @@ fn default_export_dir() -> std::path::PathBuf {
     std::env::home_dir().unwrap_or_else(|| ".".into())
 }
 
-fn open_folder(path: &Path) -> std::io::Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("explorer").arg(path).spawn()?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        Command::new("open").arg(path).spawn()?;
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        Command::new("xdg-open").arg(path).spawn()?;
-    }
-    Ok(())
-}
-
 impl Render for LibraryDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
@@ -1039,8 +946,8 @@ impl LibraryDetailView {
                     .small()
                     .icon(Icon::new(IconName::FolderOpen))
                     .label(t!("profile.open_folder"))
-                    .on_click(cx.listener(|this, _, _window, _cx| {
-                        this.open_profile_folder();
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.open_profile_folder(cx);
                     })),
             )
             .child(

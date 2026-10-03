@@ -24,6 +24,10 @@ const BUNDLED_FILE_NAME: &str = "starlight.json";
 /// Theme applied when settings name a theme that isn't installed.
 pub const DEFAULT_THEME_NAME: &str = "Starlight Zinc";
 
+/// Starlight's brand amber: the sidebar star and the starfield, whatever the
+/// theme.
+pub const BRAND_AMBER: u32 = 0xffc107;
+
 /// Where user theme files live. Users can drop any gpui-component theme JSON
 /// here; it shows up in the theme picker without a restart.
 pub fn themes_dir() -> PathBuf {
