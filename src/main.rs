@@ -18,6 +18,7 @@ mod backend;
 mod settings;
 mod theme;
 mod ui;
+mod updater;
 mod views;
 mod workspace;
 
@@ -165,6 +166,7 @@ fn main() {
             ui::log_language::register();
             // Settings first — the theme preset and language come from them.
             settings::init(cx);
+            updater::init(cx);
             rust_i18n::set_locale(&settings::get(cx).language);
             theme::init(cx);
             backend::init(cx);

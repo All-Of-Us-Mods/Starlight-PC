@@ -268,6 +268,8 @@ update:
   failed: "Update failed: %{error}"
   up_to_date: Starlight is up to date.
   check_failed: "Update check failed: %{error}"
+  checking: Checking for updates
+  downloading: "Downloading Starlight %{version}"
 settings:
   multiple_installations: Multiple installations
   multiple_installations_desc: Let profiles launch with a linked installation.

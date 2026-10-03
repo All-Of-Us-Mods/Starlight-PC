@@ -7,6 +7,7 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     notification::Notification,
+    progress::Progress,
     scroll::ScrollableElement as _,
     setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
 };
@@ -15,7 +16,6 @@ use log::warn;
 
 use crate::backend::binary::BinaryArch;
 use crate::backend::events::{self, BackendEvent};
-#[cfg(windows)]
 use crate::backend::services::core_service::ReleaseChannel;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
@@ -25,6 +25,7 @@ use crate::backend::services::{
 use crate::backend::services::{core_service::LinuxRunnerKind, finder_service};
 use crate::settings as app_settings;
 use crate::ui::icon::AppIcon;
+use crate::updater::{self, UpdateState};
 use gpui_kit::component::ActiveTheme;
 use rust_i18n::t;
 
@@ -66,6 +67,8 @@ pub struct SettingsView;
 impl SettingsView {
     pub fn new(cx: &mut Context<Self>) -> Self {
         cx.observe_global::<app_settings::SettingsGlobal>(|_, cx| cx.notify())
+            .detach();
+        cx.observe_global::<updater::UpdateGlobal>(|_, cx| cx.notify())
             .detach();
 
         // Refresh on cache state changes (download / clear).
@@ -182,13 +185,66 @@ fn patch_scrollbar_visibility(value: SharedString, cx: &mut App) {
     cx.refresh_windows();
 }
 
-#[cfg(windows)]
 fn patch_release_channel(value: SharedString, cx: &mut App) {
     let channel = match value.as_ref() {
         "nightly" => ReleaseChannel::Nightly,
         _ => ReleaseChannel::Stable,
     };
     app_settings::update(cx, |s| s.release_channel = channel);
+}
+
+/// The updater's current phase, as the description under "Check for updates".
+fn update_status(state: &UpdateState) -> String {
+    match state {
+        UpdateState::Idle => t!("settings.check_for_updates_desc").to_string(),
+        UpdateState::Checking => t!("update.checking").to_string(),
+        UpdateState::UpToDate => t!("update.up_to_date").to_string(),
+        UpdateState::Available(info) => t!("update.available", version = info.version).to_string(),
+        UpdateState::Downloading { info, percent } => {
+            let status = t!("update.downloading", version = info.version);
+            match percent {
+                Some(percent) => format!("{status} — {percent}%"),
+                None => status.to_string(),
+            }
+        }
+        UpdateState::Failed {
+            error,
+            update: Some(_),
+        } => t!("update.failed", error = error).to_string(),
+        UpdateState::Failed {
+            error,
+            update: None,
+        } => t!("update.check_failed", error = error).to_string(),
+    }
+}
+
+/// The action for the updater's current phase: check (or retry the check),
+/// install (or retry the install), or the download in progress.
+fn render_update_controls(cx: &App) -> AnyElement {
+    match updater::state(cx) {
+        UpdateState::Available(info)
+        | UpdateState::Failed {
+            update: Some(info), ..
+        } => updater::install_button(info.clone(), cx).into_any_element(),
+        UpdateState::Downloading { info, percent } => div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .child(
+                Progress::new("update-progress")
+                    .w_32()
+                    .value(percent.unwrap_or(0) as f32)
+                    .loading(percent.is_none()),
+            )
+            .child(updater::install_button(info.clone(), cx))
+            .into_any_element(),
+        state => Button::new("check-for-updates")
+            .icon(Icon::new(AppIcon::Download))
+            .label(t!("settings.check_now"))
+            .loading(matches!(state, UpdateState::Checking))
+            .on_click(|_, window, cx| updater::check(window, cx))
+            .into_any_element(),
+    }
 }
 
 #[cfg(unix)]
@@ -836,8 +892,7 @@ impl Render for SettingsView {
         };
 
         // Only Windows can install an update in place (see `update_service`),
-        // so only Windows gets a say in which builds it looks for.
-        #[cfg(windows)]
+        // so only Windows gets the group (added to the About page below).
         let updates_group = SettingGroup::new()
             .title(t!("settings.group.updates"))
             .items(vec![
@@ -864,16 +919,9 @@ impl Render for SettingsView {
                 .description(t!("settings.release_channel_desc").to_string()),
                 SettingItem::new(
                     t!("settings.check_for_updates"),
-                    SettingField::render(|_, _, _| {
-                        Button::new("check-for-updates")
-                            .icon(Icon::new(AppIcon::Download))
-                            .label(t!("settings.check_now"))
-                            .on_click(|_, window, cx| {
-                                crate::workspace::check_for_update(window, cx, true)
-                            })
-                    }),
+                    SettingField::render(|_, _, cx| render_update_controls(cx)),
                 )
-                .description(t!("settings.check_for_updates_desc").to_string()),
+                .description(update_status(updater::state(cx))),
             ]);
 
         let about_page =
@@ -950,8 +998,11 @@ impl Render for SettingsView {
                 }),
             ]));
 
-        #[cfg(windows)]
-        let about_page = about_page.group(updates_group);
+        let about_page = if cfg!(windows) {
+            about_page.group(updates_group)
+        } else {
+            about_page
+        };
 
         crate::views::page_root("settings-page", &theme)
             .overflow_y_scrollbar()

@@ -18,7 +18,6 @@ pub mod profile_zip_service;
 pub mod region_service;
 #[cfg(any(target_os = "linux", test))]
 mod steam_installation;
-#[cfg(windows)]
 pub mod update_service;
 #[cfg(windows)]
 pub mod xbox_service;

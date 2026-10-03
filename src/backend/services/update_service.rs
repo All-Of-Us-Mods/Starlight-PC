@@ -27,6 +27,8 @@ const RELEASE_DOWNLOAD_PREFIX: &str =
 /// workflows' artifact names.
 const WINDOWS_ASSET_NAME: &str = "Starlight-windows-x86_64.exe";
 
+// Only the Windows-only install reads the download fields.
+#[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Debug, Clone)]
 pub struct UpdateInfo {
     pub version: String,
@@ -177,8 +179,13 @@ pub fn check_for_update(channel: ReleaseChannel) -> AppResult<Option<UpdateInfo>
 /// overwriting its contents in place), so: rename the running exe aside,
 /// move the downloaded exe into its place, then spawn it. The caller is
 /// responsible for quitting the current process afterwards.
+///
+/// `on_progress(downloaded, total)` is called as the download advances.
 #[cfg(windows)]
-pub fn apply_update_and_relaunch(info: &UpdateInfo) -> AppResult<()> {
+pub fn apply_update_and_relaunch(
+    info: &UpdateInfo,
+    on_progress: impl FnMut(u64, Option<u64>),
+) -> AppResult<()> {
     use crate::backend::services::http_download;
     use std::fs;
     use std::process::Command;
@@ -191,7 +198,7 @@ pub fn apply_update_and_relaunch(info: &UpdateInfo) -> AppResult<()> {
         "downloading update {} from {}",
         info.version, info.download_url
     );
-    http_download::download_file(&info.download_url, &download_path, None, None, |_, _| {})?;
+    http_download::download_file(&info.download_url, &download_path, None, None, on_progress)?;
 
     let Some(expected) = info.expected_sha256.as_deref() else {
         let _ = fs::remove_file(&download_path);
