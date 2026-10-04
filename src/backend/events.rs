@@ -1,10 +1,11 @@
 //! Backend → frontend event bus.
 //!
-//! Backend services publish progress / state events via [`publish`].
-//! GPUI views subscribe with [`subscribe`] and `.recv().await` on gpui's
-//! background executor.
+//! Backend services publish progress / state events via [`publish`]. GPUI
+//! views handle them with [`listen`]; anything else can [`subscribe`] and
+//! `.recv().await` on gpui's background executor.
 
 use async_broadcast::{InactiveReceiver, Receiver, Sender, broadcast};
+use gpui_kit::Context;
 use std::sync::LazyLock;
 
 use crate::backend::deeplink::DeepLink;
@@ -20,9 +21,10 @@ pub enum BackendEvent {
     GameStateChanged(GameStatePayload),
     /// Progress of an in-flight profile import/export.
     ZipProgress(ZipProgress),
-    /// A profile's persisted stats (last_launched / total_play_time) just
-    /// changed. Views can use this to reload the profile entry.
-    ProfileStatsUpdated(String),
+    /// A profile's stored metadata was written — created, changed (name,
+    /// mods, launch stats, …) or deleted. Published by `profile_service`;
+    /// views reload the profile entry on it.
+    ProfileChanged(String),
     /// A second app instance forwarded its startup to us (single-instance
     /// guard) — bring the main window to the front.
     ActivateWindow,
@@ -58,4 +60,22 @@ pub fn publish(event: BackendEvent) {
 
 pub fn subscribe() -> Receiver<BackendEvent> {
     EVENT_BUS.tx.new_receiver()
+}
+
+/// Run `handle` on the view for every event published from now on, for as
+/// long as the view lives: the subscription ends with the first event after
+/// the view is dropped.
+pub fn listen<V: 'static>(
+    cx: &mut Context<V>,
+    mut handle: impl FnMut(&mut V, BackendEvent, &mut Context<V>) + 'static,
+) {
+    let mut rx = subscribe();
+    cx.spawn(async move |this, cx| {
+        while let Ok(event) = rx.recv().await {
+            if this.update(cx, |view, cx| handle(view, event, cx)).is_err() {
+                break;
+            }
+        }
+    })
+    .detach();
 }

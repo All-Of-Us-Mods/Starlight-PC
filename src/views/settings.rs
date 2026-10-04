@@ -6,26 +6,28 @@ use gpui_kit::component::{
     AxisExt as _, Icon, IconName, Sizable as _, WindowExt,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
+    link::Link,
     notification::Notification,
+    progress::Progress,
     scroll::ScrollableElement as _,
     setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
+    tag::Tag,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use log::warn;
 
 use crate::backend::binary::BinaryArch;
 use crate::backend::events::{self, BackendEvent};
-#[cfg(unix)]
-use crate::backend::services::core_service::LinuxRunnerKind;
-#[cfg(windows)]
 use crate::backend::services::core_service::ReleaseChannel;
 use crate::backend::services::{
     bepinex_service::{self, BepInExTargetType},
     core_service::{self, GamePlatform, ScrollbarVisibility},
-    finder_service,
 };
+#[cfg(unix)]
+use crate::backend::services::{core_service::LinuxRunnerKind, finder_service};
 use crate::settings as app_settings;
 use crate::ui::icon::AppIcon;
+use crate::updater::{self, UpdateState};
 use gpui_kit::component::ActiveTheme;
 use rust_i18n::t;
 
@@ -68,19 +70,17 @@ impl SettingsView {
     pub fn new(cx: &mut Context<Self>) -> Self {
         cx.observe_global::<app_settings::SettingsGlobal>(|_, cx| cx.notify())
             .detach();
+        cx.observe_global::<updater::UpdateGlobal>(|_, cx| cx.notify())
+            .detach();
 
         // Refresh on cache state changes (download / clear).
-        let mut rx = events::subscribe();
-        cx.spawn(async move |this, cx| {
-            while let Ok(event) = rx.recv().await {
-                if let BackendEvent::BepInExProgress(p) = event
-                    && matches!(p.target_type, BepInExTargetType::Cache)
-                {
-                    let _ = this.update(cx, |_, cx| cx.notify());
-                }
+        events::listen(cx, |_, event, cx| {
+            if let BackendEvent::BepInExProgress(p) = event
+                && matches!(p.target_type, BepInExTargetType::Cache)
+            {
+                cx.notify();
             }
-        })
-        .detach();
+        });
 
         Self
     }
@@ -187,13 +187,66 @@ fn patch_scrollbar_visibility(value: SharedString, cx: &mut App) {
     cx.refresh_windows();
 }
 
-#[cfg(windows)]
 fn patch_release_channel(value: SharedString, cx: &mut App) {
     let channel = match value.as_ref() {
         "nightly" => ReleaseChannel::Nightly,
         _ => ReleaseChannel::Stable,
     };
     app_settings::update(cx, |s| s.release_channel = channel);
+}
+
+/// The updater's current phase, as the description under "Check for updates".
+fn update_status(state: &UpdateState) -> String {
+    match state {
+        UpdateState::Idle => t!("settings.check_for_updates_desc").to_string(),
+        UpdateState::Checking => t!("update.checking").to_string(),
+        UpdateState::UpToDate => t!("update.up_to_date").to_string(),
+        UpdateState::Available(info) => t!("update.available", version = info.version).to_string(),
+        UpdateState::Downloading { info, percent } => {
+            let status = t!("update.downloading", version = info.version);
+            match percent {
+                Some(percent) => format!("{status} — {percent}%"),
+                None => status.to_string(),
+            }
+        }
+        UpdateState::Failed {
+            error,
+            update: Some(_),
+        } => t!("update.failed", error = error).to_string(),
+        UpdateState::Failed {
+            error,
+            update: None,
+        } => t!("update.check_failed", error = error).to_string(),
+    }
+}
+
+/// The action for the updater's current phase: check (or retry the check),
+/// install (or retry the install), or the download in progress.
+fn render_update_controls(cx: &App) -> AnyElement {
+    match updater::state(cx) {
+        UpdateState::Available(info)
+        | UpdateState::Failed {
+            update: Some(info), ..
+        } => updater::install_button(info.clone(), cx).into_any_element(),
+        UpdateState::Downloading { info, percent } => div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .child(
+                Progress::new("update-progress")
+                    .w_32()
+                    .value(percent.unwrap_or(0) as f32)
+                    .loading(percent.is_none()),
+            )
+            .child(updater::install_button(info.clone(), cx))
+            .into_any_element(),
+        state => Button::new("check-for-updates")
+            .icon(Icon::new(AppIcon::Download))
+            .label(t!("settings.check_now"))
+            .loading(matches!(state, UpdateState::Checking))
+            .on_click(|_, window, cx| updater::check(window, cx))
+            .into_any_element(),
+    }
 }
 
 #[cfg(unix)]
@@ -210,12 +263,17 @@ fn patch_linux_runner_kind(value: SharedString, cx: &mut App) {
 
 struct PathFieldState {
     input: Entity<InputState>,
+    /// The setting's value as last mirrored into `input`. Only a change to
+    /// the setting itself (Browse, Auto-detect) overwrites the input, so a
+    /// re-render mid-edit leaves the user's unsaved text alone.
+    synced: SharedString,
     _sub: Subscription,
 }
 
-/// File-path setting field. The input mirrors the global in real time (so an
-/// external write like Auto-detect updates the visible text), edits write back
-/// through `set`, and the Browse button opens the platform file picker.
+/// File-path setting field. The input mirrors the global (so an external
+/// write like Auto-detect updates the visible text), edits are saved through
+/// `set` on Enter or when the input loses focus — not on every keystroke —
+/// and the Browse button opens the platform file picker.
 fn path_field(
     key: &'static str,
     directories_only: bool,
@@ -225,32 +283,33 @@ fn path_field(
     SettingField::render(move |options, window, cx| {
         let value = get(cx);
 
-        let state_key: SharedString = format!(
-            "path-field-{}-{}-{}-{}",
-            key,
-            options.page_ix(),
-            options.group_ix(),
-            options.item_ix()
-        )
-        .into();
-
+        let state_key = SharedString::from(format!("path-field-{key}"));
         let value_for_init = value.clone();
         let state = window.use_keyed_state(state_key, cx, move |window, cx| {
             let input =
                 cx.new(|cx| InputState::new(window, cx).default_value(value_for_init.clone()));
             let _sub = cx.subscribe(&input, move |_, input, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    let v = input.read(cx).value();
-                    set(v, cx);
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    let edited = input.read(cx).value();
+                    if edited != get(cx) {
+                        set(edited, cx);
+                    }
                 }
             });
-            PathFieldState { input, _sub }
+            PathFieldState {
+                input,
+                synced: value_for_init,
+                _sub,
+            }
         });
 
         let input_entity = state.read(cx).input.clone();
-        if input_entity.read(cx).value() != value {
-            let val = value.clone();
-            input_entity.update(cx, |s, cx| s.set_value(val, window, cx));
+        if state.read(cx).synced != value {
+            state.update(cx, |state, _| state.synced = value.clone());
+            if input_entity.read(cx).value() != value {
+                let val = value.clone();
+                input_entity.update(cx, |s, cx| s.set_value(val, window, cx));
+            }
         }
 
         let prompt: SharedString = if directories_only {
@@ -258,14 +317,7 @@ fn path_field(
         } else {
             t!("settings.path.select_file").into()
         };
-        let button_id: SharedString = format!(
-            "path-browse-{}-{}-{}-{}",
-            key,
-            options.page_ix(),
-            options.group_ix(),
-            options.item_ix()
-        )
-        .into();
+        let button_id = SharedString::from(format!("path-browse-{key}"));
         let setter: PathSetter = Rc::new(set);
 
         let input_el = Input::new(&input_entity)
@@ -314,68 +366,75 @@ fn path_field(
 fn detect_linux_runtime(window: &mut Window, cx: &mut App) {
     let among_us_path = app_settings::get(cx).game.among_us_path.clone();
     let path_arg = (!among_us_path.trim().is_empty()).then_some(among_us_path);
-    match finder_service::detect_linux_runner(path_arg) {
-        Ok(detection) => {
-            app_settings::update(cx, |s| {
-                s.game.linux_runner_kind = detection.runner_kind;
-                s.game.linux_runner_binary = detection.runner_binary.unwrap_or_default();
-                s.game.linux_wine_prefix = detection.wine_prefix.unwrap_or_default();
-                s.game.linux_proton_compat_data_path =
-                    detection.proton_compat_data_path.unwrap_or_default();
-                s.game.linux_proton_steam_client_path =
-                    detection.proton_steam_client_path.unwrap_or_default();
-                s.game.linux_proton_use_steam_run = detection.proton_use_steam_run;
+    let detection = cx
+        .background_executor()
+        .spawn(async move { finder_service::detect_linux_runner(path_arg) });
+    window
+        .spawn(cx, async move |cx| {
+            let detection = detection.await;
+            let _ = cx.update(|window, cx| match detection {
+                Ok(detection) => {
+                    app_settings::update(cx, |s| {
+                        s.game.linux_runner_kind = detection.runner_kind;
+                        s.game.linux_runner_binary = detection.runner_binary.unwrap_or_default();
+                        s.game.linux_wine_prefix = detection.wine_prefix.unwrap_or_default();
+                        s.game.linux_proton_compat_data_path =
+                            detection.proton_compat_data_path.unwrap_or_default();
+                        s.game.linux_proton_steam_client_path =
+                            detection.proton_steam_client_path.unwrap_or_default();
+                        s.game.linux_proton_use_steam_run = detection.proton_use_steam_run;
+                    });
+                    window.push_notification(
+                        Notification::success(t!("settings.linux.detected").to_string()),
+                        cx,
+                    );
+                }
+                Err(e) => {
+                    warn!("detect_linux_runner failed: {e}");
+                    window.push_notification(
+                        Notification::error(t!("settings.detection_failed", error = e).to_string()),
+                        cx,
+                    );
+                }
             });
-            window.push_notification(
-                Notification::success(t!("settings.linux.detected").to_string()),
-                cx,
-            );
-        }
-        Err(e) => {
-            warn!("detect_linux_runner failed: {e}");
-            window.push_notification(
-                Notification::error(t!("settings.detection_failed", error = e).to_string()),
-                cx,
-            );
-        }
-    }
+        })
+        .detach();
 }
 
 fn detect_among_us(window: &mut Window, cx: &mut App) {
-    match finder_service::detect_among_us_installation() {
-        Ok(Some(path)) => {
-            let detected_platform = finder_service::detect_game_store(&path).ok();
-            app_settings::update(cx, |s| {
-                s.game.among_us_path = path.clone();
-                if let Some(platform) = detected_platform {
-                    s.game.game_platform = platform;
+    let detection = app_settings::detect_among_us(cx);
+    window
+        .spawn(cx, async move |cx| {
+            let detection = detection.await;
+            let _ = cx.update(|window, cx| match detection {
+                Ok(Some((path, store))) => {
+                    let msg = match store {
+                        Some(p) => t!(
+                            "settings.detected_store",
+                            store = p.display_name(),
+                            path = path
+                        )
+                        .to_string(),
+                        None => t!("settings.detected", path = path).to_string(),
+                    };
+                    window.push_notification(Notification::success(msg), cx);
+                }
+                Ok(None) => {
+                    window.push_notification(
+                        Notification::warning(t!("settings.not_detected").to_string()),
+                        cx,
+                    );
+                }
+                Err(e) => {
+                    warn!("detect_among_us failed: {e}");
+                    window.push_notification(
+                        Notification::error(t!("settings.detection_failed", error = e).to_string()),
+                        cx,
+                    );
                 }
             });
-            let msg = match detected_platform {
-                Some(p) => t!(
-                    "settings.detected_store",
-                    store = p.display_name(),
-                    path = path
-                )
-                .to_string(),
-                None => t!("settings.detected", path = path).to_string(),
-            };
-            window.push_notification(Notification::success(msg), cx);
-        }
-        Ok(None) => {
-            window.push_notification(
-                Notification::warning(t!("settings.not_detected").to_string()),
-                cx,
-            );
-        }
-        Err(e) => {
-            warn!("detect_among_us failed: {e}");
-            window.push_notification(
-                Notification::error(t!("settings.detection_failed", error = e).to_string()),
-                cx,
-            );
-        }
-    }
+        })
+        .detach();
 }
 
 fn download_bepinex_cache(arch: BinaryArch, window: &mut Window, cx: &mut App) {
@@ -429,48 +488,56 @@ fn download_bepinex_cache(arch: BinaryArch, window: &mut Window, cx: &mut App) {
 }
 
 fn clear_bepinex_cache(arch: BinaryArch, window: &mut Window, cx: &mut App) {
-    match core_service::get_bepinex_cache_path(arch) {
-        Ok(path) => match bepinex_service::clear_cache(path, arch.as_str().to_string()) {
-            Ok(()) => window.push_notification(
-                Notification::success(
-                    t!("settings.cache.cleared", arch = arch.as_str()).to_string(),
-                ),
-                cx,
-            ),
-            Err(e) => {
-                warn!("clear_bepinex_cache failed: {e}");
-                window.push_notification(
-                    Notification::error(t!("settings.cache.clear_failed", error = e).to_string()),
-                    cx,
-                );
-            }
-        },
+    let path = match core_service::get_bepinex_cache_path(arch) {
+        Ok(path) => path,
         Err(e) => {
             window.push_notification(
                 Notification::error(t!("settings.cache.path_error", error = e).to_string()),
                 cx,
             );
+            return;
         }
-    }
+    };
+    let cleared = cx
+        .background_executor()
+        .spawn(async move { bepinex_service::clear_cache(path, arch.as_str().to_string()) });
+    window
+        .spawn(cx, async move |cx| {
+            let cleared = cleared.await;
+            let _ = cx.update(|window, cx| match cleared {
+                Ok(()) => window.push_notification(
+                    Notification::success(
+                        t!("settings.cache.cleared", arch = arch.as_str()).to_string(),
+                    ),
+                    cx,
+                ),
+                Err(e) => {
+                    warn!("clear_bepinex_cache failed: {e}");
+                    window.push_notification(
+                        Notification::error(
+                            t!("settings.cache.clear_failed", error = e).to_string(),
+                        ),
+                        cx,
+                    );
+                }
+            });
+        })
+        .detach();
 }
 
 /// Open the app's data directory (settings, profiles, logs) in the platform
 /// file manager — the folder support asks users to look in.
-fn open_data_folder() {
+fn open_data_folder(cx: &App) {
     let Ok(dir) = crate::backend::directories::app_data_dir() else {
         return;
     };
-    open_in_file_manager(&dir);
+    open_folder(&dir, cx);
 }
 
-fn open_in_file_manager(dir: &std::path::Path) {
+/// Open `dir` in the platform file manager, creating it first if needed.
+fn open_folder(dir: &std::path::Path, cx: &App) {
     let _ = std::fs::create_dir_all(dir);
-    #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("explorer").arg(dir).spawn();
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(dir).spawn();
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+    cx.open_with_system(dir);
 }
 
 // ---------- view ----------
@@ -604,8 +671,8 @@ impl Render for SettingsView {
                             Button::new("open-themes-folder")
                                 .icon(Icon::new(IconName::FolderOpen))
                                 .label(t!("settings.open_themes_folder"))
-                                .on_click(|_, _, _| {
-                                    open_in_file_manager(&crate::theme::themes_dir())
+                                .on_click(|_, _, cx| {
+                                    open_folder(&crate::theme::themes_dir(), cx)
                                 }),
                         )
                         .child(
@@ -827,8 +894,7 @@ impl Render for SettingsView {
         };
 
         // Only Windows can install an update in place (see `update_service`),
-        // so only Windows gets a say in which builds it looks for.
-        #[cfg(windows)]
+        // so only Windows gets the group (added to the About page below).
         let updates_group = SettingGroup::new()
             .title(t!("settings.group.updates"))
             .items(vec![
@@ -855,16 +921,9 @@ impl Render for SettingsView {
                 .description(t!("settings.release_channel_desc").to_string()),
                 SettingItem::new(
                     t!("settings.check_for_updates"),
-                    SettingField::render(|_, _, _| {
-                        Button::new("check-for-updates")
-                            .icon(Icon::new(AppIcon::Download))
-                            .label(t!("settings.check_now"))
-                            .on_click(|_, window, cx| {
-                                crate::workspace::check_for_update(window, cx, true)
-                            })
-                    }),
+                    SettingField::render(|_, _, cx| render_update_controls(cx)),
                 )
-                .description(t!("settings.check_for_updates_desc").to_string()),
+                .description(update_status(updater::state(cx))),
             ]);
 
         let about_page =
@@ -887,13 +946,9 @@ impl Render for SettingsView {
                                         .child("Starlight PC"),
                                 )
                                 .child(
-                                    div()
-                                        .px_2()
-                                        .py_0p5()
+                                    Tag::secondary()
+                                        .small()
                                         .rounded_full()
-                                        .bg(theme.accent)
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
                                         .child(concat!("v", env!("CARGO_PKG_VERSION"))),
                                 ),
                         )
@@ -907,14 +962,9 @@ impl Render for SettingsView {
                                 .child("♡ 2026 All Of Us Mods")
                                 .child("|")
                                 .child(
-                                    div()
-                                        .id("about-license-link")
-                                        .cursor_pointer()
-                                        .hover(|s| s.text_color(theme.foreground))
-                                        .child(t!("settings.license"))
-                                        .on_click(|_, _, cx| {
-                                            cx.open_url("https://www.gnu.org/licenses/gpl-3.0.html")
-                                        }),
+                                    Link::new("about-license-link")
+                                        .href("https://www.gnu.org/licenses/gpl-3.0.html")
+                                        .child(t!("settings.license")),
                                 ),
                         )
                         .child(
@@ -935,14 +985,17 @@ impl Render for SettingsView {
                                     Button::new("about-open-data")
                                         .icon(Icon::new(IconName::FolderOpen))
                                         .label(t!("settings.open_data_folder"))
-                                        .on_click(|_, _, _| open_data_folder()),
+                                        .on_click(|_, _, cx| open_data_folder(cx)),
                                 ),
                         )
                 }),
             ]));
 
-        #[cfg(windows)]
-        let about_page = about_page.group(updates_group);
+        let about_page = if cfg!(windows) {
+            about_page.group(updates_group)
+        } else {
+            about_page
+        };
 
         crate::views::page_root("settings-page", &theme)
             .overflow_y_scrollbar()

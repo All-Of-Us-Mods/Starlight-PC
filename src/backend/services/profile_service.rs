@@ -1,5 +1,6 @@
 use crate::backend::binary::read_pe_version_info;
 use crate::backend::error::{AppError, AppResult};
+use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_runtime::BepInExRuntime;
 use crate::backend::services::core_service::AppSettings;
 use crate::backend::services::installation_service::GameSetup;
@@ -10,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::backend::directories;
 
@@ -75,6 +77,10 @@ pub struct ProfileEntry {
     /// Linked installation to launch; `None` uses the default from Settings.
     #[serde(default)]
     pub installation_id: Option<String>,
+    /// Created for a one-off lobby launch; deleted once its game exits, or at
+    /// the next startup.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub temporary: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,6 +228,41 @@ fn parse_profile(metadata_path: &Path, profile_dir: &Path) -> AppResult<Option<P
     Ok(Some(profile))
 }
 
+/// Held across every load-modify-write of stored metadata (and deletion), so
+/// concurrent writers can't lose each other's updates.
+static METADATA_LOCK: Mutex<()> = Mutex::new(());
+
+/// Load the profile, apply `change`, and write it back, all under
+/// [`METADATA_LOCK`]. Nothing is written if `change` fails.
+fn modify_profile(
+    profile_id: &str,
+    change: impl FnOnce(&mut ProfileEntry) -> AppResult<()>,
+) -> AppResult<()> {
+    let found = is_safe_profile_id(profile_id)
+        && modify_profile_in(&PathBuf::from(get_profiles_dir()?).join(profile_id), change)?;
+    if found {
+        Ok(())
+    } else {
+        Err(profile_not_found(profile_id))
+    }
+}
+
+/// [`modify_profile`] by folder. Returns whether there was a profile there.
+fn modify_profile_in(
+    profile_dir: &Path,
+    change: impl FnOnce(&mut ProfileEntry) -> AppResult<()>,
+) -> AppResult<bool> {
+    let _guard = METADATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(mut profile) = parse_profile(&metadata_path(profile_dir), profile_dir)? else {
+        return Ok(false);
+    };
+    change(&mut profile)?;
+    write_profile(&profile)?;
+    Ok(true)
+}
+
+/// Every metadata write (create, modify, import) lands here, so this is where
+/// [`BackendEvent::ProfileChanged`] goes out — along with [`delete_profile`].
 fn write_profile(profile: &ProfileEntry) -> AppResult<()> {
     let profile_dir = PathBuf::from(&profile.path);
     fs::create_dir_all(&profile_dir)?;
@@ -230,6 +271,7 @@ fn write_profile(profile: &ProfileEntry) -> AppResult<()> {
     let temporary_path = metadata_path.with_extension("json.tmp");
     fs::write(&temporary_path, metadata)?;
     fs::rename(&temporary_path, &metadata_path)?;
+    events::publish(BackendEvent::ProfileChanged(profile.id.clone()));
     Ok(())
 }
 
@@ -359,6 +401,15 @@ pub fn get_profile_by_id(id: &str) -> AppResult<Option<ProfileEntry>> {
 }
 
 pub fn create_profile(name: &str) -> AppResult<ProfileEntry> {
+    new_profile(name, false)
+}
+
+/// A profile for a one-off lobby launch; see [`ProfileEntry::temporary`].
+pub fn create_temporary_profile(name: &str) -> AppResult<ProfileEntry> {
+    new_profile(name, true)
+}
+
+fn new_profile(name: &str, temporary: bool) -> AppResult<ProfileEntry> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         return Err(AppError::validation("Profile name cannot be empty"));
@@ -392,6 +443,7 @@ pub fn create_profile(name: &str) -> AppResult<ProfileEntry> {
         mods: vec![],
         custom_mods: vec![],
         installation_id: None,
+        temporary,
     };
     if let Err(error) = write_profile(&profile) {
         let _ = fs::remove_dir_all(&profile_path);
@@ -402,8 +454,11 @@ pub fn create_profile(name: &str) -> AppResult<ProfileEntry> {
 
 /// The profile with `profile_id`, or a validation error naming it.
 fn load_profile(profile_id: &str) -> AppResult<ProfileEntry> {
-    get_profile_by_id(profile_id)?
-        .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))
+    get_profile_by_id(profile_id)?.ok_or_else(|| profile_not_found(profile_id))
+}
+
+fn profile_not_found(profile_id: &str) -> AppError {
+    AppError::validation(format!("Profile '{profile_id}' not found"))
 }
 
 /// Install the BepInEx build the game binary needs, unless the profile
@@ -431,19 +486,33 @@ pub fn install_bepinex_for_profile(profile_id: &str) -> AppResult<()> {
 }
 
 pub fn delete_profile(profile_id: &str) -> AppResult<()> {
+    let _guard = METADATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let profile = load_profile(profile_id)?;
     let path = PathBuf::from(profile.path);
     if path.exists() {
         fs::remove_dir_all(path)?;
+    }
+    events::publish(BackendEvent::ProfileChanged(profile_id.to_string()));
+    Ok(())
+}
+
+/// Delete temporary profiles a quit or crash left behind. Run at startup,
+/// before anything can be running from them.
+pub fn delete_temporary_profiles() -> AppResult<()> {
+    for profile in get_profiles()?.into_iter().filter(|p| p.temporary) {
+        if let Err(e) = delete_profile(&profile.id) {
+            log::warn!("Failed to delete temporary profile {}: {e}", profile.id);
+        }
     }
     Ok(())
 }
 
 pub fn set_installation(profile_id: &str, installation_id: Option<String>) -> AppResult<()> {
     core_service::get_settings()?.installation(installation_id.as_deref())?;
-    let mut profile = load_profile(profile_id)?;
-    profile.installation_id = installation_id;
-    write_profile(&profile)
+    modify_profile(profile_id, |profile| {
+        profile.installation_id = installation_id;
+        Ok(())
+    })
 }
 
 pub fn rename_profile(profile_id: &str, new_name: &str) -> AppResult<()> {
@@ -462,21 +531,28 @@ pub fn rename_profile(profile_id: &str, new_name: &str) -> AppResult<()> {
         )));
     }
 
-    let mut profile = load_profile(profile_id)?;
-    profile.name = trimmed.to_string();
-    write_profile(&profile)
+    modify_profile(profile_id, |profile| {
+        profile.name = trimmed.to_string();
+        Ok(())
+    })
 }
 
 pub fn update_profile_icon(profile_id: &str, selection: ProfileIconSelection) -> AppResult<()> {
-    let mut profile = load_profile(profile_id)?;
+    modify_profile(profile_id, |profile| {
+        apply_icon_selection(profile, selection)
+    })
+}
 
+fn apply_icon_selection(
+    profile: &mut ProfileEntry,
+    selection: ProfileIconSelection,
+) -> AppResult<()> {
     match selection {
         ProfileIconSelection::Default => {
-            remove_custom_icon_file(&profile, None)?;
+            remove_custom_icon_file(profile, None)?;
             profile.icon_mode = Some("default".to_string());
             profile.custom_icon_extension = None;
             profile.icon_mod_id = None;
-            write_profile(&profile)?;
             Ok(())
         }
         ProfileIconSelection::Custom { bytes, extension } => {
@@ -492,11 +568,10 @@ pub fn update_profile_icon(profile_id: &str, selection: ProfileIconSelection) ->
             let file_name = format!("{CUSTOM_ICON_BASE_NAME}{normalized_extension}");
             let destination = PathBuf::from(&profile.path).join(file_name);
             fs::write(destination, bytes)?;
-            remove_custom_icon_file(&profile, Some(&normalized_extension))?;
+            remove_custom_icon_file(profile, Some(&normalized_extension))?;
             profile.icon_mode = Some("custom".to_string());
             profile.custom_icon_extension = Some(normalized_extension);
             profile.icon_mod_id = None;
-            write_profile(&profile)?;
             Ok(())
         }
         ProfileIconSelection::Mod { mod_id } => {
@@ -514,22 +589,20 @@ pub fn update_profile_icon(profile_id: &str, selection: ProfileIconSelection) ->
                 ));
             }
 
-            remove_custom_icon_file(&profile, None)?;
+            remove_custom_icon_file(profile, None)?;
             profile.icon_mode = Some("mod".to_string());
             profile.icon_mod_id = Some(normalized_mod_id);
             profile.custom_icon_extension = None;
-            write_profile(&profile)?;
             Ok(())
         }
     }
 }
 
 pub fn update_last_launched(profile_id: &str) -> AppResult<()> {
-    let Some(mut profile) = get_profile_by_id(profile_id)? else {
-        return Ok(());
-    };
-    profile.last_launched_at = Some(now_millis());
-    write_profile(&profile)
+    modify_profile(profile_id, |profile| {
+        profile.last_launched_at = Some(now_millis());
+        Ok(())
+    })
 }
 
 pub fn add_mod_to_profile(
@@ -541,22 +614,23 @@ pub fn add_mod_to_profile(
     if !plugins::is_valid_file(file) {
         return Err(AppError::validation("Invalid mod file name"));
     }
-    let mut profile = load_profile(profile_id)?;
     let entry = ProfileModEntry {
         mod_id: mod_id.to_string(),
         version: version.to_string(),
         file: Some(file.to_string()),
         enabled: true,
     };
-    match profile
-        .mods
-        .iter_mut()
-        .find(|existing| existing.mod_id == mod_id)
-    {
-        Some(existing) => *existing = entry,
-        None => profile.mods.push(entry),
-    }
-    write_profile(&profile)
+    modify_profile(profile_id, |profile| {
+        match profile
+            .mods
+            .iter_mut()
+            .find(|existing| existing.mod_id == mod_id)
+        {
+            Some(existing) => *existing = entry,
+            None => profile.mods.push(entry),
+        }
+        Ok(())
+    })
 }
 
 /// Toggle a catalog or custom mod by its plugin file.
@@ -567,16 +641,18 @@ pub fn set_plugin_enabled(profile_id: &str, file: &str, enabled: bool) -> AppRes
 }
 
 pub fn add_play_time(profile_id: &str, duration_ms: i64) -> AppResult<()> {
-    let mut profile = load_profile(profile_id)?;
-    profile.total_play_time = Some(profile.total_play_time.unwrap_or(0) + duration_ms);
-    write_profile(&profile)
+    modify_profile(profile_id, |profile| {
+        profile.total_play_time = Some(profile.total_play_time.unwrap_or(0) + duration_ms);
+        Ok(())
+    })
 }
 
 pub fn remove_mod_from_profile(profile_id: &str, mod_id: &str) -> AppResult<()> {
-    let mut profile = load_profile(profile_id)?;
-    profile.mods.retain(|mod_entry| mod_entry.mod_id != mod_id);
-    normalize_icon_selection(&mut profile);
-    write_profile(&profile)
+    modify_profile(profile_id, |profile| {
+        profile.mods.retain(|mod_entry| mod_entry.mod_id != mod_id);
+        normalize_icon_selection(profile);
+        Ok(())
+    })
 }
 
 pub fn uninstall_mod_from_profile(profile_id: &str, mod_id: &str) -> AppResult<()> {
@@ -709,10 +785,11 @@ fn imported_mods(metadata: ImportedMetadata) -> Vec<ProfileModEntry> {
     mods
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum ZipOp {
     Import,
-    Export,
+    /// Of the profile with this id.
+    Export(String),
 }
 
 /// Progress (0–100) of an in-flight profile import/export, for the UI bar.
@@ -816,6 +893,7 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
             mods: imported.map(imported_mods).unwrap_or_default(),
             custom_mods: Vec::new(),
             installation_id: None,
+            temporary: false,
         };
         normalize_icon_selection(&mut profile);
         if let Err(error) = write_profile(&profile) {
@@ -834,7 +912,7 @@ pub fn import_profile_zip(zip_path: &str) -> AppResult<Vec<ProfileEntry>> {
 pub fn export_profile_zip(profile_id: &str, destination: &str) -> AppResult<()> {
     let profile = load_profile(profile_id)?;
     profile_zip_service::export_profile_zip(profile.path, destination.to_string(), |p| {
-        publish_zip_progress(ZipOp::Export, p)
+        publish_zip_progress(ZipOp::Export(profile_id.to_string()), p)
     })
 }
 
@@ -892,6 +970,7 @@ mod tests {
             mods,
             custom_mods: Vec::new(),
             installation_id: None,
+            temporary: false,
         }
     }
 
@@ -953,6 +1032,57 @@ mod tests {
         profile.installation_id = None;
         fs::remove_file(runtime.assembly_path()).unwrap();
         assert!(profile.needs_bepinex(&settings));
+    }
+
+    #[test]
+    fn concurrent_modifications_keep_every_update() {
+        let dir = TempProfileDir::new("modify-concurrent");
+        write_profile(&profile_at(&dir, vec![])).unwrap();
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    for _ in 0..10 {
+                        modify_profile_in(&dir.0, |p| {
+                            p.total_play_time = Some(p.total_play_time.unwrap_or(0) + 1);
+                            Ok(())
+                        })
+                        .unwrap();
+                    }
+                });
+            }
+        });
+        let stored = parse_profile(&metadata_path(&dir.0), &dir.0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.total_play_time, Some(80));
+    }
+
+    #[test]
+    fn failed_modification_writes_nothing_and_a_missing_profile_is_reported() {
+        let dir = TempProfileDir::new("modify-failed");
+        assert!(!modify_profile_in(&dir.0, |_| Ok(())).unwrap());
+        write_profile(&profile_at(&dir, vec![])).unwrap();
+        let before = fs::read(metadata_path(&dir.0)).unwrap();
+        let result = modify_profile_in(&dir.0, |p| {
+            p.name = "Changed".into();
+            Err(AppError::validation("rejected"))
+        });
+        assert!(result.is_err());
+        assert_eq!(fs::read(metadata_path(&dir.0)).unwrap(), before);
+    }
+
+    #[test]
+    fn temporary_flag_defaults_off_and_is_only_stored_when_set() {
+        let dir = TempProfileDir::new("temporary-flag");
+        let mut profile = profile_at(&dir, vec![]);
+        let json = serde_json::to_value(&profile).unwrap();
+        assert!(json.get("temporary").is_none());
+        let legacy: ProfileEntry = serde_json::from_value(json).unwrap();
+        assert!(!legacy.temporary);
+        profile.temporary = true;
+        let restored: ProfileEntry =
+            serde_json::from_value(serde_json::to_value(&profile).unwrap()).unwrap();
+        assert!(restored.temporary);
     }
 
     #[test]

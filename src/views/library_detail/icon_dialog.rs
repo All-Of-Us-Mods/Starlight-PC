@@ -6,7 +6,7 @@ use gpui_kit::component::alert::Alert;
 use gpui_kit::component::avatar::Avatar;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
-use gpui_kit::component::radio::Radio;
+use gpui_kit::component::radio::{Radio, RadioGroup};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::tab::TabBar;
 use gpui_kit::component::{Icon, IconName, Sizable as _, WindowExt};
@@ -16,6 +16,7 @@ use rust_i18n::t;
 use super::{LibraryDetailView, LoadState};
 use crate::backend::api;
 use crate::backend::services::profile_service::{self, ProfileIconSelection};
+use crate::views::empty_state;
 use gpui_kit::component::ActiveTheme;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -311,79 +312,76 @@ fn icon_dialog_body(view: &Entity<LibraryDetailView>, cx: &App) -> AnyElement {
                 .into_iter()
                 .collect();
             if mods.is_empty() {
-                div()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(t!("icon.no_mods").to_string())
-                    .into_any_element()
+                empty_state(t!("icon.no_mods")).into_any_element()
             } else {
-                let selected = state.selected_mod_id.clone();
-                let items: Vec<AnyElement> = mods
-                    .into_iter()
+                let selected = mods
+                    .iter()
+                    .position(|id| state.selected_mod_id.as_deref() == Some(id.as_str()));
+                let options: Vec<Radio> = mods
+                    .iter()
                     .map(|mod_id| {
-                        let is_selected = selected.as_deref() == Some(mod_id.as_str());
                         let display_name = mod_names
-                            .get(&mod_id)
+                            .get(mod_id)
                             .cloned()
                             .unwrap_or_else(|| mod_id.clone());
-                        // The row and the radio inside it are both hit targets,
-                        // so a click aimed straight at the radio still selects.
-                        let pick = |view: &Entity<LibraryDetailView>, mod_id: &str| {
-                            let view = view.clone();
-                            let mod_id = mod_id.to_string();
-                            move |cx: &mut App| {
-                                let mod_id = mod_id.clone();
-                                view.update(cx, |this, cx| {
-                                    if let Some(s) = this.icon_dialog.as_mut() {
-                                        s.selected_mod_id = Some(mod_id);
-                                        s.error = None;
-                                    }
-                                    cx.notify();
-                                });
-                            }
-                        };
-                        let on_row_click = pick(view, &mod_id);
-                        let on_radio_click = pick(view, &mod_id);
-                        div()
-                            .id(SharedString::from(format!("icon-mod-{mod_id}")))
-                            .flex()
+                        // The group assigns ids by position.
+                        Radio::new("icon-mod")
+                            .small()
+                            .accessibility_label(display_name.clone())
+                            .w_full()
                             .items_center()
-                            .gap_2()
                             .p_2()
                             .rounded_md()
                             .border_1()
-                            .border_color(if is_selected {
-                                theme.primary
-                            } else {
-                                theme.border
-                            })
-                            .cursor_pointer()
+                            .border_color(
+                                if state.selected_mod_id.as_deref() == Some(mod_id.as_str()) {
+                                    theme.primary
+                                } else {
+                                    theme.border
+                                },
+                            )
                             .hover(|s| s.bg(theme.accent))
-                            .on_click(move |_, _window, cx| on_row_click(cx))
                             .child(
-                                Radio::new(SharedString::from(format!("icon-mod-{mod_id}-radio")))
-                                    .checked(is_selected)
-                                    .on_click(move |_, _window, cx| on_radio_click(cx)),
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        Avatar::new()
+                                            .with_size(px(36.0))
+                                            .rounded_md()
+                                            .placeholder(Icon::new(IconName::File))
+                                            .src(api::mod_thumbnail_url(mod_id)),
+                                    )
+                                    .child(div().text_sm().child(display_name)),
                             )
-                            .child(
-                                Avatar::new()
-                                    .with_size(px(36.0))
-                                    .rounded_md()
-                                    .placeholder(Icon::new(IconName::File))
-                                    .src(api::mod_thumbnail_url(&mod_id)),
-                            )
-                            .child(div().text_sm().truncate().child(display_name))
-                            .into_any_element()
                     })
                     .collect();
+                let on_pick = view.clone();
+                let picker = RadioGroup::vertical("icon-mod-picker")
+                    // Keep its natural height inside the scrolling list.
+                    .flex_none()
+                    .selected_index(selected)
+                    .children(options)
+                    .on_change(move |ix, _window, cx| {
+                        let Some(mod_id) = mods.get(*ix).cloned() else {
+                            return;
+                        };
+                        on_pick.update(cx, |this, cx| {
+                            if let Some(s) = this.icon_dialog.as_mut() {
+                                s.selected_mod_id = Some(mod_id);
+                                s.error = None;
+                            }
+                            cx.notify();
+                        });
+                    });
                 div()
                     .id("icon-mod-list")
                     .max_h(px(240.0))
                     .overflow_y_scrollbar()
                     .flex()
                     .flex_col()
-                    .gap_1()
-                    .children(items)
+                    .child(picker)
                     .into_any_element()
             }
         }

@@ -1,12 +1,15 @@
+use crate::backend::api::LobbyMod;
 use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::core_service::{self, GamePlatform};
 use crate::backend::services::installation_service::GameSetup;
-use crate::backend::services::profile_instance_service;
-use crate::backend::services::profile_service::ProfileEntry;
+use crate::backend::services::mod_install_service::{self, InstallModInput};
+use crate::backend::services::profile_service::{self, ProfileEntry};
 #[cfg(windows)]
 use crate::backend::services::xbox_service;
-use crate::backend::state::game_runtime::{self, LaunchInstance};
+use crate::backend::services::{profile_instance_service, region_service};
+use crate::backend::state::game_runtime::{self, LaunchInstance, PendingLaunch};
 use log::{debug, info, warn};
+use rust_i18n::t;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -14,29 +17,6 @@ use std::process::Command;
 /// Held from prep through spawn so concurrent launches can't claim the same
 /// instance slot or race over the shared game directory.
 static LAUNCH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Bumped by Stop; a launch queued on [`LAUNCH_LOCK`] aborts if its profile's
-/// generation changed while it waited.
-static CANCEL_GENERATIONS: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashMap<String, u64>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-
-fn cancel_generation(profile_id: &str) -> u64 {
-    CANCEL_GENERATIONS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(profile_id)
-        .copied()
-        .unwrap_or(0)
-}
-
-pub fn cancel_pending_launches(profile_id: &str) {
-    *CANCEL_GENERATIONS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .entry(profile_id.to_string())
-        .or_insert(0) += 1;
-}
 
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone)]
@@ -266,7 +246,7 @@ fn attach_epic_launch_args(_cmd: &mut Command, _platform: GamePlatform) -> AppRe
 
 fn launch_process(
     mut cmd: Command,
-    profile_id: Option<String>,
+    pending: Option<&PendingLaunch>,
     instance: LaunchInstance,
 ) -> AppResult<()> {
     #[cfg(target_os = "linux")]
@@ -277,11 +257,10 @@ fn launch_process(
     let id = game_runtime::next_instance_id();
     #[cfg(target_os = "linux")]
     cmd.arg(game_runtime::instance_arg(id));
-    let child = cmd
-        .spawn()
-        .map_err(|e| AppError::process(format!("Failed to launch game: {e}")))?;
-    game_runtime::register_launched_process(id, child, profile_id, instance);
-    Ok(())
+    game_runtime::spawn_tracked(id, pending, instance, || {
+        cmd.spawn()
+            .map_err(|e| AppError::process(format!("Failed to launch game: {e}")))
+    })
 }
 
 fn prepare_launch_dir(args: &LaunchModdedArgs) -> AppResult<(PathBuf, LaunchInstance)> {
@@ -360,10 +339,12 @@ fn clear_doorstop_ini(game_dir: &Path) -> AppResult<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn spawn_steam(mut cmd: Command) -> AppResult<()> {
+fn spawn_steam() -> AppResult<()> {
     use std::os::unix::process::CommandExt;
-    cmd.process_group(0);
-    let mut child = cmd
+    let mut child = Command::new("steam")
+        .arg("-applaunch")
+        .arg(STEAM_APP_ID)
+        .process_group(0)
         .spawn()
         .map_err(|e| AppError::process(format!("Failed to launch via Steam: {e}")))?;
     std::thread::spawn(move || {
@@ -407,6 +388,7 @@ fn launch_modded_via_steam(
     args: &LaunchModdedArgs,
     game_dir: &Path,
     compat_data_path: &str,
+    pending: &PendingLaunch,
 ) -> AppResult<()> {
     prepare_linux_winhttp_proxy(game_dir, &args.profile_path)?;
     ensure_winhttp_dll_override(compat_data_path)?;
@@ -416,16 +398,11 @@ fn launch_modded_via_steam(
         &game_path(&args.dotnet_dir),
         &game_path(&args.coreclr_path),
     )?;
-
-    let mut cmd = Command::new("steam");
-    cmd.arg("-applaunch").arg(STEAM_APP_ID);
-    spawn_steam(cmd)?;
-
-    game_runtime::register_steam_launch(Some(args.profile_id.clone()));
-    Ok(())
+    game_runtime::start_steam_tracked(Some(pending), spawn_steam)
 }
 
-pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
+/// Fails without launching if Stop cancels `pending` first.
+fn launch_modded(args: LaunchModdedArgs, pending: &PendingLaunch) -> AppResult<()> {
     info!("game_launch_modded: game_exe={}", args.game_exe);
 
     let game_dir = PathBuf::from(&args.game_exe)
@@ -441,25 +418,17 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
         )?;
     }
 
-    let cancel_gen = cancel_generation(&args.profile_id);
     let _launch_guard = LAUNCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    if cancel_generation(&args.profile_id) != cancel_gen {
-        info!("launch cancelled while queued: profile={}", args.profile_id);
-        return Ok(());
-    }
+    pending.check()?;
 
     // The Steam client runs the first instance (online play and audio need
     // it); later ones replay its launch below.
     #[cfg(target_os = "linux")]
     if let LinuxRunner::Steam { compat_data_path } = &args.runner {
-        let cancelled = || cancel_generation(&args.profile_id) != cancel_gen;
-        let steam_running = steam_game_running(cancelled);
-        if cancelled() {
-            info!("launch cancelled while queued: profile={}", args.profile_id);
-            return Ok(());
-        }
+        let steam_running = steam_game_running(|| pending.check().is_err());
+        pending.check()?;
         if !steam_running {
-            return launch_modded_via_steam(&args, &game_dir, compat_data_path);
+            return launch_modded_via_steam(&args, &game_dir, compat_data_path, pending);
         }
     }
 
@@ -481,6 +450,7 @@ pub fn launch_modded(args: LaunchModdedArgs) -> AppResult<()> {
             coreclr_path,
         },
         instance,
+        pending,
     );
     if result.is_err()
         && let Some(directory) = &copy_to_clean_up
@@ -502,6 +472,7 @@ fn spawn_modded(
     launch_dir: &str,
     paths: LaunchPaths,
     instance: LaunchInstance,
+    pending: &PendingLaunch,
 ) -> AppResult<()> {
     #[cfg(windows)]
     set_dll_directory(launch_dir)?;
@@ -530,7 +501,7 @@ fn spawn_modded(
     }
 
     attach_epic_launch_args(&mut cmd, args.platform)?;
-    launch_process(cmd, Some(args.profile_id.clone()), instance)
+    launch_process(cmd, Some(pending), instance)
 }
 
 pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
@@ -554,11 +525,7 @@ pub fn launch_vanilla(args: LaunchVanillaArgs) -> AppResult<()> {
     #[cfg(target_os = "linux")]
     if matches!(args.runner, LinuxRunner::Steam { .. }) && !steam_game_running(|| false) {
         clear_doorstop_ini(&game_dir)?;
-        let mut cmd = Command::new("steam");
-        cmd.arg("-applaunch").arg(STEAM_APP_ID);
-        spawn_steam(cmd)?;
-        game_runtime::register_steam_launch(None);
-        return Ok(());
+        return game_runtime::start_steam_tracked(None, spawn_steam);
     }
 
     let mut cmd = build_game_command(
@@ -670,6 +637,7 @@ fn allow_multiple_game_processes(settings: &core_service::AppSettings, game: &Ga
 }
 
 pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
+    let pending = game_runtime::begin_launch(&profile.id);
     let settings = core_service::get_settings()?;
     let game = profile.installation(&settings)?;
     if profile.needs_bepinex(&settings) {
@@ -689,14 +657,10 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
         let app_id = xbox_service::get_xbox_app_id()?;
         let game_dir = game_exe.parent().expect("game_exe has a parent");
         xbox_service::prepare_xbox_launch(runtime.root(), game_dir)?;
+        pending.check()?;
         xbox_service::launch_xbox(&app_id)?;
-        if let Err(e) = crate::backend::services::profile_service::update_last_launched(&profile.id)
-        {
+        if let Err(e) = profile_service::update_last_launched(&profile.id) {
             debug!("update_last_launched failed for Xbox launch: {e}");
-        } else {
-            crate::backend::events::publish(
-                crate::backend::events::BackendEvent::ProfileStatsUpdated(profile.id.clone()),
-            );
         }
         return Ok(());
     }
@@ -710,16 +674,150 @@ pub fn launch_modded_for_profile(profile: ProfileEntry) -> AppResult<()> {
     #[cfg(target_os = "linux")]
     let runner = build_linux_runner(game)?;
 
-    launch_modded(LaunchModdedArgs {
-        game_exe: game_exe.to_string_lossy().to_string(),
-        profile_id: profile.id.clone(),
-        profile_path: profile.path.clone(),
-        bepinex_dll: bepinex_dll.to_string_lossy().to_string(),
-        dotnet_dir: dotnet_dir.to_string_lossy().to_string(),
-        coreclr_path: coreclr_path.to_string_lossy().to_string(),
-        platform: game.game_platform,
-        allow_instance_copy: settings.allow_multi_instance_launch,
-        #[cfg(target_os = "linux")]
-        runner,
-    })
+    launch_modded(
+        LaunchModdedArgs {
+            game_exe: game_exe.to_string_lossy().to_string(),
+            profile_id: profile.id.clone(),
+            profile_path: profile.path.clone(),
+            bepinex_dll: bepinex_dll.to_string_lossy().to_string(),
+            dotnet_dir: dotnet_dir.to_string_lossy().to_string(),
+            coreclr_path: coreclr_path.to_string_lossy().to_string(),
+            platform: game.game_platform,
+            allow_instance_copy: settings.allow_multi_instance_launch,
+            #[cfg(target_os = "linux")]
+            runner,
+        },
+        &pending,
+    )
+}
+
+/// Which profile a lobby launch runs from.
+#[derive(Clone, PartialEq)]
+pub enum LobbyLaunchTarget {
+    Existing(String),
+    /// A fresh throwaway profile, deleted once its game exits. Xbox launches
+    /// aren't tracked, so there it waits for the next startup's cleanup.
+    Temporary,
+}
+
+/// Launch into a lobby: resolve `target` to a profile, install the lobby's
+/// required `mods` into it, point Among Us at the lobby's region and launch.
+/// A temporary profile is deleted again if the launch fails, since no game
+/// exit will clean it up. Returns a summary for the user. Blocking; run on the
+/// background executor.
+pub fn launch_into_lobby(
+    target: LobbyLaunchTarget,
+    mods: &[LobbyMod],
+    server_host: &str,
+    server_port: u16,
+) -> AppResult<String> {
+    // Mods with an id but no version can't be installed (we don't know
+    // which version), but still count toward the "skipped" total so the
+    // launch summary doesn't silently omit them.
+    let mut required: Vec<InstallModInput> = Vec::new();
+    let mut versionless = 0usize;
+    for m in mods {
+        let Some(id) = m.id.clone() else { continue };
+        match m.version.clone() {
+            Some(version) => required.push(InstallModInput {
+                mod_id: id,
+                version,
+            }),
+            None => versionless += 1,
+        }
+    }
+
+    let profile = match &target {
+        LobbyLaunchTarget::Existing(id) => profile_service::get_profile_by_id(id)?
+            .ok_or_else(|| AppError::validation(t!("lobbies.profile_gone").to_string()))?,
+        LobbyLaunchTarget::Temporary => create_temp_profile()?,
+    };
+    let temp_profile_id = (target == LobbyLaunchTarget::Temporary).then(|| profile.id.clone());
+    let launched =
+        launch_into_lobby_for_profile(profile, required, versionless, server_host, server_port);
+    if launched.is_err()
+        && let Some(id) = temp_profile_id
+        && let Err(e) = profile_service::delete_profile(&id)
+    {
+        warn!("failed to clean up temp profile {id} after launch error: {e}");
+    }
+    launched
+}
+
+/// Install the lobby's required mods into `profile`, point Among Us at the
+/// lobby's region, and launch. `versionless` is the count of required mods
+/// the lobby sent with no version (uninstallable, but still reported as
+/// skipped rather than silently dropped).
+fn launch_into_lobby_for_profile(
+    profile: ProfileEntry,
+    required: Vec<InstallModInput>,
+    versionless: usize,
+    server_host: &str,
+    server_port: u16,
+) -> AppResult<String> {
+    profile_service::install_bepinex_for_profile(&profile.id)?;
+
+    let mut skipped = versionless;
+    let mut failed = 0usize;
+    if !required.is_empty() {
+        let (installable, unresolved) = mod_install_service::plan_lobby_mods(&required);
+        skipped += unresolved.len();
+        // Skip mods already present at the exact version the lobby wants.
+        let missing: Vec<InstallModInput> = installable
+            .into_iter()
+            .filter(|m| {
+                !profile
+                    .mods
+                    .iter()
+                    .any(|p| p.mod_id == m.mod_id && p.version == m.version)
+            })
+            .collect();
+        // Install one mod at a time: install_mods_for_profile rolls back its
+        // whole batch on a single failure, which is right for one coherent
+        // "install this mod" user action but wrong here — a lobby launch
+        // wants each required mod to be independently best-effort, so one
+        // flaky download doesn't sink mods that already succeeded.
+        for item in missing {
+            let mod_id = item.mod_id.clone();
+            if let Err(e) = mod_install_service::install_mods_for_profile(
+                &profile.id,
+                std::slice::from_ref(&item),
+            ) {
+                warn!("failed to install mod {mod_id} for lobby launch: {e}");
+                failed += 1;
+            }
+        }
+    }
+
+    let region_set =
+        region_service::select_region_by_host_port(server_host, server_port).unwrap_or(false);
+
+    // Reload so the launch sees the freshly installed BepInEx / mods.
+    let profile = profile_service::get_profile_by_id(&profile.id)?
+        .ok_or_else(|| AppError::validation(t!("lobbies.profile_gone_launch").to_string()))?;
+    launch_modded_for_profile(profile)?;
+
+    let mut summary = if region_set {
+        t!("lobbies.launched_region_set").to_string()
+    } else {
+        t!("lobbies.launched").to_string()
+    };
+    if skipped > 0 {
+        summary.push_str(t!("lobbies.skipped_catalog", count = skipped).as_ref());
+    }
+    if failed > 0 {
+        summary.push_str(t!("lobbies.skipped_failed", count = failed).as_ref());
+    }
+    Ok(summary)
+}
+
+/// Create a fresh throwaway profile for a one-off lobby launch, uniquely named
+/// so repeated temporary launches don't collide. The backend deletes it once
+/// the launched game exits.
+fn create_temp_profile() -> AppResult<ProfileEntry> {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    profile_service::create_temporary_profile(&format!("Temporary Lobby {millis}"))
 }

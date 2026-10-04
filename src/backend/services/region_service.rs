@@ -374,28 +374,33 @@ pub fn region_fields(region: &Value) -> RegionFields {
     }
 }
 
-/// Name of the region already pointing at `address:port`, skipping the row
-/// being edited. Lets the Servers page reject a duplicate while its dialog is
-/// still open, using the same rule [`apply_region_edit`] enforces on save.
+/// Name of the region already pointing at `address:port`, skipping `editing`.
+/// Lets the Servers page reject a duplicate while its dialog is still open,
+/// using the same rule [`apply_region_edit`] enforces on save.
 pub fn conflicting_region_name(
     info: &RegionInfo,
-    skip_index: Option<usize>,
+    editing: Option<&Value>,
     address: &str,
     port: u16,
 ) -> Option<String> {
     let host = host_of(address.trim());
     info.regions
         .iter()
-        .enumerate()
-        .find(|(ix, region)| Some(*ix) != skip_index && region_has_server(region, host, port))
-        .map(|(_, region)| region_name(region).to_string())
+        .find(|region| Some(*region) != editing && region_has_server(region, host, port))
+        .map(|region| region_name(region).to_string())
 }
 
-/// Replace the region at `index` with `fields`, keeping its `TranslateName`
-/// (Among Us uses it for localization, and vanilla regions rely on their own).
+/// Replace `original` (the entry as the user saw it) with `fields`, keeping
+/// its `TranslateName` (Among Us uses it for localization, and vanilla regions
+/// rely on their own). Matched by content, not position or name: the file can
+/// change while the edit dialog is open, and names needn't be unique.
 /// In-memory half of [`update_region`], split out so it can be tested without
 /// touching Among Us' region file.
-fn apply_region_edit(info: &mut RegionInfo, index: usize, fields: &RegionFields) -> AppResult<()> {
+fn apply_region_edit(
+    info: &mut RegionInfo,
+    original: &Value,
+    fields: &RegionFields,
+) -> AppResult<()> {
     let name = fields.name.trim();
     if name.is_empty() {
         return Err(AppError::validation("Server name cannot be empty"));
@@ -404,16 +409,16 @@ fn apply_region_edit(info: &mut RegionInfo, index: usize, fields: &RegionFields)
     if host.is_empty() {
         return Err(AppError::validation("Server address cannot be empty"));
     }
-    let Some(existing) = info.regions.get(index) else {
+    let Some(index) = info.regions.iter().position(|r| r == original) else {
         return Err(AppError::validation("That server is no longer in the list"));
     };
-    if conflicting_region_name(info, Some(index), host, fields.port).is_some() {
+    if conflicting_region_name(info, Some(original), host, fields.port).is_some() {
         return Err(AppError::validation(
             "Another region already points at that address and port",
         ));
     }
 
-    let translate_name = existing
+    let translate_name = original
         .get("TranslateName")
         .and_then(Value::as_i64)
         .unwrap_or(CUSTOM_TRANSLATE_NAME);
@@ -421,22 +426,31 @@ fn apply_region_edit(info: &mut RegionInfo, index: usize, fields: &RegionFields)
     Ok(())
 }
 
-/// Apply an edit to the region at `index` and write the region file back.
-pub fn update_region(index: usize, fields: &RegionFields) -> AppResult<()> {
+/// Apply an edit to `original` and write the region file back.
+pub fn update_region(original: &Value, fields: &RegionFields) -> AppResult<()> {
     let mut info = read_region_info()?;
-    apply_region_edit(&mut info, index, fields)?;
+    apply_region_edit(&mut info, original, fields)?;
     write_region_info(&info)
 }
 
-/// Remove the region with `name`.
-pub fn remove_region(name: &str) -> AppResult<()> {
+/// Remove `region` (the entry as the user saw it).
+pub fn remove_region(region: &Value) -> AppResult<()> {
     let mut info = read_region_info()?;
-    info.regions.retain(|r| region_name(r) != name);
-    // Keep Among Us' in-game selection index within bounds after the removal.
-    let max = info.regions.len().saturating_sub(1) as i32;
-    info.current_region_idx = info.current_region_idx.clamp(0, max);
-    write_region_info(&info)?;
-    Ok(())
+    apply_region_removal(&mut info, region);
+    write_region_info(&info)
+}
+
+/// Drop `region`, keeping Among Us' selection on the same region, or on the
+/// first one if the selected region was removed.
+fn apply_region_removal(info: &mut RegionInfo, region: &Value) {
+    let selected = usize::try_from(info.current_region_idx)
+        .ok()
+        .and_then(|ix| info.regions.get(ix))
+        .cloned();
+    info.regions.retain(|r| r != region);
+    info.current_region_idx = selected
+        .and_then(|selected| info.regions.iter().position(|r| *r == selected))
+        .unwrap_or(0) as i32;
 }
 
 fn server_region(server: &Server) -> Value {
@@ -512,17 +526,12 @@ mod tests {
     #[test]
     fn edit_replaces_the_entry_and_keeps_its_translate_name() {
         // A vanilla region keeps its own localization id, not the custom one.
-        let mut info = info_with(vec![build_region(
-            "North America",
-            "na.mm.among.us",
-            443,
-            true,
-            5,
-        )]);
+        let na = build_region("North America", "na.mm.among.us", 443, true, 5);
+        let mut info = info_with(vec![na.clone()]);
 
         apply_region_edit(
             &mut info,
-            0,
+            &na,
             &fields("NA (moved)", "https://na2.mm.among.us/", 22023),
         )
         .unwrap();
@@ -537,9 +546,10 @@ mod tests {
 
     #[test]
     fn conflicting_region_name_names_the_other_row_and_ignores_the_edited_one() {
+        let two = build_region("Two", "two.example.com", 443, false, 1003);
         let info = info_with(vec![
             build_region("One", "one.example.com", 443, false, 1003),
-            build_region("Two", "two.example.com", 443, false, 1003),
+            two.clone(),
         ]);
 
         // A scheme on the typed address doesn't hide the conflict.
@@ -547,9 +557,9 @@ mod tests {
             conflicting_region_name(&info, None, "https://two.example.com/", 443),
             Some("Two".to_string())
         );
-        // Re-saving row 1 at its own address isn't a conflict with itself.
+        // Re-saving "Two" at its own address isn't a conflict with itself.
         assert_eq!(
-            conflicting_region_name(&info, Some(1), "two.example.com", 443),
+            conflicting_region_name(&info, Some(&two), "two.example.com", 443),
             None
         );
         // Same host, different port is a different server.
@@ -561,19 +571,97 @@ mod tests {
 
     #[test]
     fn edit_rejects_empty_fields_a_missing_row_and_a_duplicate_target() {
+        let one = build_region("One", "one.example.com", 443, false, 1003);
+        let gone = build_region("Gone", "gone.example.com", 443, false, 1003);
         let mut info = info_with(vec![
-            build_region("One", "one.example.com", 443, false, 1003),
+            one.clone(),
             build_region("Two", "two.example.com", 443, false, 1003),
         ]);
 
-        assert!(apply_region_edit(&mut info, 0, &fields("  ", "one.example.com", 443)).is_err());
-        assert!(apply_region_edit(&mut info, 0, &fields("One", "   ", 443)).is_err());
-        assert!(apply_region_edit(&mut info, 9, &fields("One", "one.example.com", 443)).is_err());
+        assert!(apply_region_edit(&mut info, &one, &fields("  ", "one.example.com", 443)).is_err());
+        assert!(apply_region_edit(&mut info, &one, &fields("One", "   ", 443)).is_err());
+        assert!(
+            apply_region_edit(&mut info, &gone, &fields("One", "one.example.com", 443)).is_err()
+        );
         // Moving "One" onto "Two"'s host:port would leave two rows for one server.
-        assert!(apply_region_edit(&mut info, 0, &fields("One", "two.example.com", 443)).is_err());
+        assert!(
+            apply_region_edit(&mut info, &one, &fields("One", "two.example.com", 443)).is_err()
+        );
         // Re-saving a row at its own address is fine.
         assert!(
-            apply_region_edit(&mut info, 0, &fields("One renamed", "one.example.com", 443)).is_ok()
+            apply_region_edit(
+                &mut info,
+                &one,
+                &fields("One renamed", "one.example.com", 443)
+            )
+            .is_ok()
         );
+    }
+
+    #[test]
+    fn edit_and_removal_target_one_of_two_same_named_regions() {
+        let first = build_region("Same", "one.example.com", 443, false, 1003);
+        let second = build_region("Same", "two.example.com", 443, false, 1003);
+        let mut info = info_with(vec![first.clone(), second.clone()]);
+
+        apply_region_edit(
+            &mut info,
+            &second,
+            &fields("Same", "two.example.com", 22023),
+        )
+        .unwrap();
+        assert_eq!(info.regions[0], first);
+        assert_eq!(region_fields(&info.regions[1]).port, 22023);
+
+        apply_region_removal(&mut info, &first);
+        assert_eq!(info.regions.len(), 1);
+        assert_eq!(region_fields(&info.regions[0]).address, "two.example.com");
+    }
+
+    fn named(names: &[&str], selected: i32) -> RegionInfo {
+        RegionInfo {
+            current_region_idx: selected,
+            regions: names
+                .iter()
+                .map(|name| build_region(name, &format!("{name}.example.com"), 443, false, 1003))
+                .collect(),
+        }
+    }
+
+    fn selected_name(info: &RegionInfo) -> &str {
+        region_name(&info.regions[info.current_region_idx as usize])
+    }
+
+    fn remove_named(info: &mut RegionInfo, name: &str) {
+        let region = info
+            .regions
+            .iter()
+            .find(|r| region_name(r) == name)
+            .cloned()
+            .unwrap();
+        apply_region_removal(info, &region);
+    }
+
+    #[test]
+    fn removal_keeps_the_selected_region_selected() {
+        let mut info = named(&["A", "B", "C"], 2);
+        remove_named(&mut info, "A");
+        assert_eq!(selected_name(&info), "C");
+
+        let mut info = named(&["A", "B", "C"], 0);
+        remove_named(&mut info, "C");
+        assert_eq!(selected_name(&info), "A");
+    }
+
+    #[test]
+    fn removing_the_selected_region_selects_the_first() {
+        let mut info = named(&["A", "B", "C"], 1);
+        remove_named(&mut info, "B");
+        assert_eq!(info.current_region_idx, 0);
+
+        let mut info = named(&["A"], 0);
+        remove_named(&mut info, "A");
+        assert!(info.regions.is_empty());
+        assert_eq!(info.current_region_idx, 0);
     }
 }

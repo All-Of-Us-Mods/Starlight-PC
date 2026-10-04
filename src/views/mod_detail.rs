@@ -1,5 +1,5 @@
 use gpui_kit::component::{
-    Disableable as _, Icon, IconName, Sizable as _, WindowExt,
+    Disableable as _, Icon, IconName, IndexPath, Sizable as _, WindowExt,
     alert::Alert,
     button::{Button, ButtonVariants, Toggle, ToggleVariants as _},
     checkbox::Checkbox,
@@ -7,8 +7,10 @@ use gpui_kit::component::{
     notification::Notification,
     progress::Progress,
     scroll::ScrollableElement as _,
+    select::{Select, SelectEvent, SelectItem, SelectState},
     separator::Separator,
     skeleton::Skeleton,
+    spinner::Spinner,
     tag::Tag,
     text::TextView,
 };
@@ -34,6 +36,9 @@ use gpui_kit::component::ActiveTheme;
 pub struct ModDetailView {
     state: LoadState,
     profiles: Vec<ProfileEntry>,
+    /// The latest `profiles` reload; replacing it drops (cancels) the one
+    /// before, so a burst of profile changes can't land out of order.
+    profiles_reload: Task<()>,
     install: Option<InstallPanel>,
 }
 
@@ -61,10 +66,30 @@ struct InstallPanel {
     /// new-profile mode (the default), where the profile is created on install.
     selected_profile_id: Option<String>,
     selected_version: String,
+    version_select: Entity<SelectState<Vec<VersionItem>>>,
     deps: Vec<DepRow>,
     unresolved: Vec<String>,
     status: InstallStatus,
     new_profile: Option<NewProfileInput>,
+}
+
+/// One entry of the version picker: shows `v1.2.3`, yields `1.2.3`.
+#[derive(Clone)]
+struct VersionItem {
+    version: String,
+    label: SharedString,
+}
+
+impl SelectItem for VersionItem {
+    type Value = String;
+
+    fn title(&self) -> SharedString {
+        self.label.clone()
+    }
+
+    fn value(&self) -> &String {
+        &self.version
+    }
 }
 
 struct NewProfileInput {
@@ -96,6 +121,7 @@ impl ModDetailView {
         let view = Self {
             state: LoadState::Loading,
             profiles: Vec::new(),
+            profiles_reload: Task::ready(()),
             install: None,
         };
         cx.spawn(async move |this, cx| {
@@ -133,19 +159,30 @@ impl ModDetailView {
         .detach();
 
         // Feed BepInEx + mod download progress into the install panel while
-        // an install is in flight.
-        let mut rx = events::subscribe();
-        cx.spawn(async move |this, cx| {
-            while let Ok(event) = rx.recv().await {
-                let _ = this.update(cx, |this, cx| {
-                    apply_progress_event(this, event);
-                    cx.notify();
-                });
+        // an install is in flight, and keep the profile chips current (an
+        // install here creates and modifies profiles too).
+        events::listen(cx, |this, event, cx| {
+            if let BackendEvent::ProfileChanged(_) = event {
+                this.reload_profiles(cx);
+            } else if apply_progress_event(this, event) {
+                cx.notify();
             }
-        })
-        .detach();
+        });
 
         view
+    }
+
+    fn reload_profiles(&mut self, cx: &mut Context<Self>) {
+        self.profiles_reload = cx.spawn(async move |this, cx| {
+            let profiles = cx
+                .background_executor()
+                .spawn(async { profile_service::get_profiles().unwrap_or_default() })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.profiles = profiles;
+                cx.notify();
+            });
+        });
     }
 
     /// Title shown in the app title bar — the mod name once loaded.
@@ -168,9 +205,33 @@ impl ModDetailView {
         // Default to a fresh profile named after the mod, so mods stay isolated
         // from each other unless the user deliberately picks an existing profile.
         let default_name = unique_profile_name(&data.mod_info.name, &self.profiles);
+        let items: Vec<VersionItem> = data
+            .versions
+            .iter()
+            .map(|v| VersionItem {
+                version: v.version.clone(),
+                label: format!("v{}", v.version).into(),
+            })
+            .collect();
+        let version_select =
+            cx.new(|cx| SelectState::new(items, Some(IndexPath::default()), window, cx));
+        cx.subscribe_in(
+            &version_select,
+            window,
+            |this, _, event: &SelectEvent<Vec<VersionItem>>, _window, cx| {
+                if let SelectEvent::Confirm(Some(version)) = event {
+                    this.select_version(version.clone(), cx);
+                }
+            },
+        )
+        .detach();
+        // The open menu lives in this (cached) page, so it has to re-render
+        // when the picker's own state changes.
+        cx.observe(&version_select, |_, _, cx| cx.notify()).detach();
         self.install = Some(InstallPanel {
             selected_profile_id: None,
             selected_version: latest_version.clone(),
+            version_select,
             deps: Vec::new(),
             unresolved: Vec::new(),
             status: InstallStatus::Resolving,
@@ -313,9 +374,9 @@ impl ModDetailView {
         self.resolve_for_selected_version(mod_id, version, cx);
     }
 
-    fn toggle_dep(&mut self, ix: usize, checked: bool, cx: &mut Context<Self>) {
+    fn toggle_dep(&mut self, mod_id: &str, checked: bool, cx: &mut Context<Self>) {
         if let Some(panel) = self.install.as_mut()
-            && let Some(row) = panel.deps.get_mut(ix)
+            && let Some(row) = panel.deps.iter_mut().find(|row| row.mod_id == mod_id)
         {
             row.checked = checked;
         }
@@ -406,8 +467,8 @@ impl ModDetailView {
                         Ok(profile) => {
                             let id = profile.id.clone();
                             let id_for_panel = id.clone();
+                            // `profiles` catches up via `ProfileChanged`.
                             let _ = this.update(cx, |this, cx| {
-                                this.profiles = profile_service::get_profiles().unwrap_or_default();
                                 if let Some(panel) = this.install.as_mut() {
                                     panel.selected_profile_id = Some(id_for_panel);
                                     panel.new_profile = None;
@@ -455,7 +516,6 @@ impl ModDetailView {
                         if let Some(panel) = this.install.as_mut() {
                             panel.status = InstallStatus::Done;
                         }
-                        this.profiles = profile_service::get_profiles().unwrap_or_default();
                         // Installing into a fresh profile lands the user on it.
                         if creates_profile {
                             cx.emit(ModDetailEvent::OpenProfile(profile_id));
@@ -475,12 +535,16 @@ impl ModDetailView {
     }
 }
 
-fn apply_progress_event(this: &mut ModDetailView, event: BackendEvent) {
+/// Feed `event` into the install panel's progress row; whether it applied.
+fn apply_progress_event(this: &mut ModDetailView, event: BackendEvent) -> bool {
+    let LoadState::Loaded(data) = &this.state else {
+        return false;
+    };
     let Some(panel) = this.install.as_mut() else {
-        return;
+        return false;
     };
     let InstallStatus::Installing { message, progress } = &mut panel.status else {
-        return;
+        return false;
     };
     match event {
         BackendEvent::BepInExProgress(p)
@@ -489,12 +553,19 @@ fn apply_progress_event(this: &mut ModDetailView, event: BackendEvent) {
         {
             *message = t!("mod.bepinex_progress", message = p.message).to_string();
             *progress = p.progress as f32;
+            true
         }
-        BackendEvent::ModDownloadProgress(p) => {
+        // Download progress names only the mod, so match it against this
+        // install's batch (the mod plus the dependencies picked for it).
+        BackendEvent::ModDownloadProgress(p)
+            if p.mod_id == data.mod_info.id
+                || panel.deps.iter().any(|d| d.checked && d.mod_id == p.mod_id) =>
+        {
             *message = format!("{} ({})", p.mod_id, p.stage);
             *progress = p.progress as f32;
+            true
         }
-        _ => {}
+        _ => false,
     }
 }
 
@@ -631,9 +702,10 @@ impl Render for ModDetailView {
                         }
                     }));
 
-                let install_panel = self.install.as_ref().map(|panel| {
-                    render_install_panel(panel, &self.profiles, &data.versions, &theme, cx)
-                });
+                let install_panel = self
+                    .install
+                    .as_ref()
+                    .map(|panel| render_install_panel(panel, &self.profiles, &theme, cx));
 
                 div()
                     .flex()
@@ -779,15 +851,18 @@ impl Render for ModDetailView {
 fn render_install_panel(
     panel: &InstallPanel,
     profiles: &[ProfileEntry],
-    versions: &[ModVersion],
     theme: &gpui_kit::component::Theme,
     cx: &mut Context<ModDetailView>,
 ) -> AnyElement {
     let status_row = match &panel.status {
         InstallStatus::Resolving => Some(
             div()
+                .flex()
+                .items_center()
+                .gap_1()
                 .text_xs()
                 .text_color(theme.muted_foreground)
+                .child(Spinner::new().xsmall())
                 .child(t!("mod.resolving").to_string())
                 .into_any_element(),
         ),
@@ -839,10 +914,10 @@ fn render_install_panel(
         InstallStatus::Installing { .. } | InstallStatus::Resolving
     );
 
-    let profile_rows = profiles.iter().enumerate().map(|(ix, p)| {
+    let profile_rows = profiles.iter().map(|p| {
         let selected = panel.selected_profile_id.as_deref() == Some(p.id.as_str());
         let id = p.id.clone();
-        Toggle::new(SharedString::from(format!("install-profile-{ix}")))
+        Toggle::new(SharedString::from(format!("install-profile-{}", p.id)))
             .outline()
             .label(p.name.clone())
             .checked(selected)
@@ -865,19 +940,6 @@ fn render_install_panel(
         .chain(profile_rows)
         .collect();
 
-    let version_rows = versions.iter().enumerate().map(|(ix, v)| {
-        let selected = panel.selected_version == v.version;
-        let version = v.version.clone();
-        Toggle::new(SharedString::from(format!("install-version-{ix}")))
-            .outline()
-            .small()
-            .label(format!("v{}", v.version))
-            .checked(selected)
-            .on_click(cx.listener(move |this, _: &bool, _window, cx| {
-                this.select_version(version.clone(), cx);
-            }))
-    });
-
     // The profile is created when Install runs, so this is just its name.
     let new_profile_row = panel.new_profile.as_ref().map(|np| {
         div()
@@ -893,7 +955,7 @@ fn render_install_panel(
             )
     });
 
-    let dep_rows = panel.deps.iter().enumerate().map(|(ix, row)| {
+    let dep_rows = panel.deps.iter().map(|row| {
         let optional_suffix = if row.dependency_type.eq_ignore_ascii_case("optional") {
             t!("mod.optional").to_string()
         } else {
@@ -917,17 +979,18 @@ fn render_install_panel(
         )
         .to_string();
         let already = row.already_installed;
+        let mod_id = row.mod_id.clone();
         div()
             .flex()
             .flex_col()
             .gap_1()
             .child(
-                Checkbox::new(SharedString::from(format!("dep-{ix}")))
+                Checkbox::new(SharedString::from(format!("dep-{mod_id}")))
                     .checked(row.checked)
                     .label(label)
                     .disabled(already || busy)
                     .on_click(cx.listener(move |this, checked: &bool, _window, cx| {
-                        this.toggle_dep(ix, *checked, cx);
+                        this.toggle_dep(&mod_id, *checked, cx);
                     })),
             )
             .child(
@@ -971,7 +1034,11 @@ fn render_install_panel(
         .child(div().flex().flex_wrap().gap_2().children(profile_chips))
         .children(new_profile_row)
         .child(section_label(t!("mod.version"), theme))
-        .child(div().flex().flex_wrap().gap_2().children(version_rows))
+        .child(
+            Select::new(&panel.version_select)
+                .accessibility_label(t!("mod.version"))
+                .w(px(220.0)),
+        )
         .children(if panel.deps.is_empty() {
             None
         } else {
@@ -1028,6 +1095,7 @@ mod tests {
             mods: vec![],
             custom_mods: vec![],
             installation_id: None,
+            temporary: false,
         }
     }
 

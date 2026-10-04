@@ -9,6 +9,7 @@ pub mod servers;
 pub mod settings;
 
 use gpui_kit::component::Theme;
+use gpui_kit::component::empty::{Empty, EmptyDescription, EmptyHeader};
 use gpui_kit::*;
 
 /// Shared outer container for every top-level page: full-size vertical flex
@@ -34,4 +35,10 @@ pub fn section_label(text: impl Into<SharedString>, theme: &Theme) -> impl IntoE
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme.muted_foreground)
         .child(text.into())
+}
+
+/// Empty state for a list or page section: the existing one-line copy as a
+/// muted description. Pages that want media compose [`Empty`] directly.
+pub fn empty_state(text: impl Into<SharedString>) -> Empty {
+    Empty::new().header(EmptyHeader::new().description(EmptyDescription::new().child(text.into())))
 }

@@ -277,6 +277,63 @@ pub fn plan_lobby_mods(required: &[InstallModInput]) -> (Vec<InstallModInput>, V
     (out, unresolved)
 }
 
+/// Update installed catalog mods to the given `(mod_id, version)` releases as
+/// one rollback-safe batch. Required dependencies of the new releases are
+/// installed first, unless already present at the resolved version; optional
+/// branches stay opt-in via the normal install flow. Blocking.
+pub fn update_profile_mods(profile_id: &str, updates: Vec<(String, String)>) -> AppResult<()> {
+    let profile = profile_service::get_profile_by_id(profile_id)?
+        .ok_or_else(|| AppError::validation(format!("Profile '{profile_id}' not found")))?;
+    let root_versions: HashMap<String, String> = updates.iter().cloned().collect();
+    let mut planned_ids: HashSet<String> = root_versions.keys().cloned().collect();
+    let mut items = Vec::new();
+
+    // Resolve every root before appending roots themselves, so the combined
+    // batch remains dependencies-first.
+    for (mod_id, latest) in &updates {
+        let version_info = api::fetch_mod_version_info(mod_id, latest)?;
+        let (dependencies, unresolved) =
+            resolve_required_dependencies_with_pins(&version_info.dependencies, &root_versions)?;
+        if !unresolved.is_empty() {
+            return Err(AppError::validation(format!(
+                "Could not resolve dependencies: {}",
+                unresolved.join(", ")
+            )));
+        }
+        for dependency in dependencies {
+            if !planned_ids.insert(dependency.mod_id.clone()) {
+                continue;
+            }
+            let installed = profile
+                .mods
+                .iter()
+                .find(|installed| installed.mod_id == dependency.mod_id);
+            let already_current =
+                installed.is_some_and(|installed| installed.version == dependency.resolved_version);
+            if !already_current && installed.is_some_and(|installed| !installed.enabled) {
+                return Err(AppError::validation(format!(
+                    "Enable '{}' before updating; it is a required dependency",
+                    dependency.mod_name
+                )));
+            }
+            if !already_current {
+                items.push(InstallModInput {
+                    mod_id: dependency.mod_id,
+                    version: dependency.resolved_version,
+                });
+            }
+        }
+    }
+
+    items.extend(
+        updates
+            .into_iter()
+            .map(|(mod_id, version)| InstallModInput { mod_id, version }),
+    );
+    install_mods_for_profile(profile_id, &items)?;
+    Ok(())
+}
+
 fn absolute_url(path_or_url: &str) -> String {
     if path_or_url.starts_with("http://") || path_or_url.starts_with("https://") {
         return path_or_url.to_string();

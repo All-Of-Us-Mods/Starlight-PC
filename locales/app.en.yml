@@ -154,6 +154,8 @@ servers:
   no_regions: No regions configured yet. Add one below.
   edit_tooltip: Edit this server
   remove_tooltip: Remove this server
+  remove_title: Remove server
+  remove_desc: 'Remove "%{name}" from your Among Us regions?'
   load_failed: "Failed to load servers: %{error}"
   none_available: No servers available.
   all_added: All available servers have been added.
@@ -258,6 +260,8 @@ log:
     debug: Debug
     other: Other
 titlebar:
+  back: Back
+  forward: Forward
   stop_count: "Stop (%{count})"
   launch: "Launch %{name}"
   launch_failed: "Launch failed: %{error}"
@@ -268,6 +272,8 @@ update:
   failed: "Update failed: %{error}"
   up_to_date: Starlight is up to date.
   check_failed: "Update check failed: %{error}"
+  checking: Checking for updates
+  downloading: "Downloading Starlight %{version}"
 settings:
   multiple_installations: Multiple installations
   multiple_installations_desc: Let profiles launch with a linked installation.
@@ -275,6 +281,8 @@ settings:
   link_install: Link installation
   link_install_desc: Save the current game and launch settings. Relink to update.
   unlink_install: Unlink
+  unlink_title: Unlink installation
+  unlink_desc: 'Unlink "%{name}"? Its saved game and launch settings are removed.'
   page:
     game: Game
     launch: Launch

@@ -20,7 +20,7 @@ impl LibraryDetailView {
             .disabled(
                 self.bep_progress.is_some()
                     || !self.updating_mods.is_empty()
-                    || self.running_count + self.pending_launches > 0,
+                    || self.running_count > 0,
             )
             .dropdown_menu(move |mut menu, _, _| {
                 let options = std::iter::once((None, t!("profile.default_install").to_string()))
@@ -33,28 +33,36 @@ impl LibraryDetailView {
                     let view = view.clone();
                     menu = menu.item(PopupMenuItem::new(label).checked(id == selected).on_click(
                         move |_, _, cx| {
-                            let _ = view.update(cx, |this, cx| {
-                                match profile_service::set_installation(
-                                    &this.profile_id,
-                                    id.clone(),
-                                ) {
-                                    Ok(()) => {
-                                        if let LoadState::Loaded(profile) = &mut this.state {
-                                            profile.installation_id = id.clone();
-                                        }
-                                        this.launch_error = None;
-                                        events::publish(BackendEvent::ProfileStatsUpdated(
-                                            this.profile_id.clone(),
-                                        ));
-                                    }
-                                    Err(e) => this.launch_error = Some(e.to_string()),
-                                }
-                                cx.notify();
-                            });
+                            let id = id.clone();
+                            let _ = view.update(cx, |this, cx| this.set_installation(id, cx));
                         },
                     ));
                 }
                 menu
             })
+    }
+
+    fn set_installation(&mut self, installation_id: Option<String>, cx: &mut Context<Self>) {
+        let profile_id = self.profile_id.clone();
+        cx.spawn(async move |this, cx| {
+            let id = installation_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { profile_service::set_installation(&profile_id, id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(()) => {
+                        if let LoadState::Loaded(profile) = &mut this.state {
+                            profile.installation_id = installation_id;
+                        }
+                        this.launch_error = None;
+                    }
+                    Err(e) => this.launch_error = Some(e.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 }

@@ -19,6 +19,9 @@ use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::alert::Alert;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
+use gpui_kit::component::empty::{
+    Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant,
+};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -75,27 +78,20 @@ impl LibraryView {
         cx.observe_global::<crate::settings::SettingsGlobal>(|_, cx| cx.notify())
             .detach();
 
-        let mut rx = events::subscribe();
-        cx.spawn(async move |this, cx| {
-            while let Ok(event) = rx.recv().await {
-                match event {
-                    BackendEvent::GameStateChanged(payload) => {
-                        let _ = this.update(cx, |this, cx| {
-                            this.running_count = payload.running_count;
-                            cx.notify();
-                        });
-                    }
-                    BackendEvent::ZipProgress(p) if matches!(p.op, ZipOp::Import) => {
-                        let _ = this.update(cx, |this, cx| {
-                            this.import_progress = Some(p.progress);
-                            cx.notify();
-                        });
-                    }
-                    _ => {}
-                }
+        events::listen(cx, |this, event, cx| match event {
+            BackendEvent::GameStateChanged(payload) => {
+                this.running_count = payload.running_count;
+                cx.notify();
             }
-        })
-        .detach();
+            BackendEvent::ZipProgress(p) if matches!(p.op, ZipOp::Import) => {
+                this.import_progress = Some(p.progress);
+                cx.notify();
+            }
+            // Reload in place: a launch or a game exit shouldn't flash the
+            // list back to skeletons.
+            BackendEvent::ProfileChanged(_) => this.load_profiles(cx),
+            _ => {}
+        });
 
         view
     }
@@ -618,9 +614,16 @@ impl Render for LibraryView {
                 t!("library.load_failed", error = message).to_string(),
             )
             .into_any_element(),
-            LoadState::Loaded(profiles) if profiles.is_empty() => div()
-                .text_color(theme.muted_foreground)
-                .child(t!("library.empty").to_string())
+            LoadState::Loaded(profiles) if profiles.is_empty() => Empty::new()
+                .header(
+                    EmptyHeader::new()
+                        .media(
+                            EmptyMedia::new()
+                                .with_variant(EmptyMediaVariant::Icon)
+                                .child(Icon::new(AppIcon::Library)),
+                        )
+                        .description(EmptyDescription::new().child(t!("library.empty"))),
+                )
                 .into_any_element(),
             LoadState::Loaded(profiles) => {
                 let cards: Vec<AnyElement> = profiles

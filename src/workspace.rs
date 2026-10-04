@@ -11,6 +11,7 @@ use crate::backend::state::game_runtime;
 use crate::settings as app_settings;
 use crate::ui::icon::AppIcon;
 use crate::ui::stars_background::StarsBackground;
+use crate::updater;
 use crate::views::explore::ExploreView;
 use crate::views::home::HomeView;
 use crate::views::library::{LibraryEvent, LibraryView};
@@ -122,8 +123,9 @@ pub struct Workspace {
     sidebar_width: f32,
     /// True between mouse-down on the resize handle and the matching mouse-up.
     sidebar_resizing: bool,
-    /// Own entity so the drift animation only re-renders the starfield,
-    /// not the whole workspace every frame.
+    /// Drift ticks notify this entity, and GPUI re-renders a notified view's
+    /// ancestors too — so every tick re-renders the workspace chrome. Pages
+    /// are embedded cached (see `render_content`), which keeps them out of it.
     stars: Entity<StarsBackground>,
 }
 
@@ -148,7 +150,7 @@ impl Workspace {
         let home = cx.new(HomeView::new);
         let explore = cx.new(|cx| ExploreView::new(window, cx));
         let servers = cx.new(ServersView::new);
-        let lobbies = cx.new(LobbiesView::new);
+        let lobbies = cx.new(|_| LobbiesView::new());
         let settings = cx.new(SettingsView::new);
         let initial = game_runtime::current_state();
 
@@ -182,8 +184,8 @@ impl Workspace {
         )
         .detach();
 
-        // Refresh the title-bar quick-launch target whenever a profile's launch
-        // stats change (fired after every launch).
+        // Not `events::listen`: activation and deep links need the window,
+        // which a view update doesn't get.
         let window_handle = window.window_handle();
         let mut rx = events::subscribe();
         cx.spawn(async move |this, cx| {
@@ -193,8 +195,13 @@ impl Workspace {
                 deliver_deep_link(window_handle, &this, cx, link);
             }
             while let Ok(event) = rx.recv().await {
+                if this.upgrade().is_none() {
+                    break;
+                }
                 match event {
-                    BackendEvent::ProfileStatsUpdated(_) => {
+                    // Any profile change (a launch, a rename, a delete) can
+                    // change the title-bar quick-launch target.
+                    BackendEvent::ProfileChanged(_) => {
                         let _ = this.update(cx, |_, cx| Self::reload_last_launched(cx));
                     }
                     BackendEvent::GameStateChanged(payload) => {
@@ -219,8 +226,14 @@ impl Workspace {
         .detach();
         Self::reload_last_launched(cx);
 
-        #[cfg(windows)]
-        Self::check_for_update_on_startup(window, cx);
+        // Only Windows can install an update in place (see `update_service`).
+        if cfg!(windows) {
+            Self::check_for_update_on_startup(window, cx);
+        }
+        // Redraw the "update available" notification's button as the
+        // update moves through its phases.
+        cx.observe_global::<updater::UpdateGlobal>(|_, cx| cx.notify())
+            .detach();
 
         Self::first_run_detect_game(window, cx);
         Self::offer_legacy_migration(library.clone(), window, cx);
@@ -246,33 +259,15 @@ impl Workspace {
     /// auto-detect the installation in the background so launching works out
     /// of the box, and tell the user either way.
     fn first_run_detect_game(window: &mut Window, cx: &mut Context<Self>) {
-        use crate::backend::services::finder_service;
-
         if !app_settings::get(cx).game.among_us_path.trim().is_empty() {
             return;
         }
         let window_handle = window.window_handle();
+        let detection = app_settings::detect_among_us(cx);
         cx.spawn(async move |_, cx| {
-            let detection = cx
-                .background_executor()
-                .spawn(async {
-                    finder_service::detect_among_us_installation()
-                        .ok()
-                        .flatten()
-                        .map(|path| {
-                            let store = finder_service::detect_game_store(&path).ok();
-                            (path, store)
-                        })
-                })
-                .await;
+            let detection = detection.await.ok().flatten();
             let _ = window_handle.update(cx, |_, window, cx| match detection {
-                Some((path, store)) => {
-                    app_settings::update(cx, |s| {
-                        s.game.among_us_path = path.clone();
-                        if let Some(platform) = store {
-                            s.game.game_platform = platform;
-                        }
-                    });
+                Some((path, _)) => {
                     window.push_notification(
                         Notification::success(
                             t!("notify.among_us_detected", path = path).to_string(),
@@ -392,14 +387,13 @@ impl Workspace {
 
     /// Run the update check a few seconds after startup, so it doesn't
     /// compete with the initial UI render.
-    #[cfg(windows)]
     fn check_for_update_on_startup(window: &mut Window, cx: &mut Context<Self>) {
         let window_handle = window.window_handle();
         cx.spawn(async move |_, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_secs(3))
                 .await;
-            let _ = window_handle.update(cx, |_, window, cx| check_for_update(window, cx, false));
+            let _ = window_handle.update(cx, |_, window, cx| updater::check(window, cx));
         })
         .detach();
     }
@@ -449,13 +443,17 @@ impl Workspace {
         self.after_navigate(cx);
     }
 
-    /// Side effects whenever the current page changes. Profiles can change from
-    /// anywhere (mod install, BepInEx install, …); pull a fresh list whenever
-    /// the Library list becomes visible.
+    /// Side effects whenever the current page changes. A profile's files can
+    /// change without its metadata (BepInEx installs, plugins added on disk),
+    /// which `ProfileChanged` doesn't cover — so pull a fresh list whenever
+    /// the Library list becomes visible. Lobbies polls only while shown.
     fn after_navigate(&mut self, cx: &mut Context<Self>) {
         if matches!(self.current(), Page::Library) {
             self.library.update(cx, |lib, cx| lib.refresh(cx));
         }
+        let on_lobbies = matches!(self.current(), Page::Lobbies);
+        self.lobbies
+            .update(cx, |lobbies, cx| lobbies.set_polling(on_lobbies, cx));
         cx.notify();
     }
 
@@ -677,6 +675,7 @@ impl Workspace {
                             .ghost()
                             .small()
                             .icon(Icon::new(IconName::ArrowLeft))
+                            .tooltip(t!("titlebar.back"))
                             .disabled(!self.can_go_back())
                             .on_click(cx.listener(|this, _, _window, cx| this.go_back(cx))),
                     )
@@ -685,6 +684,7 @@ impl Workspace {
                             .ghost()
                             .small()
                             .icon(Icon::new(IconName::ArrowRight))
+                            .tooltip(t!("titlebar.forward"))
                             .disabled(!self.can_go_forward())
                             .on_click(cx.listener(|this, _, _window, cx| this.go_forward(cx))),
                     ),
@@ -763,17 +763,23 @@ impl Workspace {
             .detach();
     }
 
+    /// The current page, embedded as a cached view: it only re-renders when
+    /// it (or a view inside it) is notified, not whenever the workspace does —
+    /// which is every starfield tick. So a page must notify on every change
+    /// it renders, including the settings global (observed) and the theme and
+    /// locale (both refresh every window).
     fn render_content(&self) -> AnyElement {
+        let style = StyleRefinement::default().size_full();
         match self.current() {
-            Page::Home => self.home.clone().into_any_element(),
-            Page::Explore => self.explore.clone().into_any_element(),
-            Page::Library => self.library.clone().into_any_element(),
-            Page::Servers => self.servers.clone().into_any_element(),
-            Page::Lobbies => self.lobbies.clone().into_any_element(),
-            Page::Settings => self.settings.clone().into_any_element(),
-            Page::ModDetail(v) => v.clone().into_any_element(),
-            Page::LibraryDetail(v) => v.clone().into_any_element(),
-            Page::NewsDetail(v) => v.clone().into_any_element(),
+            Page::Home => self.home.clone().cached(style).into_any_element(),
+            Page::Explore => self.explore.clone().cached(style).into_any_element(),
+            Page::Library => self.library.clone().cached(style).into_any_element(),
+            Page::Servers => self.servers.clone().cached(style).into_any_element(),
+            Page::Lobbies => self.lobbies.clone().cached(style).into_any_element(),
+            Page::Settings => self.settings.clone().cached(style).into_any_element(),
+            Page::ModDetail(v) => v.clone().cached(style).into_any_element(),
+            Page::LibraryDetail(v) => v.clone().cached(style).into_any_element(),
+            Page::NewsDetail(v) => v.clone().cached(style).into_any_element(),
         }
     }
 
@@ -823,12 +829,10 @@ impl Workspace {
         cx.observe(&detail, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&detail, |this, _, ev: &LibraryDetailEvent, cx| match ev {
             // The detail view closes itself after deleting its profile; drop it
-            // from history rather than leaving a dangling "not found" page, and
-            // refresh the quick-launch target in case it was the deleted one.
-            LibraryDetailEvent::Close => {
-                this.close_current(cx);
-                Self::reload_last_launched(cx);
-            }
+            // from history rather than leaving a dangling "not found" page.
+            // (The deletion's `ProfileChanged` refreshes the quick-launch
+            // target.)
+            LibraryDetailEvent::Close => this.close_current(cx),
             LibraryDetailEvent::OpenExplore => this.switch_tab(Tab::Explore, cx),
         })
         .detach();
@@ -898,90 +902,4 @@ impl Render for Workspace {
                 el.child(self.render_sidebar_resize_capture(cx))
             })
     }
-}
-
-/// Check the user's release channel for a build newer than this one and, if
-/// there is one, offer to install it.
-///
-/// `report_no_update` is what separates the two callers: the check on startup
-/// stays quiet unless there's something to install, while the button in
-/// Settings has to answer either way.
-#[cfg(windows)]
-pub(crate) fn check_for_update(window: &mut Window, cx: &mut App, report_no_update: bool) {
-    use crate::backend::services::update_service;
-
-    let channel = app_settings::get(cx).release_channel;
-    let window_handle = window.window_handle();
-    cx.spawn(async move |cx| {
-        let update = cx
-            .background_executor()
-            .spawn(async move { update_service::check_for_update(channel) })
-            .await;
-        let notification = match update {
-            Ok(Some(info)) => update_notification(info),
-            Ok(None) if report_no_update => Notification::info(t!("update.up_to_date").to_string()),
-            Ok(None) => return,
-            Err(e) => {
-                warn!("update check failed: {e}");
-                if !report_no_update {
-                    return;
-                }
-                Notification::error(t!("update.check_failed", error = e).to_string())
-            }
-        };
-        let _ = window_handle.update(cx, |_, window, cx| {
-            window.push_notification(notification, cx);
-        });
-    })
-    .detach();
-}
-
-/// Build the "update available" notification, with an action button that
-/// downloads the new exe, swaps it in, relaunches it, and quits the current
-/// process.
-#[cfg(windows)]
-fn update_notification(info: crate::backend::services::update_service::UpdateInfo) -> Notification {
-    Notification::info(t!("update.available", version = info.version).to_string())
-        .title(t!("update.title"))
-        .action(move |_, _, _| {
-            let info = info.clone();
-            Button::new("install-update")
-                .label(t!("update.restart"))
-                .primary()
-                .on_click(move |_, window, cx| {
-                    install_update(info.clone(), window, cx);
-                })
-        })
-}
-
-#[cfg(windows)]
-fn install_update(
-    info: crate::backend::services::update_service::UpdateInfo,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    use crate::backend::services::update_service;
-
-    let window_handle = window.window_handle();
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move { update_service::apply_update_and_relaunch(&info) })
-            .await;
-        match result {
-            Ok(()) => {
-                cx.update(|cx| cx.quit());
-            }
-            Err(e) => {
-                warn!("update install failed: {e}");
-                let _ = window_handle.update(cx, |_, window, cx| {
-                    window.push_notification(
-                        Notification::error(t!("update.failed", error = e).to_string()),
-                        cx,
-                    );
-                });
-            }
-        }
-    })
-    .detach();
 }

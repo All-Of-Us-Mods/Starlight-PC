@@ -14,14 +14,13 @@ use rust_i18n::t;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use crate::backend::api;
 use crate::backend::events::{self, BackendEvent};
 use crate::backend::services::bepinex_service::{BepInExProgress, BepInExTargetType};
 use crate::backend::services::launch_service;
-use crate::backend::services::mod_install_service::{self, InstallModInput};
+use crate::backend::services::mod_install_service;
 use crate::backend::services::profile_service::{
     self, BepInExStatus, ProfileEntry, ProfileModEntry, ZipOp,
 };
@@ -35,7 +34,7 @@ use crate::ui::format;
 use crate::ui::icon::AppIcon;
 use crate::ui::log_panel::LogPanel;
 use crate::ui::profile_icon::profile_icon;
-use crate::views::page_root;
+use crate::views::{empty_state, page_root};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::alert::Alert;
 use gpui_kit::component::avatar::Avatar;
@@ -70,12 +69,8 @@ pub struct LibraryDetailView {
     /// 0–100 while an export is running; `None` otherwise.
     export_progress: Option<f64>,
     pub(super) icon_dialog: Option<IconDialogState>,
+    /// This profile's running instances plus launches still being prepared.
     running_count: usize,
-    /// Launches the user has requested but that haven't shown up in a backend
-    /// GameStateChanged yet (launches are serialized, and one that needs its
-    /// own copy of the profile spends a moment preparing it). Added on top of
-    /// the backend count so the UI reflects the click immediately.
-    pending_launches: usize,
     log_panel: Entity<LogPanel>,
     /// API-resolved display names per mod_id, populated lazily after load.
     mod_names: HashMap<String, String>,
@@ -84,13 +79,13 @@ pub struct LibraryDetailView {
     /// Mod ids currently being updated. Kept per row so unrelated controls
     /// remain available while one download is in flight.
     updating_mods: HashSet<String>,
-    /// Serializes separately requested updates for this profile so their
-    /// manifest writes cannot race while the UI keeps unrelated rows usable.
+    /// Serializes separately requested updates for this profile: two batches
+    /// can share a dependency, and would download over the same file and roll
+    /// back each other's manifest entries.
     update_lock: Arc<Mutex<()>>,
-    /// Whether the cursor is over the hero icon / name, revealing their
-    /// inline edit buttons.
-    icon_hovered: bool,
-    name_hovered: bool,
+    /// The latest profile read. Replacing it drops the older one, so a slow
+    /// read can't land after a newer one.
+    load: Task<()>,
 }
 
 pub(super) enum LoadState {
@@ -103,8 +98,11 @@ pub(super) enum LoadState {
 impl LibraryDetailView {
     pub fn new(profile_id: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let log_panel = cx.new(|cx| LogPanel::new(window, cx));
+        // `render` reads `has_content` even while the panel isn't shown, and
+        // a hidden panel's notify doesn't reach this (cached) view on its own.
+        cx.observe(&log_panel, |_, _, cx| cx.notify()).detach();
 
-        let view = Self {
+        let mut view = Self {
             profile_id: profile_id.clone(),
             state: LoadState::Loading,
             bep_progress: None,
@@ -113,15 +111,13 @@ impl LibraryDetailView {
             rename_dialog: None,
             export_progress: None,
             icon_dialog: None,
-            running_count: 0,
-            pending_launches: 0,
+            running_count: game_runtime::current_state().profile_count(&profile_id),
             log_panel,
             mod_names: mod_catalog_cache::cached_names(),
             mod_latest_versions: mod_catalog_cache::cached_latest_versions(),
             updating_mods: HashSet::new(),
             update_lock: Arc::new(Mutex::new(())),
-            icon_hovered: false,
-            name_hovered: false,
+            load: Task::ready(()),
         };
 
         view.spawn_load(cx);
@@ -138,61 +134,36 @@ impl LibraryDetailView {
         })
         .detach();
 
-        // Subscribe to backend events for *this* profile.
-        let id_for_events = profile_id.clone();
-        let mut rx = events::subscribe();
-        cx.spawn(async move |this, cx| {
-            while let Ok(event) = rx.recv().await {
-                match event {
-                    BackendEvent::BepInExProgress(p)
-                        if matches!(p.target_type, BepInExTargetType::Profile)
-                            && p.target_id == id_for_events =>
-                    {
-                        let done = matches!(p.stage.as_str(), "complete" | "failed");
-                        let _ = this.update(cx, |this, cx| {
-                            if p.stage == "failed" {
-                                this.launch_error = Some(p.message.clone());
-                            }
-                            this.bep_progress = if done { None } else { Some(p) };
-                            cx.notify();
-                        });
-                        if done {
-                            let _ = this.update(cx, |this, cx| this.spawn_load(cx));
-                        }
-                    }
-                    BackendEvent::GameStateChanged(payload) => {
-                        let running = payload
-                            .profile_instance_counts
-                            .get(&id_for_events)
-                            .copied()
-                            .unwrap_or(0);
-                        let _ = this.update(cx, |this, cx| {
-                            // A real instance appearing settles one pending launch.
-                            if running > this.running_count {
-                                this.pending_launches = this
-                                    .pending_launches
-                                    .saturating_sub(running - this.running_count);
-                            }
-                            this.running_count = running;
-                            cx.notify();
-                            // Game state change ≈ new log content / mod changes.
-                            this.refresh_disk_state(cx);
-                        });
-                    }
-                    BackendEvent::ProfileStatsUpdated(id) if id == id_for_events => {
-                        let _ = this.update(cx, |this, cx| this.spawn_load(cx));
-                    }
-                    BackendEvent::ZipProgress(p) if matches!(p.op, ZipOp::Export) => {
-                        let _ = this.update(cx, |this, cx| {
-                            this.export_progress = Some(p.progress);
-                            cx.notify();
-                        });
-                    }
-                    _ => {}
+        // Backend events for *this* profile.
+        events::listen(cx, |this, event, cx| match event {
+            BackendEvent::BepInExProgress(p)
+                if matches!(p.target_type, BepInExTargetType::Profile)
+                    && p.target_id == this.profile_id =>
+            {
+                let done = matches!(p.stage.as_str(), "complete" | "failed");
+                if p.stage == "failed" {
+                    this.launch_error = Some(p.message.clone());
+                }
+                this.bep_progress = if done { None } else { Some(p) };
+                cx.notify();
+                if done {
+                    this.spawn_load(cx);
                 }
             }
-        })
-        .detach();
+            BackendEvent::GameStateChanged(payload) => {
+                this.running_count = payload.profile_count(&this.profile_id);
+                cx.notify();
+                // Game state change ≈ new log content / mod changes.
+                this.refresh_disk_state(cx);
+            }
+            BackendEvent::ProfileChanged(id) if id == this.profile_id => this.spawn_load(cx),
+            BackendEvent::ZipProgress(p) if matches!(&p.op, ZipOp::Export(id) if *id == this.profile_id) =>
+            {
+                this.export_progress = Some(p.progress);
+                cx.notify();
+            }
+            _ => {}
+        });
 
         view
     }
@@ -205,9 +176,9 @@ impl LibraryDetailView {
         }
     }
 
-    pub(super) fn spawn_load(&self, cx: &mut Context<Self>) {
+    pub(super) fn spawn_load(&mut self, cx: &mut Context<Self>) {
         let id = self.profile_id.clone();
-        cx.spawn(async move |this, cx| {
+        self.load = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move { profile_service::get_profile_by_id(&id) })
@@ -222,8 +193,7 @@ impl LibraryDetailView {
                 this.refresh_disk_state(cx);
                 this.fetch_mod_catalog_data(cx);
             });
-        })
-        .detach();
+        });
     }
 
     /// Resolve display names and latest releases for installed catalog mods.
@@ -373,66 +343,7 @@ impl LibraryDetailView {
                     let _update_guard = update_lock.lock().map_err(|_| {
                         crate::backend::error::AppError::state("Mod update lock was poisoned")
                     })?;
-                    let profile =
-                        profile_service::get_profile_by_id(&profile_id)?.ok_or_else(|| {
-                            crate::backend::error::AppError::validation(format!(
-                                "Profile '{profile_id}' not found"
-                            ))
-                        })?;
-                    let root_versions: HashMap<String, String> = updates.iter().cloned().collect();
-                    let mut planned_ids: HashSet<String> = root_versions.keys().cloned().collect();
-                    let mut items = Vec::new();
-
-                    // Resolve every root before appending roots themselves, so
-                    // the combined batch remains dependencies-first.
-                    for (mod_id, latest) in &updates {
-                        let version_info = api::fetch_mod_version_info(mod_id, latest)?;
-                        let (dependencies, unresolved) =
-                            mod_install_service::resolve_required_dependencies_with_pins(
-                                &version_info.dependencies,
-                                &root_versions,
-                            )?;
-                        if !unresolved.is_empty() {
-                            return Err(crate::backend::error::AppError::validation(format!(
-                                "Could not resolve dependencies: {}",
-                                unresolved.join(", ")
-                            )));
-                        }
-                        for dependency in dependencies {
-                            if !planned_ids.insert(dependency.mod_id.clone()) {
-                                continue;
-                            }
-                            let installed = profile
-                                .mods
-                                .iter()
-                                .find(|installed| installed.mod_id == dependency.mod_id);
-                            let already_current = installed.is_some_and(|installed| {
-                                installed.version == dependency.resolved_version
-                            });
-                            if !already_current
-                                && installed.is_some_and(|installed| !installed.enabled)
-                            {
-                                return Err(crate::backend::error::AppError::validation(format!(
-                                    "Enable '{}' before updating; it is a required dependency",
-                                    dependency.mod_name
-                                )));
-                            }
-                            if !already_current {
-                                items.push(InstallModInput {
-                                    mod_id: dependency.mod_id,
-                                    version: dependency.resolved_version,
-                                });
-                            }
-                        }
-                    }
-
-                    items.extend(
-                        updates
-                            .into_iter()
-                            .map(|(mod_id, version)| InstallModInput { mod_id, version }),
-                    );
-                    mod_install_service::install_mods_for_profile(&profile_id, &items)?;
-                    Ok::<(), crate::backend::error::AppError>(())
+                    mod_install_service::update_profile_mods(&profile_id, updates)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -530,12 +441,9 @@ impl LibraryDetailView {
         .detach();
     }
 
-    fn open_profile_folder(&self) {
-        let LoadState::Loaded(profile) = &self.state else {
-            return;
-        };
-        if let Err(e) = open_folder(Path::new(&profile.path)) {
-            warn!("open profile folder failed: {e}");
+    fn open_profile_folder(&self, cx: &App) {
+        if let LoadState::Loaded(profile) = &self.state {
+            cx.open_with_system(Path::new(&profile.path));
         }
     }
 
@@ -545,7 +453,6 @@ impl LibraryDetailView {
         };
         let profile = profile.as_ref().clone();
         self.launch_error = None;
-        self.pending_launches += 1;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -555,8 +462,6 @@ impl LibraryDetailView {
             let _ = this.update(cx, |this, cx| {
                 if let Err(e) = result {
                     warn!("launch failed: {e}");
-                    // No instance will appear for this one — undo the optimistic bump.
-                    this.pending_launches = this.pending_launches.saturating_sub(1);
                     this.launch_error = Some(e.to_string());
                     cx.notify();
                 }
@@ -568,15 +473,9 @@ impl LibraryDetailView {
     fn stop(&mut self, cx: &mut Context<Self>) {
         let id = self.profile_id.clone();
         self.launch_error = None;
-        // Drop any launches still waiting to be prepared, both in the UI and
-        // in the backend so they abort instead of spawning.
-        self.pending_launches = 0;
         cx.notify();
         cx.background_executor()
-            .spawn(async move {
-                launch_service::cancel_pending_launches(&id);
-                game_runtime::stop_profile_instances(&id);
-            })
+            .spawn(async move { game_runtime::stop_profile_instances(&id) })
             .detach();
     }
 
@@ -873,22 +772,6 @@ fn default_export_dir() -> std::path::PathBuf {
     std::env::home_dir().unwrap_or_else(|| ".".into())
 }
 
-fn open_folder(path: &Path) -> std::io::Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("explorer").arg(path).spawn()?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        Command::new("open").arg(path).spawn()?;
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        Command::new("xdg-open").arg(path).spawn()?;
-    }
-    Ok(())
-}
-
 impl Render for LibraryDetailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
@@ -978,7 +861,7 @@ impl LibraryDetailView {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         // Pending launches count as running: Stop cancels them too.
-        let running = self.running_count + self.pending_launches;
+        let running = self.running_count;
         let allow_multi = app_settings::get(cx).allow_multi_instance_launch;
 
         if installing {
@@ -1060,8 +943,8 @@ impl LibraryDetailView {
                     .small()
                     .icon(Icon::new(IconName::FolderOpen))
                     .label(t!("profile.open_folder"))
-                    .on_click(cx.listener(|this, _, _window, _cx| {
-                        this.open_profile_folder();
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.open_profile_folder(cx);
                     })),
             )
             .child(
@@ -1167,17 +1050,12 @@ impl LibraryDetailView {
             .child(
                 div()
                     .id("profile-name-area")
+                    .group("profile-name-area")
                     .flex()
                     .items_center()
                     .gap_2()
                     .min_w_0()
                     .cursor_pointer()
-                    .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
-                        if this.name_hovered != *hovered {
-                            this.name_hovered = *hovered;
-                            cx.notify();
-                        }
-                    }))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.open_rename_dialog(window, cx);
                     }))
@@ -1189,16 +1067,19 @@ impl LibraryDetailView {
                             .truncate()
                             .child(profile.name.clone()),
                     )
-                    .when(self.name_hovered, |row| {
-                        row.child(
-                            // Affordance only — the whole name area is the
-                            // click target.
-                            Icon::new(AppIcon::Pencil)
-                                .small()
-                                .flex_none()
-                                .text_color(theme.muted_foreground),
-                        )
-                    }),
+                    .child(
+                        // Affordance only — the whole name area is the click
+                        // target. Revealed on hover.
+                        div()
+                            .flex_none()
+                            .invisible()
+                            .group_hover("profile-name-area", |s| s.visible())
+                            .child(
+                                Icon::new(AppIcon::Pencil)
+                                    .small()
+                                    .text_color(theme.muted_foreground),
+                            ),
+                    ),
             )
             .child(
                 div().text_sm().text_color(theme.muted_foreground).child(
@@ -1238,36 +1119,31 @@ impl LibraryDetailView {
                     .flex_wrap()
                     .child(
                         div()
-                            .id("profile-icon-area")
+                            .group("profile-icon-area")
                             .relative()
                             .flex_none()
-                            .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
-                                if this.icon_hovered != *hovered {
-                                    this.icon_hovered = *hovered;
-                                    cx.notify();
-                                }
-                            }))
                             .child(profile_icon(profile, 80.0))
-                            .when(self.icon_hovered, |icon| {
-                                icon.child(
-                                    div()
-                                        .id("profile-icon-edit")
-                                        .absolute()
-                                        .inset_0()
-                                        .rounded_md()
-                                        .bg(black().opacity(0.55))
-                                        .cursor_pointer()
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.open_icon_dialog(window, cx);
-                                        }))
-                                        // White reads on the dark scrim
-                                        // regardless of image or theme.
-                                        .child(Icon::new(AppIcon::Pencil).text_color(white())),
-                                )
-                            }),
+                            .child(
+                                // Revealed on hover; hidden, it takes no clicks.
+                                div()
+                                    .id("profile-icon-edit")
+                                    .absolute()
+                                    .inset_0()
+                                    .rounded_md()
+                                    .bg(black().opacity(0.55))
+                                    .cursor_pointer()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .invisible()
+                                    .group_hover("profile-icon-area", |s| s.visible())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_icon_dialog(window, cx);
+                                    }))
+                                    // White reads on the dark scrim
+                                    // regardless of image or theme.
+                                    .child(Icon::new(AppIcon::Pencil).text_color(white())),
+                            ),
                     )
                     .child(title_col)
                     .children(primary_controls.map(|c| div().flex_none().child(c))),
@@ -1466,7 +1342,7 @@ impl LibraryDetailView {
                                 } else {
                                     t!("profile.update_mod")
                                 })
-                                .disabled(updating)
+                                .loading(updating)
                                 .on_click(cx.listener(move |this, _, _window, cx| {
                                     this.update_mods(vec![update.clone()], cx)
                                 }))
@@ -1484,6 +1360,7 @@ impl LibraryDetailView {
                             Button::new(SharedString::from(format!("mod-delete-{ix}")))
                                 .ghost()
                                 .icon(Icon::new(IconName::Delete))
+                                .tooltip(t!("profile.remove_mod_title"))
                                 .disabled(updating)
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.confirm_delete_mod(
@@ -1498,13 +1375,7 @@ impl LibraryDetailView {
                 })
                 .collect();
             let list: AnyElement = if entries.is_empty() {
-                div()
-                    .px_3()
-                    .py_2()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(t!("profile.no_mods").to_string())
-                    .into_any_element()
+                empty_state(t!("profile.no_mods")).into_any_element()
             } else {
                 div().children(entries).into_any_element()
             };
@@ -1537,7 +1408,7 @@ impl LibraryDetailView {
                                             t!("profile.update_all_mods", count = outdated_count,)
                                                 .to_string()
                                         })
-                                        .disabled(updating_all)
+                                        .loading(updating_all)
                                         .on_click(cx.listener(move |this, _, _window, cx| {
                                             this.update_mods(updates.clone(), cx)
                                         }))

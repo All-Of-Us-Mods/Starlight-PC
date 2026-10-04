@@ -12,27 +12,28 @@ use log::warn;
 use rust_i18n::t;
 
 use crate::backend::api::{self, Game, LobbyMod};
-use crate::backend::error::{AppError, AppResult};
-use crate::backend::events::{self, BackendEvent};
-use crate::backend::services::mod_install_service::{self, InstallModInput};
+use crate::backend::services::launch_service::{self, LobbyLaunchTarget};
 use crate::backend::services::profile_service::{self, ProfileEntry, ProfileModEntry};
-use crate::backend::services::{launch_service, region_service};
-use crate::backend::state::game_runtime::{self, GameStatePayload};
+use crate::backend::services::region_service;
 use crate::backend::state::mod_catalog_cache;
-use crate::views::{page_root, section_label};
+use crate::views::{empty_state, page_root, section_label};
 use gpui_kit::component::alert::Alert;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
-use gpui_kit::component::radio::Radio;
+use gpui_kit::component::radio::{Radio, RadioGroup};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::skeleton::Skeleton;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tag::Tag;
 use gpui_kit::component::{ActiveTheme, Theme};
 use gpui_kit::component::{Disableable, Icon, IconName, Sizable, WindowExt};
 
 /// How often the lobby list re-polls every enabled region.
 const REFRESH_INTERVAL_SECS: u64 = 12;
+/// A server that 404s the lobby endpoint this many polls in a row doesn't
+/// implement it; it's skipped for the rest of the session.
+const MAX_NOT_FOUND: u8 = 3;
 
 pub struct LobbiesView {
     state: LoadState,
@@ -43,17 +44,16 @@ pub struct LobbiesView {
     /// True while a poll is in flight (drives the header spinner without
     /// flashing the list back to skeletons).
     refreshing: bool,
-    /// Temporary profiles created for "Temporary profile" launches, pending
-    /// deletion once their game exits. Value is whether we've yet observed the
-    /// profile with a running instance (so we don't delete it before its game
-    /// even started).
-    temp_cleanup: HashMap<String, bool>,
     /// Mod ids with a catalog lookup currently in flight from this view, so a
     /// later refresh doesn't kick off a duplicate fetch. Resolved info itself
     /// lives in the shared `mod_catalog_cache`, not here.
     mod_lookup_pending: HashSet<String>,
-    /// The auto-refresh loop; dropped (and thus cancelled) with the view.
-    _refresh: Task<()>,
+    /// The auto-refresh loop while the page is on screen (see
+    /// [`Self::set_polling`]); dropping it cancels it.
+    poll: Option<Task<()>>,
+    /// Consecutive 404s from each lobby server (host, port); see
+    /// [`MAX_NOT_FOUND`].
+    not_found: HashMap<(String, u16), u8>,
 }
 
 enum LoadState {
@@ -79,20 +79,13 @@ struct LobbyRow {
 
 struct LaunchDialog {
     lobby: LobbyRow,
-    target: LaunchTarget,
+    target: LobbyLaunchTarget,
     busy: bool,
     error: Option<String>,
 }
 
-#[derive(Clone, PartialEq)]
-enum LaunchTarget {
-    Existing(String),
-    Temporary,
-}
-
 /// Display fields for one row of the launch dialog's profile picker.
 struct TargetOption<'a> {
-    target: LaunchTarget,
     title: &'a str,
     subtitle: &'a str,
     /// Per-profile mod install preview (see `install_summary`); empty to hide.
@@ -101,28 +94,34 @@ struct TargetOption<'a> {
 }
 
 impl LobbiesView {
-    pub fn new(cx: &mut Context<Self>) -> Self {
-        // Subscribed up front (before any launch can happen) so the event that
-        // marks a freshly-launched temp profile as running is never missed.
-        let mut rx = events::subscribe();
-        cx.spawn(async move |this, cx| {
-            while let Ok(event) = rx.recv().await {
-                let BackendEvent::GameStateChanged(payload) = event else {
-                    continue;
-                };
-                if this
-                    .update(cx, |this, cx| {
-                        this.reap_finished_temp_profiles(&payload, cx)
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        })
-        .detach();
+    pub fn new() -> Self {
+        Self {
+            state: LoadState::Loading,
+            profiles: Vec::new(),
+            launch_dialog: None,
+            notice: None,
+            refreshing: false,
+            mod_lookup_pending: HashSet::new(),
+            poll: None,
+            not_found: HashMap::new(),
+        }
+    }
 
-        let refresh = cx.spawn(async move |this, cx| {
+    /// Poll only while Lobbies is the current page: the workspace turns this
+    /// on when the page is shown and off when it's left.
+    pub fn set_polling(&mut self, polling: bool, cx: &mut Context<Self>) {
+        if !polling {
+            self.poll = None;
+            self.refreshing = false;
+        } else if self.poll.is_none() {
+            // Each visit gives every server a fresh set of tries.
+            self.not_found.clear();
+            self.poll = Some(Self::poll(cx));
+        }
+    }
+
+    fn poll(cx: &mut Context<Self>) -> Task<()> {
+        cx.spawn(async move |this, cx| {
             loop {
                 // Bail out if the view is gone (also covered by Task drop).
                 if this
@@ -150,9 +149,17 @@ impl LobbiesView {
                     }
                     Ok(servers) => {
                         // Poll every enabled region concurrently; a server that
-                        // errors or doesn't implement the endpoint is skipped.
+                        // errors or doesn't implement the endpoint is skipped,
+                        // and one that keeps 404ing isn't asked again.
+                        let not_found = this
+                            .read_with(cx, |this, _| this.not_found.clone())
+                            .unwrap_or_default();
                         let tasks: Vec<_> = servers
                             .into_iter()
+                            .filter(|srv| {
+                                let key = (srv.host.clone(), srv.port);
+                                not_found.get(&key).copied().unwrap_or(0) < MAX_NOT_FOUND
+                            })
                             .map(|srv| {
                                 let host = srv.host.clone();
                                 let port = srv.port;
@@ -164,10 +171,18 @@ impl LobbiesView {
                             .collect();
 
                         let mut rows: Vec<LobbyRow> = Vec::new();
+                        let mut not_found_now = Vec::new();
                         for (srv, task) in tasks {
-                            let Ok(result) = task.await else {
-                                continue;
+                            let key = (srv.host.clone(), srv.port);
+                            let result = match task.await {
+                                Ok(Some(result)) => result,
+                                Ok(None) => {
+                                    not_found_now.push((key, true));
+                                    continue;
+                                }
+                                Err(_) => continue,
                             };
+                            not_found_now.push((key, false));
                             for game in result.games {
                                 // Skip finished games — they can't be joined.
                                 if game.status.as_deref() == Some("Ended") {
@@ -207,6 +222,13 @@ impl LobbiesView {
                             .collect();
 
                         let _ = this.update(cx, |this, cx| {
+                            for (key, missing) in not_found_now {
+                                if missing {
+                                    *this.not_found.entry(key).or_insert(0) += 1;
+                                } else {
+                                    this.not_found.remove(&key);
+                                }
+                            }
                             this.state = LoadState::Loaded(rows);
                             this.refreshing = false;
                             this.ensure_mod_info(mod_ids, cx);
@@ -234,71 +256,11 @@ impl LobbiesView {
                     .timer(Duration::from_secs(REFRESH_INTERVAL_SECS))
                     .await;
             }
-        });
-
-        Self {
-            state: LoadState::Loading,
-            profiles: Vec::new(),
-            launch_dialog: None,
-            notice: None,
-            refreshing: false,
-            temp_cleanup: HashMap::new(),
-            mod_lookup_pending: HashSet::new(),
-            _refresh: refresh,
-        }
+        })
     }
 
     fn copy_code(&self, code: String, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(code));
-    }
-
-    /// Start watching a temporary profile so it's deleted once its game exits.
-    /// Seeds the "seen running" flag from the current snapshot in case the
-    /// launch's `GameStateChanged` event already fired before this call (the
-    /// background launch thread registers the process, and may finish, before
-    /// this runs on the main thread).
-    fn track_temp_profile(&mut self, profile_id: String) {
-        let already_running = game_runtime::current_state()
-            .profile_instance_counts
-            .contains_key(&profile_id);
-        self.temp_cleanup.insert(profile_id, already_running);
-    }
-
-    /// Stop watching a temporary profile without deleting it here — used when
-    /// the caller has already deleted it (e.g. a launch failure cleanup), so
-    /// a later `GameStateChanged` doesn't attempt a redundant delete.
-    fn forget_temp_profile(&mut self, profile_id: &str) {
-        self.temp_cleanup.remove(profile_id);
-    }
-
-    /// Delete any temporary profile whose tracked instance count has dropped
-    /// back to zero after having been seen running at least once.
-    fn reap_finished_temp_profiles(&mut self, payload: &GameStatePayload, cx: &mut Context<Self>) {
-        let mut finished = Vec::new();
-        self.temp_cleanup.retain(|id, seen_running| {
-            if payload.profile_instance_counts.contains_key(id) {
-                *seen_running = true;
-                true
-            } else if *seen_running {
-                finished.push(id.clone());
-                false
-            } else {
-                true
-            }
-        });
-        for id in finished {
-            cx.spawn(async move |_this, cx| {
-                let id_for_delete = id.clone();
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { profile_service::delete_profile(&id_for_delete) })
-                    .await;
-                if let Err(e) = result {
-                    warn!("failed to delete temporary lobby profile {id}: {e}");
-                }
-            })
-            .detach();
-        }
     }
 
     /// Kick off background catalog lookups (via the shared `mod_catalog_cache`,
@@ -348,8 +310,8 @@ impl LobbiesView {
             .iter()
             .find(|p| preview_mod_installs(required_mods, &p.mods).fully_satisfied())
             .or_else(|| self.profiles.first())
-            .map(|p| LaunchTarget::Existing(p.id.clone()))
-            .unwrap_or(LaunchTarget::Temporary);
+            .map(|p| LobbyLaunchTarget::Existing(p.id.clone()))
+            .unwrap_or(LobbyLaunchTarget::Temporary);
         self.launch_dialog = Some(LaunchDialog {
             lobby,
             target,
@@ -410,7 +372,7 @@ impl LobbiesView {
                                     } else {
                                         t!("lobbies.launch")
                                     })
-                                    .disabled(busy),
+                                    .loading(busy),
                             ),
                         ),
                 )
@@ -445,64 +407,16 @@ impl LobbiesView {
         cx.notify();
 
         let code = lobby.game.code.clone().unwrap_or_default();
-        let server_host = lobby.server_host.clone();
-        let server_port = lobby.server_port;
-        // Mods with an id but no version can't be installed (we don't know
-        // which version), but still count toward the "skipped" total so the
-        // launch summary doesn't silently omit them.
-        let mut required: Vec<InstallModInput> = Vec::new();
-        let mut versionless = 0usize;
-        for m in &lobby.game.mods {
-            let Some(id) = m.id.clone() else { continue };
-            match m.version.clone() {
-                Some(version) => required.push(InstallModInput {
-                    mod_id: id,
-                    version,
-                }),
-                None => versionless += 1,
-            }
-        }
 
         cx.spawn(async move |this, cx| {
-            // Resolve (or create) the target profile first and start watching
-            // it for cleanup immediately if it's temporary — before any
-            // further work that could fail, and before the game itself could
-            // even exit, closing the race where a fast-exiting game leaves a
-            // temp profile unwatched (and so never reaped).
-            let resolved = cx
-                .background_executor()
-                .spawn(async move { resolve_launch_profile(target) })
-                .await;
-            let (profile, temp_profile_id) = match resolved {
-                Ok(resolved) => resolved,
-                Err(e) => {
-                    warn!("failed to resolve launch profile: {e}");
-                    let _ = this.update(cx, |this, cx| {
-                        if let Some(d) = this.launch_dialog.as_mut() {
-                            d.busy = false;
-                            d.error = Some(e.to_string());
-                        }
-                        cx.notify();
-                    });
-                    return;
-                }
-            };
-            if let Some(id) = temp_profile_id.clone() {
-                let _ = this.update(cx, |this, cx| {
-                    this.track_temp_profile(id);
-                    cx.notify();
-                });
-            }
-
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
-                    launch_into_lobby_for_profile(
-                        profile,
-                        required,
-                        versionless,
-                        &server_host,
-                        server_port,
+                    launch_service::launch_into_lobby(
+                        target,
+                        &lobby.game.mods,
+                        &lobby.server_host,
+                        lobby.server_port,
                     )
                 })
                 .await;
@@ -522,26 +436,6 @@ impl LobbiesView {
                     }
                     Err(e) => {
                         warn!("launch into lobby failed: {e}");
-                        // The launch never succeeded, so there's no game
-                        // process to wait for — clean up a temp profile right
-                        // away instead of leaving it tracked with nothing to
-                        // ever transition it out of "pending".
-                        if let Some(id) = temp_profile_id {
-                            this.forget_temp_profile(&id);
-                            cx.spawn(async move |_this, cx| {
-                                let id_for_delete = id.clone();
-                                let result = cx
-                                    .background_executor()
-                                    .spawn(async move { profile_service::delete_profile(&id_for_delete) })
-                                    .await;
-                                if let Err(e) = result {
-                                    warn!(
-                                        "failed to clean up temp profile {id} after launch error: {e}"
-                                    );
-                                }
-                            })
-                            .detach();
-                        }
                         if let Some(d) = this.launch_dialog.as_mut() {
                             d.busy = false;
                             d.error = Some(e.to_string());
@@ -579,11 +473,9 @@ impl LobbiesView {
             )
             .title(t!("lobbies.regions_unavailable_title"))
             .into_any_element(),
-            LoadState::Loaded(rows) if rows.is_empty() => div()
-                .text_sm()
-                .text_color(theme.muted_foreground)
-                .child(t!("lobbies.empty").to_string())
-                .into_any_element(),
+            LoadState::Loaded(rows) if rows.is_empty() => {
+                empty_state(t!("lobbies.empty")).into_any_element()
+            }
             LoadState::Loaded(rows) => div()
                 .flex()
                 .flex_col()
@@ -623,10 +515,10 @@ impl LobbiesView {
             .status
             .clone()
             .unwrap_or_else(|| t!("common.unknown").to_string());
-        let status_color = if is_open {
-            theme.success
+        let status_tag = if is_open {
+            Tag::success()
         } else {
-            theme.warning
+            Tag::warning()
         };
 
         let copy_code = code.clone();
@@ -664,7 +556,7 @@ impl LobbiesView {
                                         code.clone()
                                     }),
                             )
-                            .child(div().text_xs().text_color(status_color).child(status_text))
+                            .child(status_tag.small().outline().child(status_text))
                             .child(
                                 div()
                                     .min_w_0()
@@ -689,7 +581,7 @@ impl LobbiesView {
                 // `Clipboard::on_copied` hands the value over by move, so it
                 // can't go through `cx.listener` (which takes events by ref).
                 let view = cx.entity();
-                Clipboard::new(SharedString::from(format!("copy-code-{ix}")))
+                Clipboard::new(SharedString::from(format!("copy-code-{copy_code}")))
                     .value(copy_code.clone())
                     .tooltip(t!("lobbies.copy_code").to_string())
                     .on_copied(move |_, _window, cx| {
@@ -725,7 +617,7 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
     let required_mods = &dialog.lobby.game.mods;
     let no_mods: Vec<ProfileModEntry> = Vec::new();
 
-    let mut option_rows: Vec<AnyElement> = this
+    let (mut targets, mut options): (Vec<LobbyLaunchTarget>, Vec<Radio>) = this
         .profiles
         .iter()
         .map(|p| {
@@ -736,34 +628,52 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
             };
             let preview = preview_mod_installs(required_mods, &p.mods);
             let (detail, detail_color) = install_summary(&preview, &theme);
-            render_target_option(
-                view,
+            let target = LobbyLaunchTarget::Existing(p.id.clone());
+            let radio = render_target_option(
                 TargetOption {
-                    target: LaunchTarget::Existing(p.id.clone()),
                     title: &p.name,
                     subtitle: &bep_subtitle,
                     detail: &detail,
                     detail_color,
                 },
-                &dialog.target,
+                target == dialog.target,
                 &theme,
-            )
+            );
+            (target, radio)
         })
-        .collect();
+        .unzip();
     let temp_preview = preview_mod_installs(required_mods, &no_mods);
     let (temp_detail, temp_detail_color) = install_summary(&temp_preview, &theme);
-    option_rows.push(render_target_option(
-        view,
+    options.push(render_target_option(
         TargetOption {
-            target: LaunchTarget::Temporary,
             title: t!("lobbies.temporary_profile").as_ref(),
             subtitle: t!("lobbies.temporary_profile_subtitle").as_ref(),
             detail: &temp_detail,
             detail_color: temp_detail_color,
         },
-        &dialog.target,
+        dialog.target == LobbyLaunchTarget::Temporary,
         &theme,
     ));
+    targets.push(LobbyLaunchTarget::Temporary);
+
+    let selected = targets.iter().position(|t| *t == dialog.target);
+    let on_pick = view.clone();
+    let picker = RadioGroup::vertical("launch-profile-picker")
+        // Keep its natural height inside the scrolling list.
+        .flex_none()
+        .selected_index(selected)
+        .children(options)
+        .on_change(move |ix, _window, cx| {
+            let Some(target) = targets.get(*ix).cloned() else {
+                return;
+            };
+            on_pick.update(cx, |this, cx| {
+                if let Some(d) = this.launch_dialog.as_mut() {
+                    d.target = target;
+                }
+                cx.notify();
+            });
+        });
 
     let mut items: Vec<AnyElement> = vec![
         div()
@@ -776,10 +686,9 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
             .id("launch-profile-list")
             .flex()
             .flex_col()
-            .gap_2()
             .max_h(px(220.0))
             .overflow_y_scrollbar()
-            .children(option_rows)
+            .child(picker)
             .into_any_element(),
     ];
     if required_mods.is_empty() {
@@ -810,97 +719,50 @@ fn launch_dialog_body(view: &Entity<LobbiesView>, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// One row of the launch dialog's profile picker: a radio plus the profile's
-/// name, BepInEx state and mod-install preview.
-fn render_target_option(
-    view: &Entity<LobbiesView>,
-    option: TargetOption,
-    selected: &LaunchTarget,
-    theme: &Theme,
-) -> AnyElement {
+/// One option of the launch dialog's profile picker: the profile's name,
+/// BepInEx state and mod-install preview, framed as a selectable row.
+fn render_target_option(option: TargetOption, selected: bool, theme: &Theme) -> Radio {
     let TargetOption {
-        target,
         title,
         subtitle,
         detail,
         detail_color,
     } = option;
-    let is_selected = &target == selected;
-    let id = match &target {
-        LaunchTarget::Existing(pid) => format!("target-{pid}"),
-        LaunchTarget::Temporary => "target-temporary".to_string(),
-    };
-    let border = if is_selected {
-        theme.primary
-    } else {
-        theme.border
-    };
-    // The whole row is the hit target, and so is the radio inside it (which
-    // would otherwise swallow clicks aimed straight at it).
-    let pick = move |view: &Entity<LobbiesView>, target: &LaunchTarget| {
-        let view = view.clone();
-        let target = target.clone();
-        move |cx: &mut App| {
-            let target = target.clone();
-            view.update(cx, |this, cx| {
-                if let Some(d) = this.launch_dialog.as_mut() {
-                    d.target = target;
-                }
-                cx.notify();
-            });
-        }
-    };
-    let on_row_click = pick(view, &target);
-    let on_radio_click = pick(view, &target);
-    div()
-        .id(SharedString::from(id.clone()))
-        .flex()
-        .items_center()
-        .gap_3()
+    // The group assigns ids by position.
+    Radio::new("target")
+        .small()
+        .accessibility_label(title.to_string())
+        .w_full()
         .px_3()
         .py_2()
         .rounded_lg()
         .bg(theme.background)
         .border_1()
-        .border_color(border)
-        .cursor_pointer()
+        .border_color(if selected {
+            theme.primary
+        } else {
+            theme.border
+        })
         .hover(|s| s.bg(theme.accent))
-        .on_click(move |_, _window, cx| on_row_click(cx))
         .child(
-            Radio::new(SharedString::from(format!("{id}-radio")))
-                .checked(is_selected)
-                .on_click(move |_, _window, cx| on_radio_click(cx)),
+            div()
+                .font_weight(FontWeight::MEDIUM)
+                .child(title.to_string()),
         )
         .child(
             div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .truncate()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(title.to_string()),
-                )
-                .child(
-                    div()
-                        .truncate()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(subtitle.to_string()),
-                )
-                .when(!detail.is_empty(), |s| {
-                    s.child(
-                        div()
-                            .truncate()
-                            .text_xs()
-                            .text_color(detail_color)
-                            .child(detail.to_string()),
-                    )
-                }),
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child(subtitle.to_string()),
         )
-        .into_any_element()
+        .when(!detail.is_empty(), |s| {
+            s.child(
+                div()
+                    .text_xs()
+                    .text_color(detail_color)
+                    .child(detail.to_string()),
+            )
+        })
 }
 
 impl Render for LobbiesView {
@@ -930,8 +792,12 @@ impl Render for LobbiesView {
                             .when(self.refreshing, |s| {
                                 s.child(
                                     div()
+                                        .flex()
+                                        .items_center()
+                                        .gap_1()
                                         .text_xs()
                                         .text_color(theme.muted_foreground)
+                                        .child(Spinner::new().xsmall())
                                         .child(t!("lobbies.refreshing").to_string()),
                                 )
                             }),
@@ -1116,103 +982,4 @@ fn map_name(map_id: Option<u32>) -> String {
         Some(5) => "The Fungle".into(),
         _ => t!("lobbies.unknown_map").to_string(),
     }
-}
-
-/// Resolve a launch target to a concrete profile: an existing profile by id,
-/// or a freshly-created temporary one. Returns the temp profile's id again
-/// (`None` for an existing profile) so the caller can start watching it for
-/// cleanup right away, before doing anything else that could fail or race the
-/// launched game's own exit. Blocking; run on the background executor.
-fn resolve_launch_profile(target: LaunchTarget) -> AppResult<(ProfileEntry, Option<String>)> {
-    match target {
-        LaunchTarget::Existing(id) => {
-            let profile = profile_service::get_profile_by_id(&id)?
-                .ok_or_else(|| AppError::validation(t!("lobbies.profile_gone").to_string()))?;
-            Ok((profile, None))
-        }
-        LaunchTarget::Temporary => {
-            let profile = create_temp_profile()?;
-            let id = profile.id.clone();
-            Ok((profile, Some(id)))
-        }
-    }
-}
-
-/// Install the lobby's required mods into `profile`, point Among Us at the
-/// lobby's region, and launch. `versionless` is the count of required mods
-/// the lobby sent with no version (uninstallable, but still reported as
-/// skipped rather than silently dropped). Blocking; run on the background
-/// executor.
-fn launch_into_lobby_for_profile(
-    profile: ProfileEntry,
-    required: Vec<InstallModInput>,
-    versionless: usize,
-    server_host: &str,
-    server_port: u16,
-) -> AppResult<String> {
-    profile_service::install_bepinex_for_profile(&profile.id)?;
-
-    let mut skipped = versionless;
-    let mut failed = 0usize;
-    if !required.is_empty() {
-        let (installable, unresolved) = mod_install_service::plan_lobby_mods(&required);
-        skipped += unresolved.len();
-        // Skip mods already present at the exact version the lobby wants.
-        let missing: Vec<InstallModInput> = installable
-            .into_iter()
-            .filter(|m| {
-                !profile
-                    .mods
-                    .iter()
-                    .any(|p| p.mod_id == m.mod_id && p.version == m.version)
-            })
-            .collect();
-        // Install one mod at a time: install_mods_for_profile rolls back its
-        // whole batch on a single failure, which is right for one coherent
-        // "install this mod" user action but wrong here — a lobby launch
-        // wants each required mod to be independently best-effort, so one
-        // flaky download doesn't sink mods that already succeeded.
-        for item in missing {
-            let mod_id = item.mod_id.clone();
-            if let Err(e) = mod_install_service::install_mods_for_profile(
-                &profile.id,
-                std::slice::from_ref(&item),
-            ) {
-                warn!("failed to install mod {mod_id} for lobby launch: {e}");
-                failed += 1;
-            }
-        }
-    }
-
-    let region_set =
-        region_service::select_region_by_host_port(server_host, server_port).unwrap_or(false);
-
-    // Reload so the launch sees the freshly installed BepInEx / mods.
-    let profile = profile_service::get_profile_by_id(&profile.id)?
-        .ok_or_else(|| AppError::validation(t!("lobbies.profile_gone_launch").to_string()))?;
-    launch_service::launch_modded_for_profile(profile)?;
-
-    let mut summary = if region_set {
-        t!("lobbies.launched_region_set").to_string()
-    } else {
-        t!("lobbies.launched").to_string()
-    };
-    if skipped > 0 {
-        summary.push_str(t!("lobbies.skipped_catalog", count = skipped).as_ref());
-    }
-    if failed > 0 {
-        summary.push_str(t!("lobbies.skipped_failed", count = failed).as_ref());
-    }
-    Ok(summary)
-}
-
-/// Create a fresh throwaway profile for a one-off lobby launch, uniquely named
-/// so repeated temporary launches don't collide. The caller (`LobbiesView`)
-/// deletes it once the launched game exits.
-fn create_temp_profile() -> AppResult<ProfileEntry> {
-    let millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    profile_service::create_profile(&format!("Temporary Lobby {millis}"))
 }

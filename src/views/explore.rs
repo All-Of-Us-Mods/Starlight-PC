@@ -7,6 +7,9 @@ use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::Selectable;
 use gpui_kit::component::alert::Alert;
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::empty::{
+    Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant,
+};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::pagination::Pagination;
 use gpui_kit::component::{Icon, IconName};
@@ -306,13 +309,17 @@ impl Render for ExploreView {
                     .filter(|m| self.type_filter.matches(m))
                     .collect();
                 if sorted.is_empty() {
-                    div()
-                        .flex_1()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_color(theme.muted_foreground)
-                        .child(t!("explore.no_mods").to_string())
+                    Empty::new()
+                        .h_full()
+                        .header(
+                            EmptyHeader::new()
+                                .media(
+                                    EmptyMedia::new()
+                                        .with_variant(EmptyMediaVariant::Icon)
+                                        .child(Icon::new(IconName::Search)),
+                                )
+                                .description(EmptyDescription::new().child(t!("explore.no_mods"))),
+                        )
                         .into_any_element()
                 } else {
                     sorted.sort_by_key(|m| std::cmp::Reverse(self.sort.key(m)));

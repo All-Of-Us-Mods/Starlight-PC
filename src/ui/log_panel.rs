@@ -123,15 +123,26 @@ impl LogFilters {
     }
 }
 
+/// Cap retained lines so the filter pass stays cheap on huge logs.
+const MAX_LINES: usize = 2000;
+
 pub struct LogPanel {
     filter_input: Entity<InputState>,
     view_input: Entity<EditorState>,
-    /// Last string we pushed into `view_input`. We diff against this so we
-    /// don't clobber the user's selection on every render tick.
-    view_cache: String,
     query: String,
     filters: LogFilters,
     content: String,
+    /// `content` after the level chips and query: what the viewer shows and
+    /// Copy copies. Recomputed in [`Self::refilter`] whenever one of those
+    /// changes — never in `render`.
+    filtered: SharedString,
+    kept_count: usize,
+    total_count: usize,
+    /// `filtered` changed and the viewer hasn't been given it yet. Setting
+    /// the viewer's text needs a window, which `set_content` callers lack, so
+    /// `render` hands it over. Only on change, so a refresh that finds the
+    /// same text doesn't clobber the user's selection.
+    view_stale: bool,
 }
 
 impl LogPanel {
@@ -141,7 +152,7 @@ impl LogPanel {
         cx.subscribe(&filter_input, |this, state, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
                 this.query = state.read(cx).value().to_string();
-                cx.notify();
+                this.refilter(cx);
             }
         })
         .detach();
@@ -159,17 +170,20 @@ impl LogPanel {
         Self {
             filter_input,
             view_input,
-            view_cache: String::new(),
             query: String::new(),
             filters: LogFilters::default(),
             content: String::new(),
+            filtered: SharedString::default(),
+            kept_count: 0,
+            total_count: 0,
+            view_stale: false,
         }
     }
 
     pub fn set_content(&mut self, content: String, cx: &mut Context<Self>) {
         if self.content != content {
             self.content = content;
-            cx.notify();
+            self.refilter(cx);
         }
     }
 
@@ -179,20 +193,13 @@ impl LogPanel {
 
     fn toggle_level(&mut self, level: LogLevel, cx: &mut Context<Self>) {
         self.filters.toggle(level);
-        cx.notify();
+        self.refilter(cx);
     }
-}
 
-impl Render for LogPanel {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme().clone();
-
-        // Cap retained lines so the filter pass stays cheap on huge logs.
-        const MAX_LINES: usize = 2000;
-
+    fn refilter(&mut self, cx: &mut Context<Self>) {
         let query = self.query.trim().to_lowercase();
-        let total_count = self.content.lines().count();
-        let skip = total_count.saturating_sub(MAX_LINES);
+        self.total_count = self.content.lines().count();
+        let skip = self.total_count.saturating_sub(MAX_LINES);
 
         // Filter once, borrowing the log content; no per-line String alloc.
         let kept: Vec<&str> = self
@@ -205,16 +212,29 @@ impl Render for LogPanel {
                     && (query.is_empty() || line.to_lowercase().contains(&query))
             })
             .collect();
-        let kept_count = kept.len();
+        self.kept_count = kept.len();
         let joined = kept.join("\n");
 
-        if joined != self.view_cache {
-            let new_text = joined.clone();
-            self.view_input.update(cx, |state, cx| {
-                state.set_value(new_text, window, cx);
-            });
-            self.view_cache = joined;
+        if joined != self.filtered.as_ref() {
+            self.filtered = joined.into();
+            self.view_stale = true;
         }
+        cx.notify();
+    }
+}
+
+impl Render for LogPanel {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme().clone();
+
+        if self.view_stale {
+            self.view_stale = false;
+            let text = self.filtered.clone();
+            self.view_input.update(cx, |state, cx| {
+                state.set_value(text, window, cx);
+            });
+        }
+        let (kept_count, total_count) = (self.kept_count, self.total_count);
 
         let filter_chips: Vec<AnyElement> = LOG_LEVELS
             .iter()
@@ -232,7 +252,7 @@ impl Render for LogPanel {
             })
             .collect();
 
-        let lines_for_copy = self.view_cache.clone();
+        let lines_for_copy = self.filtered.clone();
 
         div()
             .flex()
