@@ -1,6 +1,7 @@
 use gpui_kit::*;
 use log::warn;
 use rust_i18n::t;
+use serde_json::Value;
 
 use crate::backend::api::{self, Server};
 use crate::backend::deeplink::ServerLink;
@@ -40,8 +41,8 @@ struct CustomServerInput {
     port: Entity<InputState>,
     dtls: bool,
     error: Option<String>,
-    /// Name of the region being edited, or `None` when adding a new one.
-    editing: Option<String>,
+    /// The region being edited as it was loaded, or `None` when adding one.
+    editing: Option<Value>,
 }
 
 enum LoadState {
@@ -202,11 +203,17 @@ impl ServersView {
     }
 
     /// Ask before removing a region: a custom one's address is gone with it.
-    fn confirm_remove_region(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn confirm_remove_region(
+        &mut self,
+        region: Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let view = cx.entity();
         window.open_alert_dialog(cx, move |alert, _window, cx| {
             let view = view.clone();
-            let name = name.clone();
+            let region = region.clone();
+            let name = region_service::region_name(&region);
             alert
                 .icon(Icon::new(IconName::TriangleAlert).text_color(cx.theme().danger))
                 .title(t!("servers.remove_title"))
@@ -219,20 +226,20 @@ impl ServersView {
                         .show_cancel(true),
                 )
                 .on_ok(move |_, _window, cx| {
-                    let name = name.clone();
-                    view.update(cx, |this, cx| this.remove_region(name, cx));
+                    let region = region.clone();
+                    view.update(cx, |this, cx| this.remove_region(region, cx));
                     true
                 })
         });
     }
 
-    fn remove_region(&mut self, name: String, cx: &mut Context<Self>) {
+    fn remove_region(&mut self, region: Value, cx: &mut Context<Self>) {
         self.error = None;
         self.notice = None;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { region_service::remove_region(&name) })
+                .spawn(async move { region_service::remove_region(&region) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if let Err(e) = result {
@@ -252,21 +259,14 @@ impl ServersView {
 
     /// Open the same dialog pre-filled with an installed region's current
     /// values; saving replaces that region in place.
-    fn open_edit_dialog(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(fields) = self.regions.as_ref().and_then(|info| {
-            info.regions
-                .iter()
-                .map(region_service::region_fields)
-                .find(|fields| fields.name == name)
-        }) else {
-            return;
-        };
-        self.open_dialog(Some(fields.name.clone()), fields, window, cx);
+    fn open_edit_dialog(&mut self, region: Value, window: &mut Window, cx: &mut Context<Self>) {
+        let fields = region_service::region_fields(&region);
+        self.open_dialog(Some(region), fields, window, cx);
     }
 
     fn open_dialog(
         &mut self,
-        editing: Option<String>,
+        editing: Option<Value>,
         fields: region_service::RegionFields,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -428,7 +428,7 @@ impl ServersView {
         // the loaded region list so a duplicate is caught while the dialog is
         // still open (and the typed address still on screen).
         let clash = self.regions.as_ref().and_then(|info| {
-            region_service::conflicting_region_name(info, editing.as_deref(), &address, port)
+            region_service::conflicting_region_name(info, editing.as_ref(), &address, port)
         });
         if let Some(other) = clash {
             if let Some(d) = self.custom_dialog.as_mut() {
@@ -444,8 +444,8 @@ impl ServersView {
         self.error = None;
         cx.notify();
 
-        if let Some(original_name) = editing {
-            self.save_region_edit(original_name, name, address, port, dtls, cx);
+        if let Some(original) = editing {
+            self.save_region_edit(original, name, address, port, dtls, cx);
             return;
         }
 
@@ -481,12 +481,12 @@ impl ServersView {
         .detach();
     }
 
-    /// Write an edited region back in place, found by the name it had when
-    /// the dialog opened, so a region file changed underneath us (a lobby
+    /// Write an edited region back in place, found by its content when the
+    /// dialog opened, so a region file changed underneath us (a lobby
     /// launch, a deep link, an in-game change) can't redirect the edit.
     fn save_region_edit(
         &mut self,
-        original_name: String,
+        original: Value,
         name: String,
         address: String,
         port: u16,
@@ -503,7 +503,7 @@ impl ServersView {
                         port,
                         dtls,
                     };
-                    region_service::update_region(&original_name, &fields).map(|()| name)
+                    region_service::update_region(&original, &fields).map(|()| name)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -550,10 +550,10 @@ impl ServersView {
             return empty_state(t!("servers.no_regions")).into_any_element();
         }
 
-        let rows = info.regions.iter().map(|region| {
+        let rows = info.regions.iter().enumerate().map(|(ix, region)| {
             let fields = region_service::region_fields(region);
-            let name = fields.name.clone();
-            let remove_name = fields.name.clone();
+            let edit_region = region.clone();
+            let remove_region = region.clone();
             let target = format!(
                 "{}:{}{}",
                 fields.address,
@@ -592,24 +592,24 @@ impl ServersView {
                         ),
                 )
                 .child(
-                    Button::new(SharedString::from(format!("edit-region-{name}")))
+                    Button::new(SharedString::from(format!("edit-region-{ix}")))
                         .ghost()
                         .xsmall()
                         .icon(Icon::new(AppIcon::Pencil))
                         .tooltip(t!("servers.edit_tooltip").to_string())
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            this.open_edit_dialog(&name, window, cx)
+                            this.open_edit_dialog(edit_region.clone(), window, cx)
                         })),
                 )
                 .child(
-                    Button::new(SharedString::from(format!("remove-region-{remove_name}")))
+                    Button::new(SharedString::from(format!("remove-region-{ix}")))
                         .ghost()
                         .xsmall()
                         .danger()
                         .icon(Icon::new(IconName::Delete))
                         .tooltip(t!("servers.remove_tooltip").to_string())
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            this.confirm_remove_region(remove_name.clone(), window, cx)
+                            this.confirm_remove_region(remove_region.clone(), window, cx)
                         })),
                 )
                 .into_any_element()

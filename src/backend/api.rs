@@ -207,8 +207,8 @@ pub fn fetch_servers() -> AppResult<Vec<Server>> {
 /// a non-implementing or unresponsive server from stalling a refresh — callers
 /// treat any error as "this server has no lobby list" and skip it.
 ///
-/// `Ok(None)` means the server answered but 404'd the endpoint: it doesn't
-/// implement it, as opposed to being down for now.
+/// `Ok(None)` means the server answered and 404'd every path it was reachable
+/// on: it doesn't implement the endpoint, as opposed to being down for now.
 pub fn fetch_lobbies(host: &str, port: u16) -> AppResult<Option<GamesResult>> {
     let client = crate::backend::services::http_download::http_client(
         std::time::Duration::from_secs(5),
@@ -217,6 +217,7 @@ pub fn fetch_lobbies(host: &str, port: u16) -> AppResult<Option<GamesResult>> {
 
     let mut last_err = None;
     let mut not_found = false;
+    let mut failed_otherwise = false;
     for scheme in ["https", "http"] {
         let default_port = if scheme == "https" { 443 } else { 80 };
         let origin = if port == default_port {
@@ -232,13 +233,17 @@ pub fn fetch_lobbies(host: &str, port: u16) -> AppResult<Option<GamesResult>> {
             {
                 Ok(response) => return Ok(Some(response.json::<GamesResult>()?)),
                 Err(e) => {
-                    not_found |= e.status() == Some(reqwest::StatusCode::NOT_FOUND);
+                    // A scheme the server doesn't speak fails to connect on
+                    // every path alike, so it says nothing about the endpoint.
+                    let missing = e.status() == Some(reqwest::StatusCode::NOT_FOUND);
+                    not_found |= missing;
+                    failed_otherwise |= !missing && !e.is_connect();
                     last_err = Some(e);
                 }
             }
         }
     }
-    if not_found {
+    if not_found && !failed_otherwise {
         return Ok(None);
     }
     Err(last_err.expect("loop runs at least once").into())

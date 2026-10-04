@@ -83,6 +83,9 @@ pub struct LibraryDetailView {
     /// can share a dependency, and would download over the same file and roll
     /// back each other's manifest entries.
     update_lock: Arc<Mutex<()>>,
+    /// The latest profile read. Replacing it drops the older one, so a slow
+    /// read can't land after a newer one.
+    load: Task<()>,
 }
 
 pub(super) enum LoadState {
@@ -99,7 +102,7 @@ impl LibraryDetailView {
         // a hidden panel's notify doesn't reach this (cached) view on its own.
         cx.observe(&log_panel, |_, _, cx| cx.notify()).detach();
 
-        let view = Self {
+        let mut view = Self {
             profile_id: profile_id.clone(),
             state: LoadState::Loading,
             bep_progress: None,
@@ -114,6 +117,7 @@ impl LibraryDetailView {
             mod_latest_versions: mod_catalog_cache::cached_latest_versions(),
             updating_mods: HashSet::new(),
             update_lock: Arc::new(Mutex::new(())),
+            load: Task::ready(()),
         };
 
         view.spawn_load(cx);
@@ -172,9 +176,9 @@ impl LibraryDetailView {
         }
     }
 
-    pub(super) fn spawn_load(&self, cx: &mut Context<Self>) {
+    pub(super) fn spawn_load(&mut self, cx: &mut Context<Self>) {
         let id = self.profile_id.clone();
-        cx.spawn(async move |this, cx| {
+        self.load = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move { profile_service::get_profile_by_id(&id) })
@@ -189,8 +193,7 @@ impl LibraryDetailView {
                 this.refresh_disk_state(cx);
                 this.fetch_mod_catalog_data(cx);
             });
-        })
-        .detach();
+        });
     }
 
     /// Resolve display names and latest releases for installed catalog mods.

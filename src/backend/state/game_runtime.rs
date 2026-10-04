@@ -2,6 +2,7 @@
 //! and a poller that settles them (play time, instance copy, temporary
 //! profile) once they exit.
 
+use crate::backend::error::{AppError, AppResult};
 use crate::backend::services::{profile_instance_service, profile_service};
 use log::{info, warn};
 use std::collections::{HashMap, HashSet};
@@ -98,8 +99,8 @@ fn pending() -> std::sync::MutexGuard<'static, Vec<(u64, String)>> {
     PENDING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// A modded launch from request until it runs or fails. Counts toward its
-/// profile in [`GameStatePayload`] so Stop shows at once; Stop cancels it.
+/// A modded launch from request until it runs or fails. Counts as running in
+/// [`GameStatePayload`] so Stop shows at once; Stop cancels it.
 pub struct PendingLaunch(u64);
 
 pub fn begin_launch(profile_id: &str) -> PendingLaunch {
@@ -110,20 +111,27 @@ pub fn begin_launch(profile_id: &str) -> PendingLaunch {
 }
 
 impl PendingLaunch {
-    pub fn cancelled(&self) -> bool {
-        !pending().iter().any(|(key, _)| *key == self.0)
+    /// Fails once Stop has cancelled this launch.
+    pub fn check(&self) -> AppResult<()> {
+        if pending().iter().any(|(key, _)| *key == self.0) {
+            Ok(())
+        } else {
+            Err(AppError::process("Launch cancelled."))
+        }
+    }
+
+    /// Takes this launch out of the pending list, returning its profile id.
+    fn remove(&self) -> Option<String> {
+        let mut pending = pending();
+        let ix = pending.iter().position(|(key, _)| *key == self.0)?;
+        Some(pending.remove(ix).1)
     }
 }
 
 impl Drop for PendingLaunch {
     fn drop(&mut self) {
         let instances = instances();
-        let mut pending = pending();
-        let before = pending.len();
-        pending.retain(|(key, _)| *key != self.0);
-        let removed = pending.len() != before;
-        drop(pending);
-        if removed {
+        if self.remove().is_some() {
             publish(&instances);
         }
     }
@@ -142,11 +150,10 @@ pub fn instance_arg(id: u64) -> String {
     format!("--starlight-instance={}-{id}", *SESSION)
 }
 
+/// Pending launches count as running, so Stop can cancel them.
 #[derive(Clone, Debug, Default)]
 pub struct GameStatePayload {
-    /// Running instances.
     pub running_count: usize,
-    /// Running instances plus pending launches, per profile.
     pub profile_instance_counts: HashMap<String, usize>,
 }
 
@@ -164,13 +171,16 @@ pub fn current_state() -> GameStatePayload {
 }
 
 fn state_of(instances: &[Instance]) -> GameStatePayload {
+    let pending = pending();
     let mut profile_instance_counts = HashMap::new();
-    let running = instances.iter().filter_map(|i| i.profile_id.clone());
-    for profile_id in running.chain(pending().iter().map(|(_, id)| id.clone())) {
-        *profile_instance_counts.entry(profile_id).or_insert(0) += 1;
+    let running = instances.iter().filter_map(|i| i.profile_id.as_ref());
+    for profile_id in running.chain(pending.iter().map(|(_, id)| id)) {
+        *profile_instance_counts
+            .entry(profile_id.clone())
+            .or_insert(0) += 1;
     }
     GameStatePayload {
-        running_count: instances.len(),
+        running_count: instances.len() + pending.len(),
         profile_instance_counts,
     }
 }
@@ -189,28 +199,48 @@ pub fn used_instance_slots(profile_id: &str) -> HashSet<usize> {
         .collect()
 }
 
-fn register(profile_id: Option<String>, launch: LaunchInstance, id: u64, process: Process) {
-    mark_launched(profile_id.as_deref());
+/// Starts a game through `start` and tracks it as `pending`'s launch (`None`
+/// for vanilla). Starting under the instance lock keeps Stop from slipping in
+/// between: the game is either tracked before Stop looks, or never started.
+fn register(
+    id: u64,
+    pending: Option<&PendingLaunch>,
+    launch: LaunchInstance,
+    start: impl FnOnce() -> AppResult<Process>,
+) -> AppResult<()> {
     let mut instances = instances();
+    if let Some(pending) = pending {
+        pending.check()?;
+    }
+    let process = start()?;
+    let profile_id = pending.and_then(PendingLaunch::remove);
+    // Steam runs one instance of the game itself, so this replaces any earlier one.
+    #[cfg(target_os = "linux")]
+    if matches!(process, Process::Steam { .. }) {
+        instances.retain(|i| !matches!(i.process, Process::Steam { .. }));
+    }
     instances.push(Instance {
         id,
-        profile_id,
+        profile_id: profile_id.clone(),
         launched_at: Instant::now(),
         launch,
         process,
     });
     publish(&instances);
     drop(instances);
+    mark_launched(profile_id.as_deref());
     start_poller();
+    Ok(())
 }
 
-pub fn register_launched_process(
+/// Spawns a launch tagged `id` (see [`instance_arg`]) through `spawn`.
+pub fn spawn_tracked(
     id: u64,
-    child: Child,
-    profile_id: Option<String>,
+    pending: Option<&PendingLaunch>,
     launch: LaunchInstance,
-) {
-    register(profile_id, launch, id, Process::Spawned(child));
+    spawn: impl FnOnce() -> AppResult<Child>,
+) -> AppResult<()> {
+    register(id, pending, launch, || spawn().map(Process::Spawned))
 }
 
 /// Whether a launch handed to the Steam client is starting or running.
@@ -221,16 +251,18 @@ pub fn steam_launch_pending() -> bool {
         .any(|i| matches!(i.process, Process::Steam { .. }))
 }
 
-/// Steam runs one instance of the game itself, so this replaces any earlier one.
+/// Hands a launch to the Steam client through `start`.
 #[cfg(target_os = "linux")]
-pub fn register_steam_launch(profile_id: Option<String>) {
-    instances().retain(|i| !matches!(i.process, Process::Steam { .. }));
+pub fn start_steam_tracked(
+    pending: Option<&PendingLaunch>,
+    start: impl FnOnce() -> AppResult<()>,
+) -> AppResult<()> {
     register(
-        profile_id,
-        LaunchInstance::default(),
         next_instance_id(),
-        Process::Steam { seen: false },
-    );
+        pending,
+        LaunchInstance::default(),
+        || start().map(|()| Process::Steam { seen: false }),
+    )
 }
 
 fn start_poller() {
