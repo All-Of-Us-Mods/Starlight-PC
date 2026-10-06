@@ -4,17 +4,13 @@ version = "2.3.0"
 description = "Among Us mod manager"
 authors = ["yanpla"]
 license = "GPL-3.0-only"
-repository = ""
+repository = "https://github.com/All-Of-Us-Mods/Starlight-PC"
 edition = "2024"
 rust-version = "1.92.0"
 
 [dependencies]
-# The whole UI stack: gpui-kit pins a gpui-pre snapshot and re-exports GPUI
-# (`gpui_kit::*`), the styled components (`gpui_kit::component`) and the
-# default icons (`gpui_kit::assets`).
 gpui-kit = { version = "0.7", features = ["tree-sitter-markdown"] }
-# GPUI's HTTP client, for remote images. Must sit on the exact gpui-pre
-# snapshot gpui-kit pins, so bump the two together.
+# GPUI's HTTP client, bump the two together.
 reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.7" }
 tree-sitter = "0.26"
 tree-sitter-md = "0.5"
