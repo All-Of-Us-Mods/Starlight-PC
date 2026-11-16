@@ -294,7 +294,6 @@ impl Render for LogPanel {
                     // into it would only be undone. `set_value` still applies.
                     Editor::new(&self.view_input)
                         .readonly(true)
-                        .font_family("ui-monospace, monospace")
                         .size_full(),
                 ),
             )

@@ -16,7 +16,7 @@
         "link": "#ffc107",
         "link.hover": "#eab006",
         "link.active": "#d69f05",
-        "selection.background": "#232323",
+        "selection.background": "#ffc10740",
 
         "primary.background": "#ffc107",
         "primary.hover.background": "#eab006",
@@ -92,7 +92,7 @@
         "link": "#ffc107",
         "link.hover": "#eab006",
         "link.active": "#d69f05",
-        "selection.background": "#2a2725",
+        "selection.background": "#ffc10740",
 
         "primary.background": "#ffc107",
         "primary.hover.background": "#eab006",
@@ -168,7 +168,7 @@
         "link": "#ffc107",
         "link.hover": "#eab006",
         "link.active": "#d69f05",
-        "selection.background": "#27272a",
+        "selection.background": "#ffc10740",
 
         "primary.background": "#ffc107",
         "primary.hover.background": "#eab006",
@@ -244,7 +244,7 @@
         "link": "#ffc107",
         "link.hover": "#eab006",
         "link.active": "#d69f05",
-        "selection.background": "#2f2225",
+        "selection.background": "#ffc10740",
 
         "primary.background": "#ffc107",
         "primary.hover.background": "#eab006",
@@ -320,7 +320,7 @@
         "link": "#ffc107",
         "link.hover": "#eab006",
         "link.active": "#d69f05",
-        "selection.background": "#2a2338",
+        "selection.background": "#ffc10740",
 
         "primary.background": "#ffc107",
         "primary.hover.background": "#eab006",
