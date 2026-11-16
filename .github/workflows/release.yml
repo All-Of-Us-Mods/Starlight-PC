@@ -1,78 +1,111 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*.*.*"]
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      channel:
+        type: choice
+        options: [nightly, stable]
+        default: nightly
+      version:
+        description: "Stable only: ship as this version instead of the one the nightly previewed (e.g. 2.2.0)"
+        required: false
+  pull_request:
+    paths:
+      - "packaging/**"
+      - ".github/workflows/release.yml"
+
+concurrency:
+  group: release-${{ github.event_name == 'pull_request' && github.ref || inputs.channel == 'stable' && 'stable' || 'nightly' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  release-windows:
-    runs-on: windows-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-
-      # The updater compares the running binary's CARGO_PKG_VERSION against
-      # the release tag — a mismatch ships an updater that never settles.
-      - name: Check tag matches Cargo.toml version
-        shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}".TrimStart("v")
-          $manifest = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
-          if ($tag -ne $manifest) {
-            Write-Error "Tag v$tag does not match Cargo.toml version $manifest. Bump Cargo.toml before tagging."
-            exit 1
-          }
-
-      - name: cargo build --release
-        run: cargo build --release
-
-      - name: Rename binary
-        run: Copy-Item target/release/Starlight.exe Starlight-windows-x86_64.exe
-
-      # The updater matches release assets by exact name — keep the portable
-      # exe named Starlight-windows-x86_64.exe.
-      - name: Build installer
-        shell: pwsh
-        run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          packaging\windows\fetch-bepinex.ps1
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=$version /O"." packaging\windows\starlight.iss
-
-      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          files: |
-            Starlight-windows-x86_64.exe
-            Starlight-Setup-x86_64.exe
-          draft: true
-
-  release-linux:
+  plan:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      channel: ${{ steps.plan.outputs.channel }}
+      version: ${{ steps.plan.outputs.version }}
+      ref: ${{ steps.plan.outputs.ref }}
+      short_sha: ${{ steps.plan.outputs.short_sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - id: plan
+        env:
+          CHANNEL: ${{ github.event_name == 'pull_request' && 'check' || inputs.channel || 'nightly' }}
+          VERSION_OVERRIDE: ${{ inputs.version }}
+        run: |
+          last_nightly=$(git tag --list 'v*-nightly.*' --sort=-creatordate | head -n1)
+          ref=$GITHUB_SHA
+
+          case "$CHANNEL" in
+            check)
+              version=0.0.0-check ;;
+            stable)
+              if [ -z "$last_nightly" ]; then
+                echo "::error::No nightly to promote."
+                exit 1
+              fi
+              ref=$(git rev-list -n1 "$last_nightly")
+              version=${VERSION_OVERRIDE:-$(echo "$last_nightly" | sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+)-nightly\..*/\1/')}
+              version=${version#v}
+              if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "::error::Invalid stable version: $version"
+                exit 1
+              fi
+              if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+                echo "::error::v$version already exists."
+                exit 1
+              fi
+              echo "::notice::Promoting $last_nightly ($ref) to v$version" ;;
+            nightly)
+              if [ -n "$last_nightly" ] && [ "$(git rev-list -n1 "$last_nightly")" = "$GITHUB_SHA" ]; then
+                echo "::notice::No commits since $last_nightly, skipping."
+                exit 0
+              fi
+              stable=$(git -c versionsort.suffix=- tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v -- '-nightly\.' | head -n1)
+              IFS=. read -r major minor patch <<< "$(echo "${stable:-v0.0.0}" | sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+              version="$major.$minor.$((patch + 1))-nightly.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER" ;;
+          esac
+
+          {
+            echo "channel=$CHANNEL"
+            echo "version=$version"
+            echo "ref=$ref"
+            echo "short_sha=${ref::12}"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::$CHANNEL $version"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.channel != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CHANNEL: ${{ needs.plan.outputs.channel }}
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.ref }}
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
-      # The updater compares the running binary's CARGO_PKG_VERSION against
-      # the release tag — a mismatch ships an updater that never settles.
-      - name: Check tag matches Cargo.toml version
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          manifest=$(grep -m1 '^version = "' Cargo.toml | sed -E 's/version = "(.+)"/\1/')
-          if [ "$tag" != "$manifest" ]; then
-            echo "::error::Tag v$tag does not match Cargo.toml version $manifest. Bump Cargo.toml before tagging."
-            exit 1
-          fi
+      - name: Stamp version into Cargo.toml
+        shell: bash
+        run: sed -i "0,/^version = /s|^version = .*|version = \"$VERSION\"|" Cargo.toml
 
       - name: Install system libraries
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -89,39 +122,80 @@ jobs:
             libgl-dev \
             libvulkan-dev
 
-      - name: cargo build --release
-        run: cargo build --release
+      - run: cargo build --release
 
-      - name: Rename binary
-        run: cp target/release/Starlight Starlight-linux-x86_64
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          mkdir dist
+          Copy-Item target/release/Starlight.exe dist/Starlight-windows-x86_64.exe
+          packaging\windows\fetch-bepinex.ps1
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=$env:VERSION /O"dist" packaging\windows\starlight.iss
 
-      # Debian/RPM versions can't contain hyphens in the upstream part, so
-      # 2.0.0-beta.3 becomes 2.0.0~beta.3 (~ also sorts before the final release).
-      - name: Build .deb and .rpm
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bash packaging/linux/build-appimage.sh
+          mkdir dist
+          cp target/release/Starlight dist/Starlight-linux-x86_64
+          mv Starlight-linux-x86_64.AppImage dist/
+
+      - name: Package (Linux distributions)
+        if: runner.os == 'Linux' && env.CHANNEL == 'stable'
         run: |
           curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v2.43.1/nfpm_2.43.1_Linux_x86_64.tar.gz | tar -xz nfpm
-          export NFPM_VERSION="$(echo "${GITHUB_REF_NAME#v}" | sed 's/-/~/')"
-          ./nfpm package -f packaging/linux/nfpm.yaml -p deb -t Starlight-linux-x86_64.deb
-          ./nfpm package -f packaging/linux/nfpm.yaml -p rpm -t Starlight-linux-x86_64.rpm
+          export NFPM_VERSION="$(echo "$VERSION" | sed 's/-/~/')"
+          ./nfpm package -f packaging/linux/nfpm.yaml -p deb -t dist/Starlight-linux-x86_64.deb
+          ./nfpm package -f packaging/linux/nfpm.yaml -p rpm -t dist/Starlight-linux-x86_64.rpm
 
-      - name: Build AppImage
-        run: bash packaging/linux/build-appimage.sh
-
-      - name: Build Flatpak bundle
-        run: |
           sudo apt-get install -y flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
           flatpak-builder --user --force-clean --repo=flatpak-repo flatpak-build packaging/linux/dev.allofus.Starlight.yml
-          flatpak build-bundle flatpak-repo Starlight-linux-x86_64.flatpak dev.allofus.Starlight
+          flatpak build-bundle flatpak-repo dist/Starlight-linux-x86_64.flatpak dev.allofus.Starlight
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Starlight-${{ runner.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [plan, build]
+    if: needs.plan.outputs.channel == 'stable' || needs.plan.outputs.channel == 'nightly'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      NIGHTLY: ${{ needs.plan.outputs.channel == 'nightly' }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      REF: ${{ needs.plan.outputs.ref }}
+      SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
 
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          files: |
-            Starlight-linux-x86_64
-            Starlight-linux-x86_64.deb
-            Starlight-linux-x86_64.rpm
-            Starlight-linux-x86_64.AppImage
-            Starlight-linux-x86_64.flatpak
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ env.REF }}
+          name: ${{ env.NIGHTLY == 'true' && format('Starlight Nightly {0} ({1})', env.VERSION, env.SHORT_SHA) || '' }}
+          draft: ${{ env.NIGHTLY != 'true' }}
+          prerelease: ${{ env.NIGHTLY == 'true' }}
+          body: ${{ env.NIGHTLY == 'true' && 'Automated nightly build of `main`. Set Settings → About → Updates → Release channel to **Nightly** in Starlight to get these automatically.' || '' }}
           generate_release_notes: true
-          draft: true
+          files: dist/*
+
+      - name: Prune old nightlies
+        if: env.NIGHTLY == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json tagName,isPrerelease \
+            --jq '.[] | select(.isPrerelease and (.tagName | test("-nightly\\."))) | .tagName' \
+            | tail -n +6 \
+            | xargs -r -I{} gh release delete {} --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
