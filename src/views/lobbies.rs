@@ -548,7 +548,7 @@ impl LobbiesView {
                             .gap_2()
                             .child(
                                 div()
-                                    .font_family("ui-monospace, monospace")
+                                    .font_family(theme.mono_font_family.clone())
                                     .font_weight(FontWeight::BOLD)
                                     .child(if code.is_empty() {
                                         "------".to_string()
