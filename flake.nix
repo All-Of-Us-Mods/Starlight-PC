@@ -49,8 +49,8 @@
               cargoLock.lockFile = ./Cargo.lock;
               doCheck = false;
 
-              nativeBuildInputs = [ pkgs.makeWrapper ] ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isLinux pkgs.pkg-config;
-              buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux linuxLibs;
+              nativeBuildInputs = [ pkgs.makeWrapper pkgs.pkg-config ] ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isLinux pkgs.pkg-config;
+              buildInputs = [ pkgs.aws-lc ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux linuxLibs;
 
               postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
                 wrapProgram $out/bin/Starlight \
