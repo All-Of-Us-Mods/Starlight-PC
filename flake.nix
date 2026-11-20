@@ -2,7 +2,7 @@
   description = "Starlight PC";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     fenix = {
       url = "github:nix-community/fenix";
@@ -21,13 +21,7 @@
       system:
       let
         pkgs = import nixpkgs { inherit system; };
-        toolchain = fenix.packages.${system}.stable.withComponents [
-          "cargo"
-          "rustc"
-          "rustfmt"
-          "clippy"
-          "rust-src"
-        ];
+        toolchain = fenix.packages.${system}.default.toolchain;
 
         linuxLibs = with pkgs; [
           fontconfig
@@ -36,64 +30,51 @@
           wayland
           libxkbcommon
           libGL
-          xorg.libX11
-          xorg.libXcursor
-          xorg.libXi
-          xorg.libxcb
+          libx11
+          libxcursor
+          libxi
+          libxcb
         ];
-        rustPlatform = pkgs.makeRustPlatform {
-          cargo = toolchain;
-          rustc = toolchain;
-        };
 
-        starlight = rustPlatform.buildRustPackage {
-          pname = "starlight";
-          version = (fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+        starlight =
+          (pkgs.makeRustPlatform {
+            cargo = toolchain;
+            rustc = toolchain;
+          }).buildRustPackage
+            {
+              pname = "starlight";
+              version = (fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+              src = ./.;
 
-          src = ./.;
+              cargoLock.lockFile = ./Cargo.lock;
+              doCheck = false;
 
-          # Vendored with fetchCargoVendor, which pulls crates from static.crates.io;
-          # the crates.io API endpoint rejects curl's default user agent.
-          cargoHash = "sha256-mdHnbWyRPEUr97FVuaLf2IxbGJ6u+C+gRELhjhbcSkg=";
+              nativeBuildInputs = [ pkgs.makeWrapper pkgs.pkg-config ] ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isLinux pkgs.pkg-config;
+              buildInputs = [ pkgs.aws-lc ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux linuxLibs;
 
-          nativeBuildInputs =
-            [ pkgs.makeWrapper ]
-            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
+              postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+                wrapProgram $out/bin/Starlight \
+                  --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath linuxLibs}
+              '';
 
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxLibs;
-
-          doCheck = false;
-
-          postFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
-            wrapProgram $out/bin/Starlight \
-              --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath linuxLibs}
-          '';
-
-          meta = with pkgs.lib; {
-            description = "Among Us mod manager";
-            license = licenses.gpl3Only;
-            platforms = platforms.unix;
-            mainProgram = "Starlight";
-          };
-        };
+              meta = {
+                description = "Among Us mod manager";
+                license = pkgs.lib.licenses.gpl3Only;
+                platforms = pkgs.lib.platforms.unix;
+                mainProgram = "Starlight";
+              };
+            };
       in
       {
         packages = {
           default = starlight;
-          starlight = starlight;
-        };
-
-        apps.default = {
-          type = "app";
-          program = "${starlight}/bin/Starlight";
+          inherit starlight;
         };
 
         devShells.default = pkgs.mkShell {
-          nativeBuildInputs = [ toolchain ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
-
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxLibs;
-
-          LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.isLinux (pkgs.lib.makeLibraryPath linuxLibs);
+          inputsFrom = [ starlight ];
+          packages = [ toolchain ];
+          LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux (pkgs.lib.makeLibraryPath linuxLibs);
         };
       }
     );
