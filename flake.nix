@@ -30,10 +30,10 @@
           wayland
           libxkbcommon
           libGL
-          xorg.libX11
-          xorg.libXcursor
-          xorg.libXi
-          xorg.libxcb
+          libx11
+          libxcursor
+          libxi
+          libxcb
         ];
 
         starlight =
@@ -49,10 +49,10 @@
               cargoLock.lockFile = ./Cargo.lock;
               doCheck = false;
 
-              nativeBuildInputs = [ pkgs.makeWrapper ] ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.pkg-config;
-              buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxLibs;
+              nativeBuildInputs = [ pkgs.makeWrapper ] ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isLinux pkgs.pkg-config;
+              buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux linuxLibs;
 
-              postFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+              postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
                 wrapProgram $out/bin/Starlight \
                   --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath linuxLibs}
               '';
@@ -74,7 +74,7 @@
         devShells.default = pkgs.mkShell {
           inputsFrom = [ starlight ];
           packages = [ toolchain ];
-          LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.isLinux (pkgs.lib.makeLibraryPath linuxLibs);
+          LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux (pkgs.lib.makeLibraryPath linuxLibs);
         };
       }
     );
