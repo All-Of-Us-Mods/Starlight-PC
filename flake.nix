@@ -21,13 +21,7 @@
       system:
       let
         pkgs = import nixpkgs { inherit system; };
-        toolchain = fenix.packages.${system}.stable.withComponents [
-          "cargo"
-          "rustc"
-          "rustfmt"
-          "clippy"
-          "rust-src"
-        ];
+        toolchain = fenix.packages.${system}.default.toolchain;
 
         linuxLibs = with pkgs; [
           fontconfig
@@ -41,58 +35,45 @@
           xorg.libXi
           xorg.libxcb
         ];
-        rustPlatform = pkgs.makeRustPlatform {
-          cargo = toolchain;
-          rustc = toolchain;
-        };
 
-        starlight = rustPlatform.buildRustPackage {
-          pname = "starlight";
-          version = (fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+        starlight =
+          (pkgs.makeRustPlatform {
+            cargo = toolchain;
+            rustc = toolchain;
+          }).buildRustPackage
+            {
+              pname = "starlight";
+              version = (fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+              src = ./.;
 
-          src = ./.;
+              cargoLock.lockFile = ./Cargo.lock;
+              doCheck = false;
 
-          cargoLock = {
-            lockFile = ./Cargo.lock;
-          };
+              nativeBuildInputs = [ pkgs.makeWrapper ] ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.pkg-config;
+              buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxLibs;
 
-          nativeBuildInputs =
-            [ pkgs.makeWrapper ]
-            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
+              postFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+                wrapProgram $out/bin/Starlight \
+                  --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath linuxLibs}
+              '';
 
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxLibs;
-
-          doCheck = false;
-
-          postFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
-            wrapProgram $out/bin/Starlight \
-              --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath linuxLibs}
-          '';
-
-          meta = with pkgs.lib; {
-            description = "Among Us mod manager";
-            license = licenses.gpl3Only;
-            platforms = platforms.unix;
-            mainProgram = "Starlight";
-          };
-        };
+              meta = {
+                description = "Among Us mod manager";
+                license = pkgs.lib.licenses.gpl3Only;
+                platforms = pkgs.lib.platforms.unix;
+                mainProgram = "Starlight";
+              };
+            };
       in
       {
         packages = {
           default = starlight;
-          starlight = starlight;
-        };
-
-        apps.default = {
-          type = "app";
-          program = "${starlight}/bin/Starlight";
+          inherit starlight;
         };
 
         devShells.default = pkgs.mkShell {
-          nativeBuildInputs = [ toolchain ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
-
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxLibs;
-
+          inputsFrom = [ starlight ];
+          packages = [ toolchain ];
           LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.isLinux (pkgs.lib.makeLibraryPath linuxLibs);
         };
       }
