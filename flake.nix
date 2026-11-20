@@ -52,9 +52,9 @@
 
           src = ./.;
 
-          # Vendored with fetchCargoVendor, which pulls crates from static.crates.io;
-          # the crates.io API endpoint rejects curl's default user agent.
-          cargoHash = "sha256-mdHnbWyRPEUr97FVuaLf2IxbGJ6u+C+gRELhjhbcSkg=";
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+          };
 
           nativeBuildInputs =
             [ pkgs.makeWrapper ]
